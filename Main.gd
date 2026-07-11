@@ -18,6 +18,7 @@ const SPAWN_WEIGHTS: Dictionary = {"basic": 45, "fast": 20, "tank": 15, "swarm":
 const ONBOARD_COUNT: int = 8    # 이 수까지 basic만 스폰(온보딩)
 const ENEMY_STEP_EVERY: int = 2 # 일반 적 전진 스로틀(2배치당 1칸). fast는 1
 const SPAWN_EVERY: int = 2       # 스폰 스로틀(2배치당 1회)
+const SLIDE_SPEED: float = 8.0   # 적 전진 표시 이징 속도(칸/초)
 const SWEEP_DUR: float = 0.35   # 폭발 스윕 밴드 지속
 const ROCKET_DUR: float = 0.16  # 로켓 비행 지속(빠르게 질주)
 const CALLOUT_DUR: float = 1.6  # 첫 등장 콜아웃 배너 지속
@@ -140,9 +141,7 @@ var resolve_total: float = 0.0
 var resolve_hits: Array = []       # [{id, dmg, kb, at, done}] 거점 가까운 순 순차 피격
 var resolve_rocket_plan: Array = []  # [{dir, idx}] 로켓은 충전 뒤에 발사
 var resolve_fx_done: bool = false    # 로켓 발사 트리거됐나
-var resolve_leak_at: float = 0.0
-var resolve_leak_done: bool = false
-var pending_leaks: Array = []      # 이번 스텝 누수 열 목록(블라스트 뒤 표시)
+var pending_leaks: Array = []      # 이번 스텝 누수 열 목록(공격 뒤 표시)
 var pending_core_dead: bool = false
 var enemy_seq: int = 0             # 적 고유 id 카운터
 
@@ -197,8 +196,6 @@ func _init_game() -> void:
 	resolve_hits = []
 	resolve_rocket_plan = []
 	resolve_fx_done = false
-	resolve_leak_at = 0.0
-	resolve_leak_done = false
 	pending_leaks = []
 	pending_core_dead = false
 	enemy_seq = 0
@@ -371,7 +368,6 @@ func _begin_resolve(rows: Array, cols: Array) -> void:
 	resolve_hits = []
 	resolve_rocket_plan = []
 	resolve_fx_done = false
-	resolve_leak_done = false
 
 	var blast_len: float = 0.15
 	var l: int = rows.size() + cols.size()
@@ -424,13 +420,8 @@ func _begin_resolve(rows: Array, cols: Array) -> void:
 		if l >= 2 or combo >= 3:
 			shake_timer = maxf(shake_timer, SHAKE_DUR * 0.7)
 
-	# 누수 표시는 블라스트 뒤로 분리(겹쳐 묻히지 않게)
-	if pending_leaks.size() > 0:
-		resolve_leak_at = blast_len + 0.15
-		resolve_total = blast_len + 0.15 + 0.25
-	else:
-		resolve_leak_at = 1.0e9
-		resolve_total = blast_len
+	# 공격만 재생. 적 이동·누수·스폰은 시퀀스가 끝난 뒤 _end_turn에서.
+	resolve_total = blast_len
 
 # 예약된 한 hit를 실제 반영 (그 시점에 데미지·floater·사망/넉백)
 func _apply_hit(h: Dictionary) -> void:
@@ -543,12 +534,17 @@ func _reveal_leaks() -> void:
 		shake_timer = maxf(shake_timer, SHAKE_DUR * 1.6)
 	pending_leaks = []
 
-# resolve 종료: 승패 판정·게임오버 확정 (표시 지연이 끝난 뒤 로직 마무리)
+# 공격 시퀀스 종료 → 그 다음에 세계가 움직인다(적 이동·누수·스폰) → 판정
 func _finish_resolve() -> void:
 	resolving = false
 	resolve_hits = []
-	if not resolve_leak_done and pending_leaks.size() > 0:
-		_reveal_leaks()
+	_end_turn()
+
+# 턴 마무리: 적 전진/누수/스폰 → 누수 연출 → 승/패/공간부족 판정
+# (공격이 있었으면 그 뒤에, 없었으면 배치 직후에 호출)
+func _end_turn() -> void:
+	advance_step()          # 적 이동(step_every 주기)·누수(거점 피해)·스폰
+	_reveal_leaks()         # 누수 연출은 공격 뒤에 재생 (자기 감쇠 → 데드락 없음)
 	_check_win()
 	if pending_core_dead:
 		game_over = true
@@ -626,7 +622,7 @@ func _spawn_one(col: int, etype: String) -> void:
 	hp = maxi(1, hp)
 	# 전진 스로틀: fast는 매 배치(1), 나머지는 2배치당 1칸
 	var step_every: int = 1 if etype == "fast" else ENEMY_STEP_EVERY
-	enemies.append({"col": col, "row": 0, "hp": hp, "maxhp": hp, "etype": etype, "id": enemy_seq, "step_every": step_every})
+	enemies.append({"col": col, "row": 0, "vis_row": 0.0, "hp": hp, "maxhp": hp, "etype": etype, "id": enemy_seq, "step_every": step_every})
 	enemy_seq += 1
 	spawned += 1
 	# 첫 등장 콜아웃 (타입당 1회)
@@ -663,25 +659,15 @@ func _place_piece() -> void:
 		board[c.y][c.x] = active["color"]
 	# 조각 소비: 트레이 슬롯 비우고 다음 슬롯/리필 (즉시 = 피드백)
 	_consume_slot()
-	# 적 전진 + 스폰 (누수는 pending에 기록)
-	advance_step()
-	if pending_core_dead:
-		# 거점 파괴 스텝: 블라스트 없이 누수 연출 후 게임오버
-		combo = 0
-		_begin_resolve([], [])
-		return
+	# 완성 줄 감지 — 적은 아직 "현재 위치"(이동 전). 로켓이 그 자리 적을 먼저 타격.
 	var rows: Array = _full_rows()
 	var cols: Array = _full_cols()
-	var has_clear: bool = rows.size() + cols.size() > 0
-	if has_clear:
+	if rows.size() + cols.size() > 0:
 		combo += 1
+		_begin_resolve(rows, cols)   # 공격 재생 → 끝나면 _finish_resolve→_end_turn
 	else:
 		combo = 0
-	if not has_clear and pending_leaks.is_empty():
-		# 연출할 게 없으면 즉시 마무리 (승패·공간부족 판정)
-		_finish_resolve()
-		return
-	_begin_resolve(rows, cols)
+		_end_turn()                  # 공격 없음: 곧장 적 이동·누수·판정
 
 # 배치한 슬롯 비우고 다음 non-empty로 이동, 다 비면 리필
 func _consume_slot() -> void:
@@ -763,9 +749,6 @@ func _process(delta: float) -> void:
 			if not h["done"] and resolve_timer >= h["at"]:
 				h["done"] = true
 				_apply_hit(h)
-		if not resolve_leak_done and resolve_timer >= resolve_leak_at:
-			resolve_leak_done = true
-			_reveal_leaks()
 		if resolve_timer >= resolve_total:
 			_finish_resolve()
 
@@ -836,10 +819,12 @@ func _process(delta: float) -> void:
 		im -= 1
 	if kill_pulse > 0.0:
 		kill_pulse = maxf(0.0, kill_pulse - delta)
-	# 적 flinch 감쇠
+	# 적 flinch 감쇠 + 전진/넉백 표시(vis_row) 부드럽게 이징
 	for e in enemies:
 		if e.get("flinch", 0.0) > 0.0:
 			e["flinch"] = maxf(0.0, e["flinch"] - delta)
+		var vr: float = e.get("vis_row", float(e["row"]))
+		e["vis_row"] = move_toward(vr, float(e["row"]), SLIDE_SPEED * delta)
 	queue_redraw()
 
 # ===== 그리기 =====
@@ -967,6 +952,29 @@ func _draw_hud(fnt: Font) -> void:
 	var head_col: Color = Color.WHITE.lerp(C_GOLD, kp)
 	var hw: float = fnt.get_string_size(head, HORIZONTAL_ALIGNMENT_LEFT, -1, head_fs).x
 	_draw_text_outlined(fnt, Vector2(400.0 - hw * 0.5, 96.0), head, head_fs, head_col)
+
+	# 이동 예고 미터: 다 차면 일반 적이 한 칸 전진(2배치 주기). place_count%2 = 채운 칸.
+	var nm_lbl: String = "NEXT MOVE"
+	draw_string(fnt, Vector2(20.0, 78.0), nm_lbl, HORIZONTAL_ALIGNMENT_LEFT, -1, 18, Color(0.7, 0.7, 0.78))
+	var nm_w: float = fnt.get_string_size(nm_lbl, HORIZONTAL_ALIGNMENT_LEFT, -1, 18).x
+	var filled: int = place_count % ENEMY_STEP_EVERY
+	var dot: float = 14.0
+	var gap: float = 5.0
+	var dx0: float = 20.0 + nm_w + 12.0
+	for i in range(ENEMY_STEP_EVERY):
+		var dr: Rect2 = Rect2(dx0 + float(i) * (dot + gap), 64.0, dot, dot)
+		if i < filled:
+			draw_rect(dr, Color(1.0, 0.72, 0.2))     # 채움
+		else:
+			draw_rect(dr, Color(0.16, 0.16, 0.24))   # 빈칸
+		draw_rect(dr, Color(0.45, 0.45, 0.55), false)
+	# 이동 방향(아래) 삼각형 힌트
+	var tri_x: float = dx0 + float(ENEMY_STEP_EVERY) * (dot + gap) + 6.0
+	var tcy: float = 71.0
+	draw_colored_polygon(PackedVector2Array([
+		Vector2(tri_x, tcy - 6.0), Vector2(tri_x + 12.0, tcy - 6.0), Vector2(tri_x + 6.0, tcy + 6.0),
+	]), Color(0.75, 0.75, 0.85))
+
 	var bx: float = 20.0
 	var by: float = 112.0
 	var bw: float = 760.0
@@ -1050,8 +1058,10 @@ func _draw_board(fnt: Font) -> void:
 		if flinch > 0.0:
 			var jm: float = 5.0 * clampf(flinch / 0.22, 0.0, 1.0)
 			jit = Vector2(randf_range(-jm, jm), randf_range(-jm, jm))
+		# 표시 y는 vis_row(부드러운 이징) — 전진/넉백이 스르륵
+		var vr: float = e.get("vis_row", float(er))
 		var cx: float = BOARD_X + ec * CELL + CELL * 0.5 + jit.x
-		var cy: float = BOARD_Y + er * CELL + CELL * 0.5 + jit.y
+		var cy: float = BOARD_Y + vr * CELL + CELL * 0.5 + jit.y
 		var ratio: float = clampf(float(e["hp"]) / float(e["maxhp"]), 0.0, 1.0)
 		var etype: String = e["etype"]
 		var rad: float = CELL * 0.33
