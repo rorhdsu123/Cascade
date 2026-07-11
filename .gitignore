@@ -1,0 +1,9 @@
+# Godot 4 import cache / editor state
+.godot/
+
+# macOS
+.DS_Store
+
+# Godot export output
+export/
+build/

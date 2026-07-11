@@ -1,0 +1,22 @@
+; Cascade — 폴리오미노 팩킹 × 복리 연쇄 디펜스 (프로토 v1)
+; Godot 4.6
+
+config_version=5
+
+[application]
+
+config/name="Cascade"
+run/main_scene="res://Main.tscn"
+config/features=PackedStringArray("4.6", "GL Compatibility")
+
+[display]
+
+window/size/viewport_width=800
+window/size/viewport_height=1000
+window/stretch/mode="canvas_items"
+window/stretch/aspect="keep"
+
+[rendering]
+
+renderer/rendering_method="gl_compatibility"
+renderer/rendering_method.mobile="gl_compatibility"
