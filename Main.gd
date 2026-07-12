@@ -146,8 +146,14 @@ var pending_core_dead: bool = false
 var enemy_seq: int = 0             # 적 고유 id 카운터
 
 # ===== 초기화 =====
+var _font: Font = null
+
 func _ready() -> void:
 	randomize()
+	# 한글 렌더용 시스템 폰트(기본 fallback엔 한글 글리프 없음). ⚠배포 시엔 Noto Sans KR 등 번들 필요.
+	var sf := SystemFont.new()
+	sf.font_names = PackedStringArray(["Apple SD Gothic Neo", "AppleGothic", "Noto Sans CJK KR", "Arial"])
+	_font = sf
 	_init_game()
 
 func _init_game() -> void:
@@ -202,6 +208,12 @@ func _init_game() -> void:
 	tray = [{}, {}, {}]
 	sel = 0
 	_refill_tray()
+	# 시작 시 적 몇 마리 배치 — 빈 보드에서 "ENEMIES ADVANCE IN N"이 어색하지 않게(전진 중인 전선처럼).
+	var start_cols: Array = []
+	for c in range(COLS):
+		start_cols.append(c)
+	start_cols.shuffle()
+	_spawn_one(start_cols[0], "basic")    # 시작 적 1마리(row 0)
 	if not _has_valid_placement():
 		game_over = true
 		stuck = true
@@ -829,7 +841,7 @@ func _process(delta: float) -> void:
 
 # ===== 그리기 =====
 func _draw() -> void:
-	var fnt: Font = ThemeDB.fallback_font
+	var fnt: Font = _font if _font != null else ThemeDB.fallback_font
 
 	if shake_timer > 0.0:
 		var mag: float = SHAKE_AMP * (shake_timer / SHAKE_DUR)
@@ -935,50 +947,78 @@ func _draw() -> void:
 		draw_string(fnt, Vector2(400.0 - sw * 0.5, 558.0), sub,
 				HORIZONTAL_ALIGNMENT_LEFT, -1, 28, Color(0.75, 0.75, 0.75))
 
+# 상단 카드 패널(Toon Blast식) — 배경 + 강조 테두리
+func _draw_card(r: Rect2, accent: Color) -> void:
+	draw_rect(r, Color(0.14, 0.14, 0.21))
+	draw_rect(r, accent, false, 3.0)
+
+# 간단한 적 토큰 아이콘 — 붉은 사각 + 눈 2개(아트 전 임시)
+func _draw_enemy_icon(center: Vector2, s: float) -> void:
+	var r: Rect2 = Rect2(center.x - s * 0.5, center.y - s * 0.5, s, s)
+	draw_rect(r, Color(0.78, 0.22, 0.24))
+	draw_rect(r, Color(0.32, 0.06, 0.07), false, 2.0)
+	var eye: float = s * 0.16
+	draw_rect(Rect2(center.x - s * 0.22 - eye * 0.5, center.y - s * 0.06, eye, eye), Color.WHITE)
+	draw_rect(Rect2(center.x + s * 0.22 - eye * 0.5, center.y - s * 0.06, eye, eye), Color.WHITE)
+
 func _draw_hud(fnt: Font) -> void:
-	draw_rect(Rect2(0, 0, 800, 140), C_HUD)
-	var hp_col: Color = Color(1.0, 0.38, 0.38) if core_hp <= 5 else Color(0.8, 0.55, 0.55)
-	draw_string(fnt, Vector2(20.0, 40.0), "CORE HP  %d / %d" % [core_hp, CORE_HP_MAX],
-			HORIZONTAL_ALIGNMENT_LEFT, -1, 24, hp_col)
+	draw_rect(Rect2(0, 0, 800, 144), C_HUD)
+	# CORE HP는 보드 하단 방어선(_draw_core)에만 표시 — 상단 중복 제거.
 	if combo >= 2:
-		var streak: String = "STREAK x%d" % combo
-		var stw: float = fnt.get_string_size(streak, HORIZONTAL_ALIGNMENT_LEFT, -1, 30).x
-		_draw_text_outlined(fnt, Vector2(780.0 - stw, 46.0), streak, 30, C_GOLD)
-	# ENEMIES LEFT — 킬 순간 펄스(스케일↑ + 금색 플래시)
+		var streak: String = "콤보 x%d" % combo
+		var stw: float = fnt.get_string_size(streak, HORIZONTAL_ALIGNMENT_LEFT, -1, 22).x
+		_draw_text_outlined(fnt, Vector2(788.0 - stw, 26.0), streak, 22, C_GOLD)
+
+	var remain: int = ENEMY_STEP_EVERY - (place_count % ENEMY_STEP_EVERY)
+	var imminent: bool = remain <= 1
 	var remaining: int = TOTAL_ENEMIES - killed
-	var head: String = "ENEMIES LEFT  %d / %d" % [remaining, TOTAL_ENEMIES]
 	var kp: float = clampf(kill_pulse / 0.35, 0.0, 1.0)
-	var head_fs: int = 40 + int(kp * 10.0)
-	var head_col: Color = Color.WHITE.lerp(C_GOLD, kp)
-	var hw: float = fnt.get_string_size(head, HORIZONTAL_ALIGNMENT_LEFT, -1, head_fs).x
-	_draw_text_outlined(fnt, Vector2(400.0 - hw * 0.5, 96.0), head, head_fs, head_col)
 
-	# 이동 예고 미터: 다 차면 일반 적이 한 칸 전진(2배치 주기). place_count%2 = 채운 칸.
-	var nm_lbl: String = "NEXT MOVE"
-	draw_string(fnt, Vector2(20.0, 78.0), nm_lbl, HORIZONTAL_ALIGNMENT_LEFT, -1, 18, Color(0.7, 0.7, 0.78))
-	var nm_w: float = fnt.get_string_size(nm_lbl, HORIZONTAL_ALIGNMENT_LEFT, -1, 18).x
-	var filled: int = place_count % ENEMY_STEP_EVERY
-	var dot: float = 14.0
-	var gap: float = 5.0
-	var dx0: float = 20.0 + nm_w + 12.0
-	for i in range(ENEMY_STEP_EVERY):
-		var dr: Rect2 = Rect2(dx0 + float(i) * (dot + gap), 64.0, dot, dot)
-		if i < filled:
-			draw_rect(dr, Color(1.0, 0.72, 0.2))     # 채움
-		else:
-			draw_rect(dr, Color(0.16, 0.16, 0.24))   # 빈칸
-		draw_rect(dr, Color(0.45, 0.45, 0.55), false)
-	# 이동 방향(아래) 삼각형 힌트
-	var tri_x: float = dx0 + float(ENEMY_STEP_EVERY) * (dot + gap) + 6.0
-	var tcy: float = 71.0
-	draw_colored_polygon(PackedVector2Array([
-		Vector2(tri_x, tcy - 6.0), Vector2(tri_x + 12.0, tcy - 6.0), Vector2(tri_x + 6.0, tcy + 6.0),
-	]), Color(0.75, 0.75, 0.85))
+	# ── 두 카드: GOAL(남은 적=클리어 목표) + ADVANCE(적 전진 시계) ──
+	var box_y: float = 14.0
+	var box_h: float = 84.0
+	var gw: float = 250.0
+	var aw: float = 190.0
+	var gap: float = 24.0
+	var start_x: float = (800.0 - (gw + aw + gap)) * 0.5
+	var goal_r: Rect2 = Rect2(start_x, box_y, gw, box_h)
+	var adv_r: Rect2 = Rect2(start_x + gw + gap, box_y, aw, box_h)
 
-	var bx: float = 20.0
-	var by: float = 112.0
-	var bw: float = 760.0
-	var bh: float = 20.0
+	# GOAL 카드 — 적 아이콘 + 남은 수(클리어 목표). 제목·내용 모두 박스 중앙정렬
+	_draw_card(goal_r, Color(0.85, 0.7, 0.3))
+	var gt_w: float = fnt.get_string_size("목표", HORIZONTAL_ALIGNMENT_LEFT, -1, 16).x
+	_draw_text_outlined(fnt, Vector2(goal_r.position.x + gw * 0.5 - gt_w * 0.5, box_y + 24.0), "목표", 16, Color(0.95, 0.85, 0.5))
+	var rem_str: String = str(remaining)
+	var rem_fs: int = 40
+	var icon_s: float = 36.0
+	var rem_w: float = fnt.get_string_size(rem_str, HORIZONTAL_ALIGNMENT_LEFT, -1, rem_fs).x
+	var grp_l: float = goal_r.position.x + gw * 0.5 - (icon_s + 10.0 + rem_w) * 0.5
+	_draw_enemy_icon(Vector2(grp_l + icon_s * 0.5, box_y + 56.0), icon_s)
+	var rem_col: Color = Color.WHITE.lerp(C_GOLD, kp)
+	_draw_text_outlined(fnt, Vector2(grp_l + icon_s + 10.0, box_y + 70.0), rem_str, rem_fs, rem_col)
+
+	# ADVANCE 카드 — 적 전진 카운트다운(임박 시 붉은 강조). 제목·숫자 중앙정렬
+	var acc: Color = Color(0.85, 0.3, 0.28) if imminent else Color(0.4, 0.45, 0.6)
+	_draw_card(adv_r, acc)
+	var adv_tc: Color = Color(1.0, 0.6, 0.5) if imminent else Color(0.72, 0.74, 0.86)
+	var at_w: float = fnt.get_string_size("적 이동", HORIZONTAL_ALIGNMENT_LEFT, -1, 16).x
+	_draw_text_outlined(fnt, Vector2(adv_r.position.x + aw * 0.5 - at_w * 0.5, box_y + 24.0), "적 이동", 16, adv_tc)
+	# 큰 숫자 + 작은 "턴" 을 한 덩어리로 중앙 정렬
+	var n_str: String = str(remain)
+	var n_fs: int = 44
+	var u_fs: int = 18
+	var n_col: Color = Color(1.0, 0.55, 0.3) if imminent else Color(0.9, 0.9, 0.95)
+	var n_w: float = fnt.get_string_size(n_str, HORIZONTAL_ALIGNMENT_LEFT, -1, n_fs).x
+	var u_w: float = fnt.get_string_size("턴", HORIZONTAL_ALIGNMENT_LEFT, -1, u_fs).x
+	var grp_x: float = adv_r.position.x + aw * 0.5 - (n_w + 4.0 + u_w) * 0.5
+	_draw_text_outlined(fnt, Vector2(grp_x, box_y + 72.0), n_str, n_fs, n_col)
+	_draw_text_outlined(fnt, Vector2(grp_x + n_w + 4.0, box_y + 72.0), "턴", u_fs, Color(0.72, 0.72, 0.8))
+
+	# ── 진행바(스타바 대응): 처치 진행도 ──
+	var bx: float = start_x
+	var by: float = box_y + box_h + 8.0
+	var bw: float = (adv_r.position.x + aw) - start_x
+	var bh: float = 12.0
 	draw_rect(Rect2(bx, by, bw, bh), Color(0.12, 0.12, 0.18))
 	var frac: float = clampf(float(killed) / float(TOTAL_ENEMIES), 0.0, 1.0)
 	draw_rect(Rect2(bx, by, bw * frac, bh), Color(0.3, 0.78, 0.46))
@@ -1124,19 +1164,22 @@ func _draw_board(fnt: Font) -> void:
 				HORIZONTAL_ALIGNMENT_LEFT, -1, hp_fs, Color.WHITE)
 
 func _draw_core(fnt: Font) -> void:
-	var strip_h: float = 26.0
+	var strip_h: float = 32.0
 	var sx: float = BOARD_X
 	var sy: float = BOARD_Y + ROWS * CELL + 4.0
 	var sw: float = COLS * CELL
 	var ratio: float = clampf(float(core_hp) / float(CORE_HP_MAX), 0.0, 1.0)
-	var low: bool = core_hp <= 5
-	draw_rect(Rect2(sx, sy, sw, strip_h), Color(0.15, 0.05, 0.07))
-	var fill_col: Color = Color(0.9, 0.2, 0.2) if low else Color(0.2, 0.8, 0.7)
+	# HP바: 빈 트랙(어두움) + 체력 그라데이션(빨강↔초록) + 밝은 테두리
+	draw_rect(Rect2(sx, sy, sw, strip_h), Color(0.08, 0.03, 0.04))
+	var fill_col: Color = Color(0.86, 0.24, 0.20).lerp(Color(0.28, 0.82, 0.45), ratio)
 	draw_rect(Rect2(sx, sy, sw * ratio, strip_h), fill_col)
-	draw_rect(Rect2(sx, sy, sw, strip_h), Color(1.0, 1.0, 1.0, 0.7), false)
-	var lbl: String = "CORE   %d / %d" % [core_hp, CORE_HP_MAX]
-	draw_string(fnt, Vector2(sx + 8.0, sy + 19.0), lbl,
-			HORIZONTAL_ALIGNMENT_LEFT, -1, 17, Color.WHITE)
+	# 상단 하이라이트(입체감)
+	draw_rect(Rect2(sx, sy, sw * ratio, strip_h * 0.4), Color(1.0, 1.0, 1.0, 0.18))
+	draw_rect(Rect2(sx, sy, sw, strip_h), Color(1.0, 1.0, 1.0, 0.55), false, 2.0)
+	# 라벨: 외곽선 흰 글자(트랙/체력 어느 색 위에서도 읽힘). 검정은 어두운 빈 구간서 안 보여 회피.
+	var lbl: String = "거점  %d / %d" % [core_hp, CORE_HP_MAX]
+	var lw: float = fnt.get_string_size(lbl, HORIZONTAL_ALIGNMENT_LEFT, -1, 19).x
+	_draw_text_outlined(fnt, Vector2(sx + sw * 0.5 - lw * 0.5, sy + 22.0), lbl, 19, Color.WHITE)
 
 	# 거점 피격: 그 열 충격 플래시 + 균열 지그재그 (HP 잃는 게 확 무섭게)
 	for hit in core_hits:
