@@ -26,7 +26,10 @@ const CALLOUT_DUR: float = 1.6  # 첫 등장 콜아웃 배너 지속
 # 라인클리어 폭발
 const LINE_BASE: int = 120
 const STREAK_STEP: float = 0.5
+const BLAST_RING_DELAY: float = 0.4   # 링(추가 레인) 간 순차 발사 텀 (물결 확산 속도. 클수록 극적·느림)
 const FLASH_DUR: float = 0.7
+const CLIMAX_FLASH_DUR: float = 0.95   # 전멸(화면 전체 청소) 골드 섬광 길이(천천히 페이드)
+const CLIMAX_COMBO: int = 4           # 이 콤보 이상이면 전멸(도달 가능하게. 6×6 만콤보=6은 드묾)
 const LINE_FLASH_DUR: float = 0.45
 
 # 조각 색 키 (시각용만)
@@ -113,6 +116,9 @@ var flash_timer: float = 0.0
 var flash_label: String = ""
 var flash_lines: int = 0
 var flash_combo: int = 0
+var flash_climax: bool = false      # 화면 전체 도달(전멸) — 라벨/섬광 강조용
+var climax_flash: float = 0.0       # 전멸 골드 섬광 타이머
+var climax_pending: float = -1.0    # 전멸 충격파 발사 예약 시각(resolve_timer 기준, -1=없음)
 var line_flash_rows: Array = []
 var line_flash_cols: Array = []
 var line_flash_timer: float = 0.0
@@ -195,6 +201,9 @@ func _init_game() -> void:
 	seen_types = {}
 	anim_t = 0.0
 	red_flash = 0.0
+	climax_flash = 0.0
+	climax_pending = -1.0
+	flash_climax = false
 	shake_timer = 0.0
 	resolving = false
 	resolve_timer = 0.0
@@ -388,35 +397,96 @@ func _begin_resolve(rows: Array, cols: Array) -> void:
 		line_flash_rows = rows.duplicate()
 		line_flash_cols = cols.duplicate()
 		line_flash_timer = LINE_FLASH_DUR
-		# ② 로켓 계획 (0.08s 뒤 발사): 완성 세로줄=아래→위, 가로줄=좌→우
+		# ② 콤보=청소 범위: 완성 줄에서 매 콤보 '한 줄씩' 추가(총 레인 수 = combo).
+		#    추가 방향은 바깥으로 교대(줄0 → +1 → −1 → +2…) = 완성 줄 중심 확산, 보드 밖은 스킵.
+		#    링 = 추가 순서(0=완성 줄) → 한 줄씩 순차 발사(심지처럼 번지는 물결). 보드 셀 제거는 완성 줄만.
+		var lanes_n: int = maxi(1, combo)
+		var band_cols: Dictionary = {}   # col -> ring(추가 순서)
 		for c in cols:
-			resolve_rocket_plan.append({"dir": "col", "idx": c})
+			var added: int = 0
+			var k: int = 0
+			while added < lanes_n and k < COLS * 2:
+				var off: int = 0 if k == 0 else ((k + 1) / 2) * (1 if (k % 2) == 1 else -1)
+				k += 1
+				var cc: int = c + off
+				if cc < 0 or cc >= COLS:
+					continue
+				if not band_cols.has(cc) or added < band_cols[cc]:
+					band_cols[cc] = added
+				added += 1
+		var band_rows: Dictionary = {}   # row -> ring(추가 순서)
 		for r in rows:
-			resolve_rocket_plan.append({"dir": "row", "idx": r})
-		# 일격량
+			var addedr: int = 0
+			var kr: int = 0
+			while addedr < lanes_n and kr < ROWS * 2:
+				var offr: int = 0 if kr == 0 else ((kr + 1) / 2) * (1 if (kr % 2) == 1 else -1)
+				kr += 1
+				var rr: int = r + offr
+				if rr < 0 or rr >= ROWS:
+					continue
+				if not band_rows.has(rr) or addedr < band_rows[rr]:
+					band_rows[rr] = addedr
+				addedr += 1
+		var max_ring: int = 0            # 실제 존재하는 가장 바깥 링(물결 시각 길이 보장용)
+		for v in band_cols.values():
+			max_ring = maxi(max_ring, v)
+		for v in band_rows.values():
+			max_ring = maxi(max_ring, v)
+		# 전멸(화면 전체 청소) = 콤보 임계 도달 or 밴드가 전 열/행 커버 → 순차 대신 '한 방 전멸'
+		var full_board: bool = combo >= CLIMAX_COMBO or band_cols.size() >= COLS or band_rows.size() >= ROWS
+		if full_board:
+			# 전 열을 ring 0으로 채움 → 모든 적 동시 피격 + 세로 로켓 일제 발사
+			band_cols.clear()
+			band_rows.clear()
+			for c2 in range(COLS):
+				band_cols[c2] = 0
+			max_ring = 0
+			climax_pending = 0.20   # 피격 착지에 맞춰 중앙 충격파 발사
+		# 로켓 계획 — 링 거리만큼 발사 지연(0=먼저, 바깥 링일수록 늦게)
+		for c in band_cols:
+			resolve_rocket_plan.append({"dir": "col", "idx": c, "ring": band_cols[c], "launch": 0.08 + float(band_cols[c]) * BLAST_RING_DELAY})
+		for r in band_rows:
+			resolve_rocket_plan.append({"dir": "row", "idx": r, "ring": band_rows[r], "launch": 0.08 + float(band_rows[r]) * BLAST_RING_DELAY})
+		# 일격량 (콤보 데미지 배수는 '탱커 관통용 부 증폭'으로 소폭 유지)
 		var mult: float = _simul_mult(l) * _streak_mult(combo)
 		var strike: int = roundi(LINE_BASE * mult)
 		var kb: int = clampi(1 + int(combo / 3), 1, 3)
-		# ③ 로켓 피격: 완성 줄이 지나는 적별 (교차=배수), 거점 가까운 순(row 큰 순)
+		# ③ 로켓 피격: 밴드가 지나는 적별 (열밴드+행밴드 교차=배수). 적의 링=가장 안쪽 밴드
 		var hit_list: Array = []
 		for e in enemies:
 			var lines: int = 0
-			for c in cols:
-				if e["col"] == c:
-					lines += 1
-			for r in rows:
-				if e["row"] == r:
-					lines += 1
+			var ering: int = 999
+			if band_cols.has(e["col"]):
+				lines += 1
+				ering = mini(ering, band_cols[e["col"]])
+			if band_rows.has(e["row"]):
+				lines += 1
+				ering = mini(ering, band_rows[e["row"]])
 			if lines > 0:
-				hit_list.append({"id": e["id"], "row": e["row"], "dmg": strike * lines, "kb": kb})
-		hit_list.sort_custom(func(a, b): return a["row"] > b["row"])
+				hit_list.append({"id": e["id"], "row": e["row"], "dmg": strike * lines, "kb": kb, "ring": ering})
+		# 링 오름차순(안→밖 물결) → 같은 링 내에선 거점 가까운 순(row 큰 순)
+		hit_list.sort_custom(func(a, b):
+			if a["ring"] != b["ring"]:
+				return a["ring"] < b["ring"]
+			return a["row"] > b["row"])
 		var t0: float = 0.22
+		var ring_seen: Dictionary = {}   # ring -> 이미 배치한 수(링 내 소폭 스태거)
+		var max_at: float = t0
 		for k in range(hit_list.size()):
+			var ring: int = hit_list[k]["ring"]
+			var within: int = ring_seen.get(ring, 0)
+			ring_seen[ring] = within + 1
+			var at: float = t0 + float(ring) * BLAST_RING_DELAY + float(within) * 0.04
+			max_at = maxf(max_at, at)
 			resolve_hits.append({
 				"id": hit_list[k]["id"], "dmg": hit_list[k]["dmg"], "kb": hit_list[k]["kb"],
-				"at": t0 + float(k) * 0.04, "done": false,
+				"at": at, "done": false,
 			})
-		blast_len = clampf(0.30 + 0.04 * float(hit_list.size()), 0.30, 0.9)
+		# 총길이 = 마지막 피격 or 마지막 링 로켓 비행 완료 중 늦은 것(바깥 링에 적 없어도 물결 끝까지 재생)
+		var visual_end: float = 0.08 + float(max_ring) * BLAST_RING_DELAY + ROCKET_DUR + 0.08
+		blast_len = clampf(maxf(max_at + 0.28, visual_end), 0.30, 3.2)
+		if full_board:
+			blast_len = maxf(blast_len, 1.35)   # 전멸은 세계 이동 전에 충격파가 충분히 breathe
 		# 완성 줄 셀 제거
 		for row in rows:
 			for c in range(COLS):
@@ -427,13 +497,21 @@ func _begin_resolve(rows: Array, cols: Array) -> void:
 		# COMBO xN 라벨용 (중앙 큰 숫자는 제거, 라벨만)
 		flash_lines = l
 		flash_combo = combo
-		flash_label = _line_label(l)
+		flash_climax = full_board
+		flash_label = "" if full_board else _line_label(l)   # 전멸은 텍스트 없이 연출만
 		flash_timer = FLASH_DUR
-		if l >= 2 or combo >= 3:
-			shake_timer = maxf(shake_timer, SHAKE_DUR * 0.7)
 
 	# 공격만 재생. 적 이동·누수·스폰은 시퀀스가 끝난 뒤 _end_turn에서.
 	resolve_total = blast_len
+
+# 전멸(화면 전체 청소) 클라이맥스 — 보드 중앙에서 퍼지는 큰 충격파 + 골드 섬광 + 히트스톱(셰이크 없음)
+func _fire_climax() -> void:
+	var ctr: Vector2 = Vector2(BOARD_X + COLS * CELL * 0.5, BOARD_Y + ROWS * CELL * 0.5)
+	climax_flash = CLIMAX_FLASH_DUR
+	hitstop = maxf(hitstop, 0.12)
+	impacts.append({"pos": ctr, "life": 1.0, "max": 1.0, "color": Color(1.0, 0.97, 0.65), "radius": CELL * 1.6, "star": true})
+	impacts.append({"pos": ctr, "life": 0.85, "max": 0.85, "color": Color(1.0, 0.82, 0.32), "radius": CELL * 2.8, "star": false})
+	impacts.append({"pos": ctr, "life": 0.7, "max": 0.7, "color": Color(1.0, 1.0, 0.92), "radius": CELL * 3.8, "star": false})
 
 # 예약된 한 hit를 실제 반영 (그 시점에 데미지·floater·사망/넉백)
 func _apply_hit(h: Dictionary) -> void:
@@ -751,16 +829,20 @@ func _process(delta: float) -> void:
 	# 전투 순차 연출 진행 (타이머는 항상 0으로 수렴 → 데드락 없음)
 	if resolving:
 		resolve_timer += delta
-		# ② 로켓 발사 (충전 0.08s 뒤) — 발사 지점에 머즐 플래시
-		if not resolve_fx_done and resolve_timer >= 0.08:
-			resolve_fx_done = true
-			for rp in resolve_rocket_plan:
+		# ② 로켓 발사 — 링 거리만큼 지연(안쪽 링 먼저, 바깥으로 퍼짐). 발사 지점에 머즐 플래시
+		for rp in resolve_rocket_plan:
+			if not rp.get("launched", false) and resolve_timer >= rp["launch"]:
+				rp["launched"] = true
 				rockets.append({"dir": rp["dir"], "idx": rp["idx"], "t": 0.0, "dur": ROCKET_DUR, "combo": flash_combo})
 				_spawn_muzzle(rp["dir"], rp["idx"])
 		for h in resolve_hits:
 			if not h["done"] and resolve_timer >= h["at"]:
 				h["done"] = true
 				_apply_hit(h)
+		# 전멸 충격파 발사(예약 시각 도달 시 1회)
+		if climax_pending >= 0.0 and resolve_timer >= climax_pending:
+			climax_pending = -1.0
+			_fire_climax()
 		if resolve_timer >= resolve_total:
 			_finish_resolve()
 
@@ -770,6 +852,8 @@ func _process(delta: float) -> void:
 		line_flash_timer = maxf(0.0, line_flash_timer - delta)
 	if red_flash > 0.0:
 		red_flash = maxf(0.0, red_flash - delta)
+	if climax_flash > 0.0:
+		climax_flash = maxf(0.0, climax_flash - delta)
 	if shake_timer > 0.0:
 		shake_timer = maxf(0.0, shake_timer - delta)
 	if sweep_timer > 0.0:
@@ -908,19 +992,28 @@ func _draw() -> void:
 		var ra: float = (red_flash / RED_FLASH_DUR) * 0.5
 		draw_rect(Rect2(-20, -20, 840, 1040), Color(0.9, 0.05, 0.05, ra))
 
+	if climax_flash > 0.0:
+		var cf: float = climax_flash / CLIMAX_FLASH_DUR
+		draw_rect(Rect2(0, 0, 800, 1000), Color(1.0, 0.9, 0.55, cf * 0.42))
 	if flash_timer > 0.0:
 		var t: float = flash_timer / FLASH_DUR
-		draw_rect(Rect2(0, 0, 800, 1000), Color(1.0, 1.0, 1.0, t * 0.15))
+		# 콤보↑ = 더 밝고 뜨거운 섬광(흰색→따뜻한 주황)
+		var fint: float = 0.14 + 0.05 * float(mini(flash_combo, 6))
+		var fcol: Color = Color(1.0, 1.0, 1.0).lerp(Color(1.0, 0.68, 0.28), clampf(float(flash_combo - 2) / 5.0, 0.0, 1.0))
+		draw_rect(Rect2(0, 0, 800, 1000), Color(fcol.r, fcol.g, fcol.b, t * fint))
 		if flash_combo >= 2:
 			var cs: String = "COMBO x%d" % flash_combo
 			var cbase: int = 44 + mini(flash_combo, 8) * 8
 			var csz: int = cbase + int(t * 14.0)
 			var cw: float = fnt.get_string_size(cs, HORIZONTAL_ALIGNMENT_LEFT, -1, csz).x
-			_draw_text_outlined(fnt, Vector2(400.0 - cw * 0.5, 402.0), cs, csz, Color(1.0, 0.82, 0.1, t))
+			var hot: float = clampf(float(flash_combo - 2) / 6.0, 0.0, 1.0)   # 콤보↑ = 골드→핫오렌지
+			var ccol: Color = Color(1.0, 0.82, 0.1, t).lerp(Color(1.0, 0.4, 0.08, t), hot)
+			_draw_text_outlined(fnt, Vector2(400.0 - cw * 0.5, 402.0), cs, csz, ccol)
 		if flash_label != "":
-			var ls: int = 40 + flash_lines * 6
+			var ls: int = 96 if flash_climax else 40 + flash_lines * 6
+			var lcol: Color = Color(1.0, 0.95, 0.5, t) if flash_climax else Color(1.0, 0.85, 0.1, t)
 			var lw: float = fnt.get_string_size(flash_label, HORIZONTAL_ALIGNMENT_LEFT, -1, ls).x
-			_draw_text_outlined(fnt, Vector2(400.0 - lw * 0.5, 458.0), flash_label, ls, Color(1.0, 0.85, 0.1, t))
+			_draw_text_outlined(fnt, Vector2(400.0 - lw * 0.5, 458.0), flash_label, ls, lcol)
 
 	# 첫 등장 콜아웃 배너 (상단-중앙, 보드 위에 얹힘)
 	if callout_timer > 0.0 and not game_over and not game_clear:
