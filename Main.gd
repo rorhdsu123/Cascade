@@ -954,12 +954,29 @@ func _draw_card(r: Rect2, accent: Color) -> void:
 
 # 간단한 적 토큰 아이콘 — 붉은 사각 + 눈 2개(아트 전 임시)
 func _draw_enemy_icon(center: Vector2, s: float) -> void:
-	var r: Rect2 = Rect2(center.x - s * 0.5, center.y - s * 0.5, s, s)
-	draw_rect(r, Color(0.78, 0.22, 0.24))
-	draw_rect(r, Color(0.32, 0.06, 0.07), false, 2.0)
-	var eye: float = s * 0.16
-	draw_rect(Rect2(center.x - s * 0.22 - eye * 0.5, center.y - s * 0.06, eye, eye), Color.WHITE)
-	draw_rect(Rect2(center.x + s * 0.22 - eye * 0.5, center.y - s * 0.06, eye, eye), Color.WHITE)
+	# 목표=밀려오는 적 전부 처치(타입 무관, 못 없애면 거점 hp↓). 특정 타입 대신
+	# 타입 중립 "처치 대상" 기호=해골로 그린다. 뼈색+어두운 눈·코·이빨.
+	var bone: Color = Color(0.93, 0.9, 0.82)
+	var dark: Color = Color(0.14, 0.11, 0.1)
+	var cx: float = center.x
+	var cy: float = center.y
+	# 아래턱(뼈색 사각) + 두개골(뼈색 원)
+	draw_rect(Rect2(cx - s * 0.24, cy + s * 0.08, s * 0.48, s * 0.32), bone)
+	draw_circle(Vector2(cx, cy - s * 0.06), s * 0.42, bone)
+	draw_arc(Vector2(cx, cy - s * 0.06), s * 0.42, PI * 0.15, PI * 0.85, 20, Color(0.55, 0.5, 0.42), 1.5)
+	# 눈구멍(비스듬한 사각으로 성난 느낌)
+	var eye: float = s * 0.17
+	draw_circle(Vector2(cx - s * 0.19, cy - s * 0.04), eye, dark)
+	draw_circle(Vector2(cx + s * 0.19, cy - s * 0.04), eye, dark)
+	# 코(작은 삼각) + 이빨(세로 분절)
+	draw_colored_polygon(PackedVector2Array([
+		Vector2(cx, cy + s * 0.06),
+		Vector2(cx - s * 0.06, cy + s * 0.17),
+		Vector2(cx + s * 0.06, cy + s * 0.17),
+	]), dark)
+	for i in range(3):
+		var tx: float = cx - s * 0.16 + float(i) * s * 0.16
+		draw_rect(Rect2(tx - s * 0.015, cy + s * 0.22, s * 0.03, s * 0.16), dark)
 
 func _draw_hud(fnt: Font) -> void:
 	draw_rect(Rect2(0, 0, 800, 144), C_HUD)
@@ -984,18 +1001,22 @@ func _draw_hud(fnt: Font) -> void:
 	var goal_r: Rect2 = Rect2(start_x, box_y, gw, box_h)
 	var adv_r: Rect2 = Rect2(start_x + gw + gap, box_y, aw, box_h)
 
-	# GOAL 카드 — 적 아이콘 + 남은 수(클리어 목표). 제목·내용 모두 박스 중앙정렬
+	# GOAL 카드 — 제목 "목표" + 내용 "💀 남은 적 N"(전 타입 소탕이 목표라 타입 중립 해골).
 	_draw_card(goal_r, Color(0.85, 0.7, 0.3))
 	var gt_w: float = fnt.get_string_size("목표", HORIZONTAL_ALIGNMENT_LEFT, -1, 16).x
 	_draw_text_outlined(fnt, Vector2(goal_r.position.x + gw * 0.5 - gt_w * 0.5, box_y + 24.0), "목표", 16, Color(0.95, 0.85, 0.5))
 	var rem_str: String = str(remaining)
 	var rem_fs: int = 40
-	var icon_s: float = 36.0
+	var cap_fs: int = 18
+	var icon_s: float = 34.0
+	var cap_w: float = fnt.get_string_size("남은 적", HORIZONTAL_ALIGNMENT_LEFT, -1, cap_fs).x
 	var rem_w: float = fnt.get_string_size(rem_str, HORIZONTAL_ALIGNMENT_LEFT, -1, rem_fs).x
-	var grp_l: float = goal_r.position.x + gw * 0.5 - (icon_s + 10.0 + rem_w) * 0.5
+	var grp_w: float = icon_s + 8.0 + cap_w + 8.0 + rem_w
+	var grp_l: float = goal_r.position.x + gw * 0.5 - grp_w * 0.5
 	_draw_enemy_icon(Vector2(grp_l + icon_s * 0.5, box_y + 56.0), icon_s)
+	_draw_text_outlined(fnt, Vector2(grp_l + icon_s + 8.0, box_y + 62.0), "남은 적", cap_fs, Color(0.95, 0.85, 0.5))
 	var rem_col: Color = Color.WHITE.lerp(C_GOLD, kp)
-	_draw_text_outlined(fnt, Vector2(grp_l + icon_s + 10.0, box_y + 70.0), rem_str, rem_fs, rem_col)
+	_draw_text_outlined(fnt, Vector2(grp_l + icon_s + 8.0 + cap_w + 8.0, box_y + 70.0), rem_str, rem_fs, rem_col)
 
 	# ADVANCE 카드 — 적 전진 카운트다운(임박 시 붉은 강조). 제목·숫자 중앙정렬
 	var acc: Color = Color(0.85, 0.3, 0.28) if imminent else Color(0.4, 0.45, 0.6)
