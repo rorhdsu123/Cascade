@@ -55,6 +55,10 @@ const DDA_GOD_FAILS: int = 2      # 같은 스테이지 연속 실패 이 횟수
 # 기준 ③ 누수 봉쇄: 필요 처치 = total − (core_hp − 1). core_hp가 total에 가까우면
 #   '흘려보내며 이기기'가 성립(구 25/28 = 파탄). core_hp는 '허용 누수 횟수 + 1'로 읽는다.
 # 기준 ④ 누수 시계 = ROWS × step_every 배치 (fast는 절반). 유입 = spawn_every 배치당 1회.
+# 기준 ⑤ 난이도 손잡이는 core_hp(허용 누수) + total(적 수) 둘뿐이다. 나머지는 실측상 못 쓴다:
+#   step_every 3→2 = 절벽(스5 승률 61%→2.5%). 누수 시계가 24→16배치로 줄면 그냥 안 됨.
+#   spawn_every는 비단조 — 2→1로 조이면 스3이 오히려 쉬워졌다(63%→75%). 적이 뭉쳐 들어와
+#   한 레인 청소에 더 많이 쓸려나가기 때문. '더 빨리 온다'가 '더 어렵다'가 아니다.
 const STAGES: Array = [
 	{
 		"name": "첫 방어선", "tag": "줄을 완성해 레인을 청소한다",
@@ -65,26 +69,26 @@ const STAGES: Array = [
 	{
 		# desync로 무리 절반이 base_step−1로 더 빨리 전진 → 행·열로 흩어져 한 줄론 못 쓸어냄
 		"name": "무리", "tag": "흩어져 밀려온다 — 한 줄로는 못 쓴다",
-		"total": 28, "core_hp": 5, "base_hp": 32, "hp_ramp": 0.4, "tank_mult": 2.5,
+		"total": 30, "core_hp": 3, "base_hp": 32, "hp_ramp": 0.4, "tank_mult": 2.5,
 		"spawn_every": 2, "step_every": 3, "onboard": 4,
 		"weights": {"basic": 40, "fast": 0, "tank": 0, "swarm": 60},
 	},
 	{
 		"name": "속공", "tag": "빠르다 — 시간이 없다",
-		"total": 30, "core_hp": 4, "base_hp": 34, "hp_ramp": 0.5, "tank_mult": 2.5,
+		"total": 34, "core_hp": 3, "base_hp": 34, "hp_ramp": 0.5, "tank_mult": 2.5,
 		"spawn_every": 2, "step_every": 3, "onboard": 3,
 		"weights": {"basic": 40, "fast": 50, "tank": 0, "swarm": 10},
 	},
 	{
 		# tank HP를 콤보3(240) 구간에 앉힌다: base 44~50 × 4.5 = 198~227 → 콤보2(180)로는 안 뚫림.
 		"name": "장갑", "tag": "한 방으론 안 뚫린다 — 콤보를 쌓아라",
-		"total": 32, "core_hp": 3, "base_hp": 44, "hp_ramp": 0.3, "tank_mult": 4.5,
+		"total": 44, "core_hp": 2, "base_hp": 44, "hp_ramp": 0.3, "tank_mult": 4.5,
 		"spawn_every": 2, "step_every": 3, "onboard": 3,
 		"weights": {"basic": 40, "fast": 0, "tank": 55, "swarm": 5},
 	},
 	{
 		"name": "총력전", "tag": "전부 온다",
-		"total": 38, "core_hp": 3, "base_hp": 46, "hp_ramp": 0.4, "tank_mult": 4.2,
+		"total": 48, "core_hp": 2, "base_hp": 46, "hp_ramp": 0.4, "tank_mult": 4.2,
 		"spawn_every": 2, "step_every": 3, "onboard": 2,
 		"weights": {"basic": 20, "fast": 35, "tank": 25, "swarm": 20},
 	},
@@ -161,6 +165,16 @@ const PIECES: Dictionary = {
 const SMALL_POOL: Array = ["1", "D2h", "D2v", "I3h", "I3v", "L3a", "L3b", "L3c", "L3d"]
 const MID_POOL: Array = ["O", "I", "Iv", "T", "S", "Z", "L", "J", "I5h", "I5v", "R32", "R23"]
 const BIG_POOL: Array = ["R33"]
+
+# 풀 안에서도 균등추첨이 아니라 가중추첨. 균등이면 간판 조각(I5)이 테트로미노 8종에 희석돼
+# MID의 1/6밖에 안 나오고, 1칸짜리가 SMALL의 1/9씩이나 나온다(= 손에 쓰레기 조각이 자주 잡힘).
+# Block Blast 감각: I5가 최다(~18%), 1칸은 아주 드묾.
+const PIECE_W: Dictionary = {
+	"1": 1, "D2h": 3, "D2v": 3, "I3h": 6, "I3v": 6, "L3a": 4, "L3b": 4, "L3c": 4, "L3d": 4,
+	"O": 6, "I": 4, "Iv": 4, "T": 4, "S": 3, "Z": 3, "L": 4, "J": 4,
+	"I5h": 10, "I5v": 10, "R32": 7, "R23": 7,
+	"R33": 1,
+}
 
 # ===== 스테이지 상태 =====
 # mode: "select"=레벨 선택 화면, "play"=한 스테이지 플레이 중 (스테이지는 서로 독립 = 보드·거점 초기화)
@@ -350,26 +364,64 @@ func _free_cells() -> int:
 				n += 1
 	return n
 
-# 조각 크기는 '보드 여유'에 연동한다 — 진행도가 아니라.
-# 구버전은 big_chance를 적 스폰 진행도(spawned/total)에 묶어서, 보드가 파편화돼 있어도 후반이면
-# 테트로미노를 50%까지 퍼부었음. 실측: 막힘 사망 시 보드 점유가 평균 46%뿐 = 보드가 '차서'가 아니라
-# 큰 조각이 '안 맞아서' 죽는다는 뜻. → 여유가 많을 때만 큰 조각, 빡빡하면 작은 조각으로 숨통.
 # 조각 크기 티어는 '보드 여유'에 연동한다 — 진행도가 아니라.
 # 여유가 많으면 큰 조각(줄 완성 주력 = I5·직사각), 빡빡해지면 작은 조각으로 숨통.
-# 구버전은 적 스폰 진행도에 묶여 있어 파편화된 보드에도 테트로미노를 퍼부었음(막힘사의 원인).
+# (구버전은 적 스폰 진행도에 묶여 있어 파편화된 보드에도 테트로미노를 퍼부었음 = 막힘사의 원인.)
+#
+# 단, 여유 연동을 너무 세게 걸면 반대로 과보호가 된다: 실측 f는 대부분 0.6~0.9인데
+# 옛 계수(big은 f>0.62부터 최대 9%, mid는 상한 52%)로는 SMALL이 항상 40% 이상 깔려서
+# 평균 조각이 3.56칸까지 내려갔고 3×3은 2%밖에 안 나왔다. 그 사이 막힘사는 300판 중 2~20판까지
+# 줄어든 반면 패배의 대부분은 '적을 못 잡아서'(거점 함락)로 옮겨간 상태 → 조각을 키우는 게 곧 해법.
 func _random_piece() -> Dictionary:
 	var f: float = float(_free_cells()) / float(ROWS * COLS)
-	var p_big: float = clampf((f - 0.62) / 0.38, 0.0, 1.0) * 0.09
-	var p_mid: float = clampf((f - 0.28) / 0.40, 0.0, 1.0) * 0.52
+	var p_big: float = clampf((f - 0.50) / 0.35, 0.0, 1.0) * 0.16
+	var p_mid: float = clampf((f - 0.25) / 0.30, 0.0, 1.0) * 0.60
 	var r: float = randf()
-	var pool: Array = SMALL_POOL
+	var tier: int = 0                      # 0=SMALL, 1=MID, 2=BIG
 	if r < p_big:
-		pool = BIG_POOL
+		tier = 2
 	elif r < p_big + p_mid:
-		pool = MID_POOL
-	var t: String = pool[randi() % pool.size()]
+		tier = 1
+	# 빈칸 수(f)만으로는 '파편화'를 못 본다: 보드가 반이나 비었는데도 3×3·I5가 들어갈 자리가
+	# 없는 상태가 실제 막힘사의 정체(사망 시 보드 점유 50%). 그래서 지금 보드에 놓을 자리가
+	# 없는 조각은 아예 뽑지 않고, 티어가 통째로 안 맞으면 한 단계 작은 티어로 내린다.
+	# 큰 조각일수록 여유 자리를 더 요구한다 — '딱 한 자리에만 간신히 맞는' 3×3을 쥐어주면
+	# 그 자리를 다른 조각이 먼저 먹는 순간 死. 선택지가 남는 조각만 배급한다.
+	# SMALL에는 1칸짜리가 있으니 빈칸이 하나라도 있으면 최소 하나는 반드시 맞는다.
+	var need: Array = [1, 2, 4]            # SMALL / MID / BIG이 요구하는 최소 배치 가능 자리 수
+	var pool: Array = []
+	while tier >= 0:
+		for t in _tier_pool(tier):
+			if _piece_fits_at_least(PIECES[t], int(need[tier])):
+				pool.append(t)
+		if not pool.is_empty():
+			break
+		tier -= 1
+	if pool.is_empty():
+		pool = SMALL_POOL.duplicate()      # 보드가 꽉 참 — 어차피 다음 턴에 막힘 판정
+	var ty: String = _weighted_pick(pool)
 	var c: String = COLORS[randi() % COLORS.size()]
-	return {"type": t, "color": c, "offsets": (PIECES[t] as Array).duplicate()}
+	return {"type": ty, "color": c, "offsets": (PIECES[ty] as Array).duplicate()}
+
+func _tier_pool(tier: int) -> Array:
+	match tier:
+		2:
+			return BIG_POOL
+		1:
+			return MID_POOL
+		_:
+			return SMALL_POOL
+
+func _weighted_pick(pool: Array) -> String:
+	var total: int = 0
+	for t in pool:
+		total += int(PIECE_W[t])
+	var r: int = randi() % total
+	for t in pool:
+		r -= int(PIECE_W[t])
+		if r < 0:
+			return t
+	return pool[pool.size() - 1]
 
 # 이 조각을 지금 보드에 놓으면 줄이 완성되는 자리가 있나
 func _would_clear(cells: Array) -> bool:
@@ -536,6 +588,11 @@ func _can_place(cells: Array) -> bool:
 
 # 주어진 조각 offsets을 어떤 앵커에든 놓을 수 있으면 true
 func _piece_placeable(offsets: Array) -> bool:
+	return _piece_fits_at_least(offsets, 1)
+
+# 놓을 수 있는 자리가 n곳 이상인가 (n곳 찾으면 즉시 중단)
+func _piece_fits_at_least(offsets: Array, n: int) -> bool:
+	var found: int = 0
 	for anchor_r in range(ROWS):
 		for anchor_c in range(COLS):
 			var cells: Array = []
@@ -543,7 +600,9 @@ func _piece_placeable(offsets: Array) -> bool:
 				var ov: Vector2i = o as Vector2i
 				cells.append(Vector2i(anchor_c + ov.x, anchor_r + ov.y))
 			if _can_place(cells):
-				return true
+				found += 1
+				if found >= n:
+					return true
 	return false
 
 # 트레이의 non-empty 조각 중 하나라도 어딘가 놓을 수 있으면 true
