@@ -1,23 +1,15 @@
 extends Node2D
 
 # ===== 상수 =====
-const COLS: int = 6
-const ROWS: int = 6             # 6×6 정사각 보드 (조준해 잡기 좋게 좁힘)
-const CELL: int = 86            # 셀 크기(픽셀) → 보드 516×516
-const BOARD_X: int = 142        # (800 - COLS*CELL)/2
-const BOARD_Y: int = 150        # 보드 상단 y (보드 150~666)
+const COLS: int = 8
+const ROWS: int = 8             # 8×8 (Block Blast와 동일). 줄=8칸이라 조각 유입 대비 수지가 조여짐
+const CELL: int = 64            # 셀 크기(픽셀) → 보드 512×512 (6×6 시절 516과 거의 동일 면적)
+const BOARD_X: int = 144        # (800 - COLS*CELL)/2
+const BOARD_Y: int = 150        # 보드 상단 y (보드 150~662)
 const BOT_Y: int = 700          # 하단 패널 상단 (거점 띠 670~696 아래, 트레이 700~1000)
-const CORE_HP_MAX: int = 25
-const BASE_HP: int = 28
-const HP_RAMP: float = 2.0
-const TOTAL_ENEMIES: int = 28
 
-# 적 타입 (basic/fast/tank/swarm) — 스폰 가중치·온보딩
+# 적 타입 (basic/fast/tank/swarm)
 const ENEMY_TYPES: Array = ["basic", "fast", "tank", "swarm"]
-const SPAWN_WEIGHTS: Dictionary = {"basic": 45, "fast": 20, "tank": 15, "swarm": 20}
-const ONBOARD_COUNT: int = 8    # 이 수까지 basic만 스폰(온보딩)
-const ENEMY_STEP_EVERY: int = 2 # 일반 적 전진 스로틀(2배치당 1칸). fast는 1
-const SPAWN_EVERY: int = 2       # 스폰 스로틀(2배치당 1회)
 const SLIDE_SPEED: float = 8.0   # 적 전진 표시 이징 속도(칸/초)
 const SWEEP_DUR: float = 0.35   # 폭발 스윕 밴드 지속
 const ROCKET_DUR: float = 0.16  # 로켓 비행 지속(빠르게 질주)
@@ -29,8 +21,74 @@ const STREAK_STEP: float = 0.5
 const BLAST_RING_DELAY: float = 0.4   # 링(추가 레인) 간 순차 발사 텀 (물결 확산 속도. 클수록 극적·느림)
 const FLASH_DUR: float = 0.7
 const CLIMAX_FLASH_DUR: float = 0.95   # 전멸(화면 전체 청소) 골드 섬광 길이(천천히 페이드)
-const CLIMAX_COMBO: int = 4           # 이 콤보 이상이면 전멸(도달 가능하게. 6×6 만콤보=6은 드묾)
+# 전멸(클라이맥스) 임계 콤보. COMBO_GRACE 도입으로 스트릭이 실제로 자라기 시작(최대콤보 2.7→5.5)했고,
+# 그 사다리의 꼭대기가 되도록 6에 앉힘 → 판당 1~2회(도달 가능하되 드묾). 유예 없던 시절의 3은
+# 이제 판당 10회가 터져 클라이맥스가 아니게 됨.
+const CLIMAX_COMBO: int = 5
+# 콤보 유예: 줄을 못 지운 배치를 이만큼까지 봐준다(연속 GRACE+1회 헛수 = 리셋).
+# Block Blast 실측: 클리어→헛수 1회→클리어에서 콤보가 3→4로 '이어짐'. 즉 한 수 쉬어도 안 끊김.
+# 우리는 헛수 1회에 즉시 0이라 스트릭이 못 자랐고(봇 평균 최대콤보 2.6~3.0), 그게 클라이맥스가
+# 안 터지는 근본 원인. 전체 수의 ~70%가 헛수인 게임에서 즉시 리셋은 사실상 스트릭 봉쇄.
+const COMBO_GRACE: int = 1
 const LINE_FLASH_DUR: float = 0.45
+
+# ===== DDA (동적 난이도 조정) =====
+# 조각을 '무작위 1개'가 아니라 '후보 N개 중 골라서' 준다. 고를 때의 편향을 플레이어 상태로 정한다:
+#   고전 중(보드 빡빡·클리어 가뭄·거점 위험) → 지금 보드에 '잘 맞는' 조각(줄 완성 가능한 것 우선)
+#   압도 중(보드 여유·콤보 상승·거점 만땅)   → 놓을 수는 있되 '까다로운' 조각
+#   그 사이(데드존)                          → 그냥 무작위 (대부분의 시간)
+# ⚠보이지 않아야 한다. 플레이어가 "봐줬다"고 느끼면 성취가 죽는다 → 데드존을 넓게, 개입은 약하게.
+# (var: 시뮬레이터가 A/B 하려고 런타임에 끌 수 있게)
+const DDA_CANDIDATES: int = 6     # 후보 조각 수(많을수록 개입이 세짐)
+const DDA_DEADZONE: float = 0.34  # |dda|가 이보다 작으면 무개입(무작위)
+const DDA_GOD_FAILS: int = 2      # 같은 스테이지 연속 실패 이 횟수부터 '갓 모드'(강한 구제)
+
+# ===== 스테이지 (밸런스 정본) =====
+# 기준 ① 데미지는 난이도 손잡이가 아니다.
+#   일격 = LINE_BASE(120) × 동시줄배수 × 콤보배수 → 1줄 기준 콤보1=120 / 콤보2=180 / 콤보3=240.
+#   basic HP는 어느 스테이지든 120 미만 = 항상 원샷. HP를 올려도 어느 순간 갑자기 안 죽는 '절벽'이라
+#   손잡이로 못 씀. (C24: 증폭축 = 데미지 아닌 커버리지)
+# 기준 ② 난이도는 '커버리지 요구'에서 온다. 적 타입이 서로 다른 걸 요구하는 게 난이도의 정체:
+#   swarm = 인접 열 클러스터 → 1레인으론 못 쓸어냄 → 콤보 '레인 수'(범위) 요구
+#   tank  = tank_mult로 HP를 콤보2~3 구간에 앉힘      → 콤보 '배수'(관통) 요구
+#   fast  = 전진 2배(step_every 절반) → 누수 시계 압박 → '템포' 요구
+# 기준 ③ 누수 봉쇄: 필요 처치 = total − (core_hp − 1). core_hp가 total에 가까우면
+#   '흘려보내며 이기기'가 성립(구 25/28 = 파탄). core_hp는 '허용 누수 횟수 + 1'로 읽는다.
+# 기준 ④ 누수 시계 = ROWS × step_every 배치 (fast는 절반). 유입 = spawn_every 배치당 1회.
+const STAGES: Array = [
+	{
+		"name": "첫 방어선", "tag": "줄을 완성해 레인을 청소한다",
+		"total": 20, "core_hp": 7, "base_hp": 30, "hp_ramp": 0.0, "tank_mult": 2.5,
+		"spawn_every": 3, "step_every": 3, "onboard": 20,
+		"weights": {"basic": 100, "fast": 0, "tank": 0, "swarm": 0},
+	},
+	{
+		# desync로 무리 절반이 base_step−1로 더 빨리 전진 → 행·열로 흩어져 한 줄론 못 쓸어냄
+		"name": "무리", "tag": "흩어져 밀려온다 — 한 줄로는 못 쓴다",
+		"total": 28, "core_hp": 5, "base_hp": 32, "hp_ramp": 0.4, "tank_mult": 2.5,
+		"spawn_every": 2, "step_every": 3, "onboard": 4,
+		"weights": {"basic": 40, "fast": 0, "tank": 0, "swarm": 60},
+	},
+	{
+		"name": "속공", "tag": "빠르다 — 시간이 없다",
+		"total": 30, "core_hp": 4, "base_hp": 34, "hp_ramp": 0.5, "tank_mult": 2.5,
+		"spawn_every": 2, "step_every": 3, "onboard": 3,
+		"weights": {"basic": 40, "fast": 50, "tank": 0, "swarm": 10},
+	},
+	{
+		# tank HP를 콤보3(240) 구간에 앉힌다: base 44~50 × 4.5 = 198~227 → 콤보2(180)로는 안 뚫림.
+		"name": "장갑", "tag": "한 방으론 안 뚫린다 — 콤보를 쌓아라",
+		"total": 32, "core_hp": 3, "base_hp": 44, "hp_ramp": 0.3, "tank_mult": 4.5,
+		"spawn_every": 2, "step_every": 3, "onboard": 3,
+		"weights": {"basic": 40, "fast": 0, "tank": 55, "swarm": 5},
+	},
+	{
+		"name": "총력전", "tag": "전부 온다",
+		"total": 38, "core_hp": 3, "base_hp": 46, "hp_ramp": 0.4, "tank_mult": 4.2,
+		"spawn_every": 2, "step_every": 3, "onboard": 2,
+		"weights": {"basic": 20, "fast": 35, "tank": 25, "swarm": 20},
+	},
+]
 
 # 조각 색 키 (시각용만)
 const COLORS: Array = ["R", "B", "Y"]
@@ -39,7 +97,7 @@ const COLORS: Array = ["R", "B", "Y"]
 const TRAY_SLOT_W: int = 120
 const TRAY_SLOT_H: int = 100
 const TRAY_SLOT_GAP: int = 20
-const TRAY_PREVIEW_CELL: int = 20
+const TRAY_PREVIEW_CELL: int = 17   # 최대 조각이 5칸(I5) → 85px, 슬롯 120×100 안에 여백 확보
 
 # 레전빌리티 연출
 const RED_FLASH_DUR: float = 0.35
@@ -85,21 +143,48 @@ const PIECES: Dictionary = {
 	"Z":   [Vector2i(0, 0), Vector2i(1, 0), Vector2i(1, 1), Vector2i(2, 1)],
 	"L":   [Vector2i(0, 0), Vector2i(1, 0), Vector2i(2, 0), Vector2i(2, 1)],
 	"J":   [Vector2i(0, 0), Vector2i(1, 0), Vector2i(2, 0), Vector2i(0, 1)],
+	# --- 직선 5칸 (8열 보드에서 줄 완성의 주력. Block Blast 실측 최다 조각 = I5, 17.7%) ---
+	"I5h": [Vector2i(0, 0), Vector2i(1, 0), Vector2i(2, 0), Vector2i(3, 0), Vector2i(4, 0)],
+	"I5v": [Vector2i(0, 0), Vector2i(0, 1), Vector2i(0, 2), Vector2i(0, 3), Vector2i(0, 4)],
+	# --- 직사각 (덩어리로 넓게 메움) ---
+	"R32": [Vector2i(0, 0), Vector2i(1, 0), Vector2i(2, 0), Vector2i(0, 1), Vector2i(1, 1), Vector2i(2, 1)],
+	"R23": [Vector2i(0, 0), Vector2i(1, 0), Vector2i(0, 1), Vector2i(1, 1), Vector2i(0, 2), Vector2i(1, 2)],
+	"R33": [
+		Vector2i(0, 0), Vector2i(1, 0), Vector2i(2, 0),
+		Vector2i(0, 1), Vector2i(1, 1), Vector2i(2, 1),
+		Vector2i(0, 2), Vector2i(1, 2), Vector2i(2, 2),
+	],
 }
 
-# 티어별 shape id 풀 (초반 SMALL 편향 가중 랜덤용)
-const SMALL_POOL: Array = ["1", "D2h", "D2v", "I3h", "I3v", "L3a", "L3b", "L3c", "L3d", "O"]
-const BIG_POOL: Array = ["I", "Iv", "T", "S", "Z", "L", "J"]
+# 크기 티어 (보드 여유에 따라 티어 확률을 바꾼다 — _random_piece 참조)
+# 8×8은 줄이 8칸이라 6×6보다 완성이 훨씬 어려움 → I5 같은 '직선 장척'이 콤보를 되살리는 핵심.
+const SMALL_POOL: Array = ["1", "D2h", "D2v", "I3h", "I3v", "L3a", "L3b", "L3c", "L3d"]
+const MID_POOL: Array = ["O", "I", "Iv", "T", "S", "Z", "L", "J", "I5h", "I5v", "R32", "R23"]
+const BIG_POOL: Array = ["R33"]
+
+# ===== 스테이지 상태 =====
+# mode: "select"=레벨 선택 화면, "play"=한 스테이지 플레이 중 (스테이지는 서로 독립 = 보드·거점 초기화)
+var mode: String = "select"
+var stage_idx: int = 0
+var st: Dictionary = {}          # 현재 스테이지 정의(STAGES[stage_idx])
+var cleared: Dictionary = {}     # 스테이지 인덱스 → 클리어 여부 (세션 한정, 저장 없음)
+var hover_stage: int = -1
+var _play_hover: bool = false    # 하단 시작 버튼 호버
 
 # ===== 상태 =====
 var board: Array = []
 var enemies: Array = []
-var core_hp: int = CORE_HP_MAX
+var core_hp: int = 0
 var place_count: int = 0        # 지금까지 배치 횟수(전진·스폰 스로틀 기준)
 var spawned: int = 0
-var killed: int = 0
+var killed: int = 0             # 실제 처치 수 (누수는 포함 안 함 — 진행도 오염 방지)
+var leaked: int = 0             # 거점까지 흘려보낸 수. killed+leaked = 처리된 적(=더 이상 안 옴)
 var score: int = 0
 var combo: int = 0
+var combo_miss: int = 0         # 콤보 유예 카운터: 줄 못 지운 연속 배치 수
+var dda_enabled: bool = true    # DDA 온오프 (A/B용)
+var drought: int = 0            # 연속 무클리어 배치 수 (DDA의 '고전' 신호)
+var fail_streak: Dictionary = {}  # 스테이지 인덱스 → 연속 실패 횟수 (갓 모드 트리거, 세션 한정)
 var game_over: bool = false
 var game_clear: bool = false
 var stuck: bool = false
@@ -160,6 +245,32 @@ func _ready() -> void:
 	var sf := SystemFont.new()
 	sf.font_names = PackedStringArray(["Apple SD Gothic Neo", "AppleGothic", "Noto Sans CJK KR", "Arial"])
 	_font = sf
+	mode = "select"
+
+# 선형 해금: 1스테이지는 항상 열려 있고, 그다음부턴 직전 스테이지를 깨야 열린다
+func _is_unlocked(i: int) -> bool:
+	if i <= 0:
+		return true
+	return bool(cleared.get(i - 1, false))
+
+# 지금 도전할 스테이지 = 아직 안 깬 첫 스테이지 (전부 깼으면 마지막)
+func _current_stage() -> int:
+	for i in range(STAGES.size()):
+		if not bool(cleared.get(i, false)):
+			return i
+	return STAGES.size() - 1
+
+func _all_cleared() -> bool:
+	for i in range(STAGES.size()):
+		if not bool(cleared.get(i, false)):
+			return false
+	return true
+
+# 스테이지 시작 — 독립 레벨이라 보드·거점·적을 전부 초기화하고 st만 갈아끼운다
+func _start_stage(idx: int) -> void:
+	stage_idx = clampi(idx, 0, STAGES.size() - 1)
+	st = STAGES[stage_idx]
+	mode = "play"
 	_init_game()
 
 func _init_game() -> void:
@@ -170,12 +281,15 @@ func _init_game() -> void:
 			row_arr.append("")
 		board.append(row_arr)
 	enemies = []
-	core_hp = CORE_HP_MAX
+	core_hp = int(st["core_hp"])
 	place_count = 0
 	spawned = 0
 	killed = 0
+	leaked = 0
 	score = 0
 	combo = 0
+	combo_miss = 0
+	drought = 0
 	game_over = false
 	game_clear = false
 	stuck = false
@@ -228,18 +342,134 @@ func _init_game() -> void:
 		stuck = true
 
 # 진행도 가중 랜덤 조각 1개 생성 (초반 SMALL 편향, 후반 BIG 비중↑)
-func _make_piece() -> Dictionary:
-	var p: float = clampf(float(spawned) / float(TOTAL_ENEMIES), 0.0, 1.0)
-	var big_chance: float = lerp(0.12, 0.5, p)
-	var pool: Array = BIG_POOL if randf() < big_chance else SMALL_POOL
+func _free_cells() -> int:
+	var n: int = 0
+	for r in range(ROWS):
+		for c in range(COLS):
+			if board[r][c] == "":
+				n += 1
+	return n
+
+# 조각 크기는 '보드 여유'에 연동한다 — 진행도가 아니라.
+# 구버전은 big_chance를 적 스폰 진행도(spawned/total)에 묶어서, 보드가 파편화돼 있어도 후반이면
+# 테트로미노를 50%까지 퍼부었음. 실측: 막힘 사망 시 보드 점유가 평균 46%뿐 = 보드가 '차서'가 아니라
+# 큰 조각이 '안 맞아서' 죽는다는 뜻. → 여유가 많을 때만 큰 조각, 빡빡하면 작은 조각으로 숨통.
+# 조각 크기 티어는 '보드 여유'에 연동한다 — 진행도가 아니라.
+# 여유가 많으면 큰 조각(줄 완성 주력 = I5·직사각), 빡빡해지면 작은 조각으로 숨통.
+# 구버전은 적 스폰 진행도에 묶여 있어 파편화된 보드에도 테트로미노를 퍼부었음(막힘사의 원인).
+func _random_piece() -> Dictionary:
+	var f: float = float(_free_cells()) / float(ROWS * COLS)
+	var p_big: float = clampf((f - 0.62) / 0.38, 0.0, 1.0) * 0.09
+	var p_mid: float = clampf((f - 0.28) / 0.40, 0.0, 1.0) * 0.52
+	var r: float = randf()
+	var pool: Array = SMALL_POOL
+	if r < p_big:
+		pool = BIG_POOL
+	elif r < p_big + p_mid:
+		pool = MID_POOL
 	var t: String = pool[randi() % pool.size()]
 	var c: String = COLORS[randi() % COLORS.size()]
 	return {"type": t, "color": c, "offsets": (PIECES[t] as Array).duplicate()}
 
-# 3슬롯 전부 새 랜덤 조각으로 채움, sel=0 리셋
-func _refill_tray() -> void:
+# 이 조각을 지금 보드에 놓으면 줄이 완성되는 자리가 있나
+func _would_clear(cells: Array) -> bool:
+	var occ: Dictionary = {}
+	for ci in cells:
+		occ[ci] = true
+	for r in range(ROWS):
+		var full_r: bool = true
+		for c in range(COLS):
+			if board[r][c] == "" and not occ.has(Vector2i(c, r)):
+				full_r = false
+				break
+		if full_r:
+			return true
+	for c2 in range(COLS):
+		var full_c: bool = true
+		for r2 in range(ROWS):
+			if board[r2][c2] == "" and not occ.has(Vector2i(c2, r2)):
+				full_c = false
+				break
+		if full_c:
+			return true
+	return false
+
+# 이 조각을 놓아 '지금 당장' 줄을 완성할 수 있는 자리가 있나
+func _piece_can_clear(offsets: Array) -> bool:
+	for ar in range(ROWS):
+		for ac in range(COLS):
+			var cells: Array = []
+			var ok: bool = true
+			for o in offsets:
+				var ov: Vector2i = o as Vector2i
+				var cc: Vector2i = Vector2i(ac + ov.x, ar + ov.y)
+				if cc.x < 0 or cc.x >= COLS or cc.y < 0 or cc.y >= ROWS or board[cc.y][cc.x] != "":
+					ok = false
+					break
+				cells.append(cc)
+			if ok and _would_clear(cells):
+				return true
+	return false
+
+# 플레이어 상태 → −1(고전) ~ +1(압도)
+func _dda_score() -> float:
+	var fill: float = 1.0 - float(_free_cells()) / float(ROWS * COLS)
+	var hp: float = float(core_hp) / float(maxi(1, int(st["core_hp"])))
+	var struggle: float = 0.0
+	if fill > 0.6:
+		struggle += 1.0          # 보드가 빡빡하다
+	if drought >= 3:
+		struggle += 1.0          # 줄이 안 터진 지 오래
+	if hp < 0.4:
+		struggle += 1.0          # 거점이 위험
+	if int(fail_streak.get(stage_idx, 0)) >= DDA_GOD_FAILS:
+		struggle += 2.0          # 갓 모드: 같은 스테이지를 연속으로 졌다 → 이탈 방지
+	var mastery: float = 0.0
+	if fill < 0.3:
+		mastery += 1.0
+	if combo >= 3:
+		mastery += 1.0
+	if hp > 0.8:
+		mastery += 1.0
+	return clampf((mastery - struggle) / 3.0, -1.0, 1.0)
+
+# 후보 N개를 굴린 뒤, 플레이어 상태에 따라 '잘 맞는 것' ↔ '까다로운 것'을 고른다
+func _make_piece() -> Dictionary:
+	if not dda_enabled:
+		return _random_piece()
+	var d: float = _dda_score()
+	var first: Dictionary = _random_piece()
+	# 구제 전용: 고전 중일 때만 개입한다. ('압도 중 → 까다로운 조각'은 폐기 — 온보딩 막힘사만 3배)
+	if d > -DDA_DEADZONE:
+		return first
+	# ⚠구제 = '지금 줄을 완성할 수 있는 조각'을 찾아주는 것뿐. 그 이상은 하지 않는다.
+	#   '놓을 자리가 많은 조각'(=작은 조각)을 주면 막힘은 피하지만 줄을 못 만들어 공격이 굶는다.
+	#   디펜스인 우리 게임에선 그게 곧 무장해제 → 실측 승률 28%→16%로 오히려 악화했음.
+	#   Block Blast는 죽음의 원인이 막힘 하나뿐이라 그 구제가 통하지만, 우리는 실패 경로가 둘이다.
+	if _piece_can_clear(first["offsets"]):
+		return first
+	for _i in range(DDA_CANDIDATES - 1):
+		var cand: Dictionary = _random_piece()
+		if _piece_can_clear(cand["offsets"]):
+			return cand
+	return first     # 줄을 낼 수 있는 후보가 없으면 개입하지 않음
+
+# 트레이 중 하나라도 지금 보드에 놓을 수 있나
+func _tray_any_placeable() -> bool:
 	for i in range(3):
-		tray[i] = _make_piece()
+		if not tray[i].is_empty() and _piece_placeable(tray[i]["offsets"]):
+			return true
+	return false
+
+# 3슬롯 전부 새 랜덤 조각으로 채움, sel=0 리셋.
+# ⚠공정성: '받자마자 셋 다 못 놓는' 즉사(실측 막힘사망의 11~27%)는 플레이어 실수가 아니라 딜 사고.
+#   최소 하나는 놓을 수 있는 트레이가 나올 때까지 다시 굴린다(막힘은 이제 '스스로 몰린 결과'로만).
+func _refill_tray() -> void:
+	for _attempt in range(24):
+		for i in range(3):
+			tray[i] = _make_piece()
+		if _tray_any_placeable():
+			break
 	sel = 0
 
 # 현재 선택 슬롯 반환. 빈 슬롯이면 {} 반환 — .is_empty()로 판별
@@ -639,27 +869,31 @@ func _end_turn() -> void:
 	if pending_core_dead:
 		game_over = true
 		pending_core_dead = false
+		fail_streak[stage_idx] = int(fail_streak.get(stage_idx, 0)) + 1   # 연속 실패 → 갓 모드 근접
 		return
 	if not game_clear and not _has_valid_placement():
 		game_over = true
 		stuck = true
+		fail_streak[stage_idx] = int(fail_streak.get(stage_idx, 0)) + 1
 
 # ===== 스텝 진행 =====
 func advance_step() -> void:
 	place_count += 1
-	# 전진 스로틀: step_every 배치마다 1칸 (fast=매 배치, 나머지=2배치당 1칸)
+	# 전진 스로틀: step_every 배치마다 1칸 (fast는 스테이지 주기의 절반 = 2배 빠름)
 	for e in enemies:
-		var step_every: int = e.get("step_every", ENEMY_STEP_EVERY)
+		var step_every: int = e.get("step_every", int(st["step_every"]))
 		if place_count % step_every == 0:
 			e["row"] += 1
 
-	# 누수(거점 도달): 로직은 즉시 반영, 시각 연출은 resolve 끝물로 지연
+	# 누수(거점 도달): 로직은 즉시 반영, 시각 연출은 resolve 끝물로 지연.
+	# ⚠누수는 killed가 아니라 leaked로 센다. (구버전은 killed++ 해서 '흘려보내도 목표 진행'
+	#  = 진행도·승리조건이 못 막은 적한테 보상을 줬음.)
 	var i: int = enemies.size() - 1
 	pending_leaks = []
 	while i >= 0:
 		if enemies[i]["row"] >= ROWS:
 			core_hp -= 1
-			killed += 1
+			leaked += 1
 			pending_leaks.append(enemies[i]["col"])
 			enemies.remove_at(i)
 		i -= 1
@@ -667,51 +901,65 @@ func advance_step() -> void:
 	if pending_core_dead:
 		return   # 거점 파괴 스텝: 블라스트 없이 누수 연출 후 게임오버
 
-	# 스폰 스로틀: SPAWN_EVERY 배치마다 1회, per_step=1 (밀도 낮춤)
-	if place_count % SPAWN_EVERY != 0:
+	# 스폰 스로틀: spawn_every 배치마다 1회
+	if place_count % int(st["spawn_every"]) != 0:
 		return
-	var per_step: int = 1
-	for _s in range(per_step):
-		if spawned >= TOTAL_ENEMIES:
-			break
-		var etype: String = "basic" if spawned < ONBOARD_COUNT else _pick_etype()
-		if etype == "swarm":
-			# 클러스터: 3~4마리 인접 열에 동시 (남은 수·보드폭에 맞춰 축소)
-			var count: int = 3 + (randi() % 2)
-			count = mini(count, TOTAL_ENEMIES - spawned)
-			count = mini(count, COLS)
-			var start_col: int = randi() % maxi(1, COLS - count + 1)
-			for k in range(count):
-				_spawn_one(start_col + k, "swarm")
-		else:
-			_spawn_one(randi() % COLS, etype)
+	var total: int = int(st["total"])
+	if spawned >= total:
+		return
+	var etype: String = "basic" if spawned < int(st["onboard"]) else _pick_etype()
+	if etype == "swarm":
+		# 클러스터 3~4마리. ⚠인접 열에 '나란히' 스폰하면 전원이 같은 row에 영원히 머물러
+		#   가로줄 하나로 통째 전멸 = 가장 싸게 잡히는 적이 됨(설계 의도의 정반대, 실측 확인).
+		#   → ① 열을 보드 전체에 흩고 ② 전진 주기를 멤버마다 엇갈려(desync) 행까지 벌어지게 한다.
+		#   결과: 한 줄로는 못 쓸어내고 콤보 레인(범위)이 실제로 필요해짐 = '무리'의 정체성.
+		var count: int = 3 + (randi() % 2)
+		count = mini(count, total - spawned)
+		count = mini(count, COLS)
+		var pool: Array = []
+		for c in range(COLS):
+			pool.append(c)
+		pool.shuffle()
+		var base_step: int = int(st["step_every"])
+		for k in range(count):
+			# 절반은 한 칸 빠르게 → 몇 스텝 뒤엔 행이 서로 벌어진다(압박은 유지)
+			var sstep: int = maxi(1, base_step - 1) if k % 2 == 0 else base_step
+			_spawn_one(int(pool[k]), "swarm", sstep)
+	else:
+		_spawn_one(randi() % COLS, etype)
 
 # 가중 랜덤 타입 선택
 func _pick_etype() -> String:
+	var w: Dictionary = st["weights"]
 	var total: int = 0
 	for t in ENEMY_TYPES:
-		total += SPAWN_WEIGHTS[t]
+		total += int(w[t])
+	if total <= 0:
+		return "basic"
 	var r: int = randi() % total
 	for t in ENEMY_TYPES:
-		r -= SPAWN_WEIGHTS[t]
+		r -= int(w[t])
 		if r < 0:
 			return t
 	return "basic"
 
-# 적 1마리 스폰 (타입별 HP 배율 적용)
-func _spawn_one(col: int, etype: String) -> void:
-	var base: int = roundi(BASE_HP + spawned * HP_RAMP)
+# 적 1마리 스폰 (타입별 HP 배율 적용). step_override>0이면 전진 주기를 강제(무리 desync용)
+func _spawn_one(col: int, etype: String, step_override: int = 0) -> void:
+	var base: int = roundi(float(st["base_hp"]) + float(spawned) * float(st["hp_ramp"]))
 	var hp: int = base
 	match etype:
 		"fast":
 			hp = roundi(base * 0.6)
 		"tank":
-			hp = roundi(base * 2.5)
+			hp = roundi(base * float(st["tank_mult"]))   # 콤보2~3 구간에 앉히는 게 목적(관통 요구)
 		"swarm":
 			hp = roundi(base * 0.4)
 	hp = maxi(1, hp)
-	# 전진 스로틀: fast는 매 배치(1), 나머지는 2배치당 1칸
-	var step_every: int = 1 if etype == "fast" else ENEMY_STEP_EVERY
+	# 전진 스로틀: fast는 스테이지 주기의 절반(2배 빠름), 나머지는 스테이지 주기
+	var base_step: int = int(st["step_every"])
+	var step_every: int = maxi(1, base_step - 1) if etype == "fast" else base_step
+	if step_override > 0:
+		step_every = step_override
 	enemies.append({"col": col, "row": 0, "vis_row": 0.0, "hp": hp, "maxhp": hp, "etype": etype, "id": enemy_seq, "step_every": step_every})
 	enemy_seq += 1
 	spawned += 1
@@ -730,9 +978,14 @@ func _set_callout(text: String) -> void:
 	callout_text = text
 	callout_timer = CALLOUT_DUR
 
+# 클리어 = 모든 적이 '처리'됨(처치 or 누수) = 더 이상 올 적도, 보드 위 적도 없음.
+# 누수분은 거점 HP로 이미 값을 치렀고, core_hp를 total보다 훨씬 작게 잡아 '흘려보내며 이기기'를 봉쇄한다(기준 ③).
 func _check_win() -> void:
-	if killed >= TOTAL_ENEMIES:
+	if killed + leaked >= int(st["total"]):
 		game_clear = true
+		cleared[stage_idx] = true
+		fail_streak[stage_idx] = 0     # 깼으니 갓 모드 해제
+
 
 # ===== 조각 배치 =====
 func _place_piece() -> void:
@@ -754,9 +1007,16 @@ func _place_piece() -> void:
 	var cols: Array = _full_cols()
 	if rows.size() + cols.size() > 0:
 		combo += 1
+		combo_miss = 0
+		drought = 0
 		_begin_resolve(rows, cols)   # 공격 재생 → 끝나면 _finish_resolve→_end_turn
 	else:
-		combo = 0
+		# 헛수 1회는 유예(COMBO_GRACE) — 연속으로 더 놓치면 그때 스트릭이 끊긴다
+		combo_miss += 1
+		drought += 1
+		if combo_miss > COMBO_GRACE:
+			combo = 0
+			combo_miss = 0
 		_end_turn()                  # 공격 없음: 곧장 적 이동·누수·판정
 
 # 배치한 슬롯 비우고 다음 non-empty로 이동, 다 비면 리필
@@ -779,16 +1039,56 @@ func _consume_slot() -> void:
 
 # ===== 입력 =====
 func _input(event: InputEvent) -> void:
+	# ── 레벨 선택 화면 ──
+	if mode == "select":
+		if event is InputEventMouseMotion:
+			var mp: Vector2 = (event as InputEventMouseMotion).position
+			hover_stage = _stage_at(mp)
+			_play_hover = PLAY_BTN.has_point(mp)
+		elif event is InputEventMouseButton:
+			var sm: InputEventMouseButton = event as InputEventMouseButton
+			if sm.pressed and sm.button_index == MOUSE_BUTTON_LEFT:
+				if PLAY_BTN.has_point(sm.position):
+					_start_stage(_current_stage())      # 하단 큰 버튼 = 지금 도전할 스테이지
+				else:
+					var hit: int = _stage_at(sm.position)   # 이미 깬 스테이지 재도전(잠긴 건 -1)
+					if hit >= 0:
+						_start_stage(hit)
+		elif event is InputEventKey:
+			var sk: InputEventKey = event as InputEventKey
+			if sk.pressed and (sk.keycode == KEY_SPACE or sk.keycode == KEY_ENTER):
+				_start_stage(_current_stage())
+			elif sk.pressed and sk.keycode >= KEY_1 and sk.keycode < KEY_1 + STAGES.size():
+				var pick: int = sk.keycode - KEY_1
+				if _is_unlocked(pick):
+					_start_stage(pick)
+		return
+
+	# ── 결과 화면: 재시도(SPACE/클릭) or 스테이지 선택으로(ESC) ──
 	if game_over or game_clear:
 		if event is InputEventMouseButton:
 			var mbe: InputEventMouseButton = event as InputEventMouseButton
 			if mbe.pressed:
-				get_tree().reload_current_scene()
+				mode = "select"
 		elif event is InputEventKey:
 			var ke: InputEventKey = event as InputEventKey
 			if ke.pressed and ke.keycode == KEY_SPACE:
-				get_tree().reload_current_scene()
+				# 클리어면 다음 스테이지로(선형 진행), 실패면 같은 스테이지 재시도
+				if game_clear and stage_idx + 1 < STAGES.size():
+					_start_stage(stage_idx + 1)
+				elif game_clear:
+					mode = "select"          # 마지막 스테이지 클리어 → 홈
+				else:
+					_start_stage(stage_idx)
+			elif ke.pressed and ke.keycode == KEY_ESCAPE:
+				mode = "select"
 		return
+
+	if event is InputEventKey:
+		var pk: InputEventKey = event as InputEventKey
+		if pk.pressed and pk.keycode == KEY_ESCAPE:
+			mode = "select"      # 플레이 중 포기 → 선택 화면
+			return
 
 	# resolve 재생 중에는 배치/선택 입력 정지 (연출 끝나면 자동 복귀)
 	if resolving:
@@ -820,6 +1120,9 @@ func _input(event: InputEvent) -> void:
 
 # ===== 프레임 =====
 func _process(delta: float) -> void:
+	if mode == "select":
+		queue_redraw()
+		return
 	# 히트스톱: 게임 타이머 전부 정지, 그림만(시간감소라 항상 해제 → 데드락 없음)
 	if hitstop > 0.0:
 		hitstop = maxf(0.0, hitstop - delta)
@@ -927,6 +1230,10 @@ func _process(delta: float) -> void:
 func _draw() -> void:
 	var fnt: Font = _font if _font != null else ThemeDB.fallback_font
 
+	if mode == "select":
+		_draw_select(fnt)
+		return
+
 	if shake_timer > 0.0:
 		var mag: float = SHAKE_AMP * (shake_timer / SHAKE_DUR)
 		draw_set_transform(Vector2(randf_range(-mag, mag), randf_range(-mag, mag)))
@@ -1025,20 +1332,137 @@ func _draw() -> void:
 
 	if game_over or game_clear:
 		draw_rect(Rect2(0, 0, 800, 1000), Color(0.0, 0.0, 0.0, 0.72))
-		var msg: String = "ALL CLEARED!" if game_clear else "GAME OVER"
-		var mfs: int = 80
+		var msg: String = "스테이지 클리어!" if game_clear else "실패"
+		var mfs: int = 72
 		var mw: float = fnt.get_string_size(msg, HORIZONTAL_ALIGNMENT_LEFT, -1, mfs).x
-		draw_string(fnt, Vector2(400.0 - mw * 0.5, 440.0), msg,
-				HORIZONTAL_ALIGNMENT_LEFT, -1, mfs, Color.WHITE)
+		_draw_text_outlined(fnt, Vector2(400.0 - mw * 0.5, 420.0), msg, mfs,
+				C_GOLD if game_clear else Color.WHITE)
+		var sname: String = "%d. %s" % [stage_idx + 1, String(st["name"])]
+		var snw: float = fnt.get_string_size(sname, HORIZONTAL_ALIGNMENT_LEFT, -1, 26).x
+		_draw_text_outlined(fnt, Vector2(400.0 - snw * 0.5, 460.0), sname, 26, Color(0.75, 0.77, 0.88))
 		if game_over:
-			var reason: String = "NO SPACE" if stuck else "CORE DESTROYED"
+			var reason: String = "놓을 곳이 없다" if stuck else "거점 파괴"
 			var rw: float = fnt.get_string_size(reason, HORIZONTAL_ALIGNMENT_LEFT, -1, 30).x
-			draw_string(fnt, Vector2(400.0 - rw * 0.5, 482.0), reason,
-					HORIZONTAL_ALIGNMENT_LEFT, -1, 30, Color(1.0, 0.5, 0.5))
-		var sub: String = "Click or SPACE to restart"
-		var sw: float = fnt.get_string_size(sub, HORIZONTAL_ALIGNMENT_LEFT, -1, 28).x
-		draw_string(fnt, Vector2(400.0 - sw * 0.5, 558.0), sub,
-				HORIZONTAL_ALIGNMENT_LEFT, -1, 28, Color(0.75, 0.75, 0.75))
+			_draw_text_outlined(fnt, Vector2(400.0 - rw * 0.5, 506.0), reason, 30, Color(1.0, 0.5, 0.5))
+		else:
+			# 클리어 품질 = 얼마나 안 흘렸나 (누수 0 = 완봉)
+			var res: String = "완봉 — 한 마리도 놓치지 않았다" if leaked == 0 else "처치 %d · 누수 %d" % [killed, leaked]
+			var rw2: float = fnt.get_string_size(res, HORIZONTAL_ALIGNMENT_LEFT, -1, 22).x
+			_draw_text_outlined(fnt, Vector2(400.0 - rw2 * 0.5, 506.0), res, 22,
+					Color(0.45, 0.9, 0.6) if leaked == 0 else Color(0.85, 0.7, 0.5))
+		var sub: String = "SPACE 다시 · 클릭/ESC 홈"
+		if game_clear:
+			sub = "SPACE 다음 스테이지 · 클릭/ESC 홈" if stage_idx + 1 < STAGES.size() else "SPACE·클릭 홈"
+		var sw: float = fnt.get_string_size(sub, HORIZONTAL_ALIGNMENT_LEFT, -1, 24).x
+		_draw_text_outlined(fnt, Vector2(400.0 - sw * 0.5, 566.0), sub, 24, Color(0.75, 0.75, 0.75))
+
+# ===== 홈(스테이지) 화면 =====
+# Toon Blast식: 위쪽은 진행 상황(스테이지 목록·잠금), 시선의 착지점은 하단의 큰 시작 버튼.
+const SEL_X: float = 140.0
+const SEL_W: float = 520.0
+const SEL_Y0: float = 232.0
+const SEL_H: float = 76.0
+const SEL_GAP: float = 12.0
+const PLAY_BTN: Rect2 = Rect2(150.0, 742.0, 500.0, 126.0)
+
+func _stage_rect(i: int) -> Rect2:
+	return Rect2(SEL_X, SEL_Y0 + float(i) * (SEL_H + SEL_GAP), SEL_W, SEL_H)
+
+# 잠긴 스테이지는 클릭 대상이 아니다(선형 진행)
+func _stage_at(pos: Vector2) -> int:
+	for i in range(STAGES.size()):
+		if _stage_rect(i).has_point(pos) and _is_unlocked(i):
+			return i
+	return -1
+
+func _draw_select(fnt: Font) -> void:
+	draw_rect(Rect2(-20, -20, 840, 1040), C_BG)
+
+	var title: String = "CASCADE"
+	var tw: float = fnt.get_string_size(title, HORIZONTAL_ALIGNMENT_LEFT, -1, 60).x
+	_draw_text_outlined(fnt, Vector2(400.0 - tw * 0.5, 122.0), title, 60, C_GOLD)
+	var done_n: int = 0
+	for i in range(STAGES.size()):
+		if bool(cleared.get(i, false)):
+			done_n += 1
+	var sub: String = "클리어 %d / %d" % [done_n, STAGES.size()]
+	var sw: float = fnt.get_string_size(sub, HORIZONTAL_ALIGNMENT_LEFT, -1, 22).x
+	_draw_text_outlined(fnt, Vector2(400.0 - sw * 0.5, 166.0), sub, 22, Color(0.7, 0.72, 0.85))
+
+	var cur: int = _current_stage()
+	for i in range(STAGES.size()):
+		var sd: Dictionary = STAGES[i]
+		var r: Rect2 = _stage_rect(i)
+		var done: bool = bool(cleared.get(i, false))
+		var open: bool = _is_unlocked(i)
+		var hot: bool = (i == hover_stage) and open
+		var accent: Color = Color(0.28, 0.29, 0.36)          # 잠김
+		if done:
+			accent = Color(0.35, 0.8, 0.5)
+		elif open:
+			accent = C_GOLD if i == cur else Color(0.45, 0.5, 0.68)
+		if hot:
+			accent = C_GOLD
+		draw_rect(r, Color(0.17, 0.17, 0.25) if hot else (Color(0.13, 0.13, 0.2) if open else Color(0.09, 0.09, 0.13)))
+		draw_rect(r, accent, false, 3.0)
+
+		# 번호 뱃지 (잠김이면 자물쇠)
+		var bx: float = r.position.x + 30.0
+		var by: float = r.position.y + SEL_H * 0.5
+		draw_circle(Vector2(bx, by), 20.0, accent)
+		if open:
+			var nstr: String = str(i + 1)
+			var nw: float = fnt.get_string_size(nstr, HORIZONTAL_ALIGNMENT_LEFT, -1, 24).x
+			_draw_text_outlined(fnt, Vector2(bx - nw * 0.5, by + 8.0), nstr, 24, Color(0.08, 0.08, 0.12))
+		else:
+			_draw_lock(Vector2(bx, by), 18.0, Color(0.55, 0.57, 0.66))
+
+		# 이름 + 태그. 잠김이면 내용은 숨기고 해금 조건만 (다음 목표를 명확히)
+		var nx: float = r.position.x + 64.0
+		var name_col: Color = Color.WHITE if open else Color(0.45, 0.46, 0.55)
+		_draw_text_outlined(fnt, Vector2(nx, r.position.y + 32.0), String(sd["name"]), 24, name_col)
+		var line2: String = String(sd["tag"]) if open else "%d 스테이지를 클리어하면 열림" % i
+		_draw_text_outlined(fnt, Vector2(nx, r.position.y + 56.0), line2, 15,
+				Color(0.68, 0.7, 0.82) if open else Color(0.4, 0.41, 0.5))
+
+		if done:
+			var ck: String = "클리어"
+			var cw: float = fnt.get_string_size(ck, HORIZONTAL_ALIGNMENT_LEFT, -1, 16).x
+			_draw_text_outlined(fnt, Vector2(r.position.x + SEL_W - cw - 16.0, r.position.y + 46.0), ck, 16, Color(0.4, 0.9, 0.58))
+
+	_draw_play_button(fnt, cur)
+
+	var hint: String = "SPACE 또는 버튼 클릭"
+	var hw: float = fnt.get_string_size(hint, HORIZONTAL_ALIGNMENT_LEFT, -1, 17).x
+	_draw_text_outlined(fnt, Vector2(400.0 - hw * 0.5, 902.0), hint, 17, Color(0.5, 0.52, 0.62))
+
+# 하단 큰 시작 버튼 — 지금 도전할 스테이지를 크게 적는다(Toon Blast의 "Level N" 버튼)
+func _draw_play_button(fnt: Font, cur: int) -> void:
+	var hot: bool = _play_hover
+	var r: Rect2 = PLAY_BTN
+	# 입체감: 아래 그림자 → 본체 → 상단 하이라이트
+	draw_rect(Rect2(r.position.x, r.position.y + 8.0, r.size.x, r.size.y), Color(0.10, 0.28, 0.14))
+	var base: Color = Color(0.42, 0.82, 0.32) if hot else Color(0.34, 0.72, 0.26)
+	draw_rect(r, base)
+	draw_rect(Rect2(r.position.x, r.position.y, r.size.x, r.size.y * 0.32), Color(1.0, 1.0, 1.0, 0.16))
+	draw_rect(r, Color(0.16, 0.42, 0.18), false, 4.0)
+
+	var sd: Dictionary = STAGES[cur]
+	var big: String = "스테이지 %d" % (cur + 1)
+	var bfs: int = 46
+	var bw: float = fnt.get_string_size(big, HORIZONTAL_ALIGNMENT_LEFT, -1, bfs).x
+	_draw_text_outlined(fnt, Vector2(400.0 - bw * 0.5, r.position.y + 62.0), big, bfs, Color.WHITE,
+			Color(0.10, 0.28, 0.14, 0.95))
+	var nm: String = "전부 클리어! 다시 도전" if _all_cleared() else String(sd["name"])
+	var nfs: int = 22
+	var nw: float = fnt.get_string_size(nm, HORIZONTAL_ALIGNMENT_LEFT, -1, nfs).x
+	_draw_text_outlined(fnt, Vector2(400.0 - nw * 0.5, r.position.y + 98.0), nm, nfs, Color(0.92, 1.0, 0.88),
+			Color(0.10, 0.28, 0.14, 0.95))
+
+# 자물쇠 아이콘(절차적) — 잠긴 스테이지 표시
+func _draw_lock(c: Vector2, s: float, col: Color) -> void:
+	draw_arc(Vector2(c.x, c.y - s * 0.18), s * 0.30, PI, TAU, 12, col, 3.0)
+	draw_rect(Rect2(c.x - s * 0.40, c.y - s * 0.10, s * 0.80, s * 0.62), col)
 
 # 상단 카드 패널(Toon Blast식) — 배경 + 강조 테두리
 func _draw_card(r: Rect2, accent: Color) -> void:
@@ -1075,13 +1499,19 @@ func _draw_hud(fnt: Font) -> void:
 	draw_rect(Rect2(0, 0, 800, 144), C_HUD)
 	# CORE HP는 보드 하단 방어선(_draw_core)에만 표시 — 상단 중복 제거.
 	if combo >= 2:
+		# 유예 중(헛수 1회)이면 경고색으로만 — 다음 헛수에 끊긴다는 신호(텍스트는 안 붙임)
+		var risky: bool = combo_miss > 0
 		var streak: String = "콤보 x%d" % combo
 		var stw: float = fnt.get_string_size(streak, HORIZONTAL_ALIGNMENT_LEFT, -1, 22).x
-		_draw_text_outlined(fnt, Vector2(788.0 - stw, 26.0), streak, 22, C_GOLD)
+		var scol: Color = Color(1.0, 0.45, 0.3) if risky else C_GOLD
+		_draw_text_outlined(fnt, Vector2(788.0 - stw, 26.0), streak, 22, scol)
 
-	var remain: int = ENEMY_STEP_EVERY - (place_count % ENEMY_STEP_EVERY)
+	var step_every: int = int(st["step_every"])
+	var remain: int = step_every - (place_count % step_every)
 	var imminent: bool = remain <= 1
-	var remaining: int = TOTAL_ENEMIES - killed
+	# 남은 적 = 아직 처리 안 된 적(스폰 예정 + 보드 위). 누수분은 '더 이상 안 오니' 빠지지만
+	# 그 대가는 거점 HP로 이미 치렀다.
+	var remaining: int = int(st["total"]) - killed - leaked
 	var kp: float = clampf(kill_pulse / 0.35, 0.0, 1.0)
 
 	# ── 두 카드: GOAL(남은 적=클리어 목표) + ADVANCE(적 전진 시계) ──
@@ -1134,8 +1564,13 @@ func _draw_hud(fnt: Font) -> void:
 	var bw: float = (adv_r.position.x + aw) - start_x
 	var bh: float = 12.0
 	draw_rect(Rect2(bx, by, bw, bh), Color(0.12, 0.12, 0.18))
-	var frac: float = clampf(float(killed) / float(TOTAL_ENEMIES), 0.0, 1.0)
-	draw_rect(Rect2(bx, by, bw * frac, bh), Color(0.3, 0.78, 0.46))
+	# 처치(초록) + 누수(빨강)를 나눠 채운다 — 둘 다 '처리된 적'이지만 누수는 못 막은 것.
+	# 붉은 구간이 남아 보여야 "흘려보내며 클리어"가 성취로 안 읽힌다.
+	var tot: float = float(st["total"])
+	var kfrac: float = clampf(float(killed) / tot, 0.0, 1.0)
+	var lfrac: float = clampf(float(leaked) / tot, 0.0, 1.0 - kfrac)
+	draw_rect(Rect2(bx, by, bw * kfrac, bh), Color(0.3, 0.78, 0.46))
+	draw_rect(Rect2(bx + bw * kfrac, by, bw * lfrac, bh), Color(0.8, 0.25, 0.25))
 	draw_rect(Rect2(bx, by, bw, bh), Color(1.0, 1.0, 1.0, 0.4), false)
 
 func _draw_board(fnt: Font) -> void:
@@ -1282,7 +1717,8 @@ func _draw_core(fnt: Font) -> void:
 	var sx: float = BOARD_X
 	var sy: float = BOARD_Y + ROWS * CELL + 4.0
 	var sw: float = COLS * CELL
-	var ratio: float = clampf(float(core_hp) / float(CORE_HP_MAX), 0.0, 1.0)
+	var core_max: int = int(st["core_hp"])
+	var ratio: float = clampf(float(core_hp) / float(core_max), 0.0, 1.0)
 	# HP바: 빈 트랙(어두움) + 체력 그라데이션(빨강↔초록) + 밝은 테두리
 	draw_rect(Rect2(sx, sy, sw, strip_h), Color(0.08, 0.03, 0.04))
 	var fill_col: Color = Color(0.86, 0.24, 0.20).lerp(Color(0.28, 0.82, 0.45), ratio)
@@ -1291,7 +1727,7 @@ func _draw_core(fnt: Font) -> void:
 	draw_rect(Rect2(sx, sy, sw * ratio, strip_h * 0.4), Color(1.0, 1.0, 1.0, 0.18))
 	draw_rect(Rect2(sx, sy, sw, strip_h), Color(1.0, 1.0, 1.0, 0.55), false, 2.0)
 	# 라벨: 외곽선 흰 글자(트랙/체력 어느 색 위에서도 읽힘). 검정은 어두운 빈 구간서 안 보여 회피.
-	var lbl: String = "거점  %d / %d" % [core_hp, CORE_HP_MAX]
+	var lbl: String = "거점  %d / %d" % [core_hp, core_max]
 	var lw: float = fnt.get_string_size(lbl, HORIZONTAL_ALIGNMENT_LEFT, -1, 19).x
 	_draw_text_outlined(fnt, Vector2(sx + sw * 0.5 - lw * 0.5, sy + 22.0), lbl, 19, Color.WHITE)
 
