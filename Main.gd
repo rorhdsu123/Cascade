@@ -11,7 +11,6 @@ const BOT_Y: int = 700          # 하단 패널 상단 (거점 띠 670~696 아�
 # 적 타입 (basic/fast/tank/swarm)
 const ENEMY_TYPES: Array = ["basic", "fast", "tank", "swarm"]
 const SLIDE_SPEED: float = 8.0   # 적 전진 표시 이징 속도(칸/초)
-const SWEEP_DUR: float = 0.35   # 폭발 스윕 밴드 지속
 const ROCKET_DUR: float = 0.16  # 로켓 비행 지속(빠르게 질주)
 const CALLOUT_DUR: float = 1.6  # 첫 등장 콜아웃 배너 지속
 
@@ -30,7 +29,28 @@ const CLIMAX_COMBO: int = 5
 # 우리는 헛수 1회에 즉시 0이라 스트릭이 못 자랐고(봇 평균 최대콤보 2.6~3.0), 그게 클라이맥스가
 # 안 터지는 근본 원인. 전체 수의 ~70%가 헛수인 게임에서 즉시 리셋은 사실상 스트릭 봉쇄.
 const COMBO_GRACE: int = 1
-const LINE_FLASH_DUR: float = 0.45
+
+# ===== 줄 폭발(충전 → 순차 파괴) =====
+# 완성 줄은 즉시 사라지지 않는다. ① 충전(색 통일→달아오름) → ② 한쪽 끝부터 순차 파괴 → ③ 로켓 발사.
+# 배치(플레이어 행동) → 줄 폭발(보상) → 로켓 → 적 사망 의 인과 사슬을 눈에 보이게 만드는 구간.
+#
+# ★ 충전 홀드 = 에스컬레이션 축(Block Blast 실측: 콤보2 ≈0.27s, 콤보4 ≈0.55s).
+#   콤보가 클수록 '더 크게'가 아니라 '더 오래 참는다' — 셰이크를 금지(C24⑦)한 뒤 비어 있던
+#   에스컬레이션 축을 시간이 메운다. 기대가 쌓이는 정지 구간이라, 길수록 터질 때 더 세게 느껴진다.
+const CHARGE_BASE: float = 0.20        # 콤보 1의 홀드
+const CHARGE_PER_COMBO: float = 0.12   # 콤보 1당 추가 홀드 (콤보4 ≈0.56s = BB 실측 0.55s에 맞춤)
+const CHARGE_MAX: float = 0.60         # 홀드 상한(그 이상은 늘어짐)
+# 충전 중 색 통일: 이 비율 지점까지 '원래 색 → 방금 놓은 조각 색'으로 물들고(줄이 한 색이 됨),
+# 나머지 구간에서 흰색으로 달아오른다. Block Blast가 터지는 줄을 놓은 조각 색으로 통일하는 것과 같은 수법 —
+# 알록달록한 보드에서 완성 줄만 도드라지게 하고, 폭발이 '내 조각의 결과'임을 색으로 잇는다.
+const CHARGE_TINT: float = 0.45
+# 블록 소멸은 '동시'다 — Block Blast 60fps 실측: 완성 줄 8칸이 단 1프레임(16.7ms)에 전부 증발한다.
+# 칸을 하나씩 순차로 부수면 그게 곧 '느리다'로 체감된다(실제로 그랬음). 시간이 걸리는 연출은
+# 전부 블록이 사라진 '뒤'에 온다(빛 바 스윕 → 파편 → 텍스트).
+# 사라지는 순간 줄 자리에 색 테두리만 한 순간 남는다 = 소멸의 잔상.
+const LINE_OUTLINE_DUR: float = 0.06
+# 블록이 사라지고 로켓(=빛 바)이 나가기까지의 짧은 빈 줄 간격 (BB 실측 ~0.07s)
+const BURST_GAP: float = 0.07
 
 # ===== DDA (동적 난이도 조정) =====
 # 조각을 '무작위 1개'가 아니라 '후보 N개 중 골라서' 준다. 고를 때의 편향을 플레이어 상태로 정한다:
@@ -218,17 +238,25 @@ var flash_combo: int = 0
 var flash_climax: bool = false      # 화면 전체 도달(전멸) — 라벨/섬광 강조용
 var climax_flash: float = 0.0       # 전멸 골드 섬광 타이머
 var climax_pending: float = -1.0    # 전멸 충격파 발사 예약 시각(resolve_timer 기준, -1=없음)
-var line_flash_rows: Array = []
-var line_flash_cols: Array = []
-var line_flash_timer: float = 0.0
+
+# 터질 예정인 완성 줄 — 충전이 끝날 때까지 board에 그대로 남아 있다(즉시 삭제 금지).
+# 충전이 끝나면 전 셀이 '동시에' 사라진다.
+var clear_cells: Array = []         # [Vector2i] 터질 셀
+var clear_rows: Array = []          # 완성된 행/열 (소멸 순간 테두리 플래시용)
+var clear_cols: Array = []
+var clear_tint: Color = Color.WHITE # 색 통일 목표색 = 방금 놓은 조각 색
+var clear_done: bool = true         # 셀 소멸을 이미 실행했나
+var charge_dur: float = CHARGE_BASE # 이번 폭발의 충전 홀드(콤보 비례)
+var outline_timer: float = 0.0      # 소멸 직후 줄 자리에 남는 색 테두리 잔상
+var last_color: String = ""         # 마지막으로 놓은 조각의 색 키
 
 var floaters: Array = []
-var death_flashes: Array = []  # [{pos, life, max, color}] 사망 스케일 팝+플래시
+var death_flashes: Array = []  # [{pos, life, max, color}] 적 사망 스케일 팝(원형) — '적이 죽었다'의 시각 문법
+var cell_pops: Array = []      # [{pos, life, max, color}] 블록 소멸 팝(사각형) — 적 사망과 형태로 구분
 var debris: Array = []         # [{pos, vel, life, max, color, size}] 사망 파편 버스트
 var impacts: Array = []        # [{pos, life, max, color, radius}] 빔 임팩트/탱크 막음 링
 var kill_pulse: float = 0.0    # 킬 순간 ENEMIES LEFT 헤드라인 펄스
 var push_streaks: Array = []   # [{from, to, life, max}] 넉백 잔상
-var sweep_timer: float = 0.0   # 폭발 스윕 밴드
 var rockets: Array = []        # [{dir, idx, t, dur, combo, ended}] 라인 따라 질주하는 로켓
 var hitstop: float = 0.0       # 명중 순간 순간 멈칫(게임 타이머 전부 정지)
 var core_hits: Array = []      # [{col, life}] 거점 피격 충격 플래시
@@ -311,16 +339,20 @@ func _init_game() -> void:
 	flash_label = ""
 	flash_lines = 0
 	flash_combo = 0
-	line_flash_rows = []
-	line_flash_cols = []
-	line_flash_timer = 0.0
+	clear_cells = []
+	clear_rows = []
+	clear_cols = []
+	clear_done = true
+	charge_dur = CHARGE_BASE
+	outline_timer = 0.0
+	last_color = ""
 	floaters = []
 	death_flashes = []
+	cell_pops = []
 	debris = []
 	impacts = []
 	kill_pulse = 0.0
 	push_streaks = []
-	sweep_timer = 0.0
 	rockets = []
 	hitstop = 0.0
 	core_hits = []
@@ -445,6 +477,32 @@ func _would_clear(cells: Array) -> bool:
 		if full_c:
 			return true
 	return false
+
+# 이 조각을 지금 놓으면 완성될 줄 목록 (프리뷰 전용 — 그리기에서 프레임당 1회.
+# _would_clear는 DDA가 조각마다 수백 번 부르는 뜨거운 경로라 조기반환을 유지하고 따로 둔다)
+func _would_clear_lines(cells: Array) -> Dictionary:
+	var occ: Dictionary = {}
+	for ci in cells:
+		occ[ci] = true
+	var rows: Array = []
+	var cols: Array = []
+	for r in range(ROWS):
+		var full_r: bool = true
+		for c in range(COLS):
+			if board[r][c] == "" and not occ.has(Vector2i(c, r)):
+				full_r = false
+				break
+		if full_r:
+			rows.append(r)
+	for c2 in range(COLS):
+		var full_c: bool = true
+		for r2 in range(ROWS):
+			if board[r2][c2] == "" and not occ.has(Vector2i(c2, r2)):
+				full_c = false
+				break
+		if full_c:
+			cols.append(c2)
+	return {"rows": rows, "cols": cols}
 
 # 이 조각을 놓아 '지금 당장' 줄을 완성할 수 있는 자리가 있나
 func _piece_can_clear(offsets: Array) -> bool:
@@ -668,8 +726,16 @@ func _full_cols() -> Array:
 
 # ===== 전투 순차 연출(resolve) =====
 # 로직 결과(HP감소·사망·넉백·score·killed)는 hit가 재생되는 그 시점에 반영.
-# 시퀀스: ① 충전 플래시 → ② 로켓 발사(라인) → ③ 순차 피격 → ④ 폭탄(교차 3×3) → (끝물) 누수.
-# Match-3 특수사탕식: 로켓=완성 라인 관통, 폭탄=가로·세로 교차 시 3×3 추가.
+# 시퀀스: ① 충전 홀드(색 통일→달아오름, 콤보 비례로 길어짐)
+#      → ② 순차 파괴(한쪽 끝부터 셀이 차례로 부서짐)
+#      → ③ 로켓 발사 → ④ 순차 피격 → (끝물) 누수.
+# ①②가 없으면 조각을 놓는 순간 줄이 증발하고, 나머지 연출이 텅 빈 보드 위에서 재생된다
+# (= 플레이어 행동의 보상이 화면에서 사라짐). 그래서 모든 전투 연출은 파괴가 끝난 뒤로 밀려 있다.
+# COMBO 라벨도 파괴가 '다 끝난 뒤'에 뜬다 — 파괴와 텍스트를 겹치지 않게(Block Blast 원칙).
+
+# 이번 폭발의 충전 홀드 = 콤보가 클수록 더 오래 참는다(에스컬레이션 = 시간)
+func _charge_dur_for(streak: int) -> float:
+	return minf(CHARGE_BASE + CHARGE_PER_COMBO * float(maxi(0, streak - 1)), CHARGE_MAX)
 
 # 클리어(rows/cols) 결과를 미리 계획해 resolve 큐에 적재하고 시작
 func _begin_resolve(rows: Array, cols: Array) -> void:
@@ -682,10 +748,22 @@ func _begin_resolve(rows: Array, cols: Array) -> void:
 	var blast_len: float = 0.15
 	var l: int = rows.size() + cols.size()
 	if l > 0:
-		# ① 충전 플래시
-		line_flash_rows = rows.duplicate()
-		line_flash_cols = cols.duplicate()
-		line_flash_timer = LINE_FLASH_DUR
+		# ① 충전(콤보 비례) → ② 충전이 끝나는 순간 전 셀이 '동시에' 소멸.
+		charge_dur = _charge_dur_for(combo)
+		var pend: Dictionary = {}
+		for row in rows:
+			for c in range(COLS):
+				pend[Vector2i(c, row)] = true
+		for col in cols:
+			for r in range(ROWS):
+				pend[Vector2i(col, r)] = true
+		clear_cells = pend.keys()
+		clear_rows = rows.duplicate()
+		clear_cols = cols.duplicate()
+		clear_tint = _color_of(last_color)
+		clear_done = false
+		# 블록이 사라지고 짧은 빈 줄을 거쳐 로켓(=빛 바)이 나간다
+		var fire_t: float = charge_dur + BURST_GAP
 		# ② 콤보=청소 범위: 완성 줄에서 매 콤보 '한 줄씩' 추가(총 레인 수 = combo).
 		#    추가 방향은 바깥으로 교대(줄0 → +1 → −1 → +2…) = 완성 줄 중심 확산, 보드 밖은 스킵.
 		#    링 = 추가 순서(0=완성 줄) → 한 줄씩 순차 발사(심지처럼 번지는 물결). 보드 셀 제거는 완성 줄만.
@@ -730,12 +808,12 @@ func _begin_resolve(rows: Array, cols: Array) -> void:
 			for c2 in range(COLS):
 				band_cols[c2] = 0
 			max_ring = 0
-			climax_pending = 0.20   # 피격 착지에 맞춰 중앙 충격파 발사
-		# 로켓 계획 — 링 거리만큼 발사 지연(0=먼저, 바깥 링일수록 늦게)
+			climax_pending = fire_t + 0.20   # 피격 착지에 맞춰 중앙 충격파 발사
+		# 로켓 계획 — 파괴 물결이 끝난 직후(fire_t) 발사. 링 거리만큼 지연(0=먼저, 바깥 링일수록 늦게)
 		for c in band_cols:
-			resolve_rocket_plan.append({"dir": "col", "idx": c, "ring": band_cols[c], "launch": 0.08 + float(band_cols[c]) * BLAST_RING_DELAY})
+			resolve_rocket_plan.append({"dir": "col", "idx": c, "ring": band_cols[c], "launch": fire_t + 0.08 + float(band_cols[c]) * BLAST_RING_DELAY})
 		for r in band_rows:
-			resolve_rocket_plan.append({"dir": "row", "idx": r, "ring": band_rows[r], "launch": 0.08 + float(band_rows[r]) * BLAST_RING_DELAY})
+			resolve_rocket_plan.append({"dir": "row", "idx": r, "ring": band_rows[r], "launch": fire_t + 0.08 + float(band_rows[r]) * BLAST_RING_DELAY})
 		# 일격량 (콤보 데미지 배수는 '탱커 관통용 부 증폭'으로 소폭 유지)
 		var mult: float = _simul_mult(l) * _streak_mult(combo)
 		var strike: int = roundi(LINE_BASE * mult)
@@ -758,7 +836,7 @@ func _begin_resolve(rows: Array, cols: Array) -> void:
 			if a["ring"] != b["ring"]:
 				return a["ring"] < b["ring"]
 			return a["row"] > b["row"])
-		var t0: float = 0.22
+		var t0: float = fire_t + 0.22
 		var ring_seen: Dictionary = {}   # ring -> 이미 배치한 수(링 내 소폭 스태거)
 		var max_at: float = t0
 		for k in range(hit_list.size()):
@@ -772,26 +850,45 @@ func _begin_resolve(rows: Array, cols: Array) -> void:
 				"at": at, "done": false,
 			})
 		# 총길이 = 마지막 피격 or 마지막 링 로켓 비행 완료 중 늦은 것(바깥 링에 적 없어도 물결 끝까지 재생)
-		var visual_end: float = 0.08 + float(max_ring) * BLAST_RING_DELAY + ROCKET_DUR + 0.08
-		blast_len = clampf(maxf(max_at + 0.28, visual_end), 0.30, 3.2)
+		var visual_end: float = fire_t + 0.08 + float(max_ring) * BLAST_RING_DELAY + ROCKET_DUR + 0.08
+		blast_len = clampf(maxf(max_at + 0.28, visual_end), fire_t + 0.30, fire_t + 3.2)
 		if full_board:
-			blast_len = maxf(blast_len, 1.35)   # 전멸은 세계 이동 전에 충격파가 충분히 breathe
-		# 완성 줄 셀 제거
-		for row in rows:
-			for c in range(COLS):
-				board[row][c] = ""
-		for col in cols:
-			for r in range(ROWS):
-				board[r][col] = ""
-		# COMBO xN 라벨용 (중앙 큰 숫자는 제거, 라벨만)
+			blast_len = maxf(blast_len, fire_t + 1.35)   # 전멸은 세계 이동 전에 충격파가 충분히 breathe
+		# COMBO xN 라벨용 (중앙 큰 숫자는 제거, 라벨만).
+		# flash_timer는 여기서 켜지 않는다 — 블록이 실제로 소멸하는 순간(_burst_lines)에 켠다.
+		# 충전 중에 미리 번쩍이면 원인 없는 섬광이 된다.
 		flash_lines = l
 		flash_combo = combo
 		flash_climax = full_board
 		flash_label = "" if full_board else _line_label(l)   # 전멸은 텍스트 없이 연출만
-		flash_timer = FLASH_DUR
 
 	# 공격만 재생. 적 이동·누수·스폰은 시퀀스가 끝난 뒤 _end_turn에서.
 	resolve_total = blast_len
+
+# ② 순차 파괴 — 차례가 된 셀만 부순다. 셀 하나가 board에서 사라지고 그 자리에 사각 팝 + 파편.
+# 파편 색은 clear_tint(= 방금 놓은 조각 색) — 폭발이 '내 조각의 결과'임을 색으로 잇는다.
+func _burst_lines() -> void:
+	if clear_done:
+		return
+	clear_done = true
+	for ci in clear_cells:
+		var cc: Vector2i = ci as Vector2i
+		board[cc.y][cc.x] = ""
+		var p: Vector2 = _cell_center(cc.x, cc.y)
+		cell_pops.append({"pos": p, "life": 0.16, "max": 0.16, "color": clear_tint})
+		for _n in range(3):
+			var ang: float = randf() * TAU
+			var spd: float = randf_range(60.0, 170.0)
+			var life: float = randf_range(0.22, 0.40)
+			debris.append({
+				"pos": p, "vel": Vector2(cos(ang), sin(ang)) * spd,
+				"life": life, "max": life, "color": clear_tint, "size": randf_range(4.0, 8.0),
+			})
+	clear_cells = []
+	outline_timer = LINE_OUTLINE_DUR   # ④ 줄 자리에 남는 색 테두리 잔상
+	# 보상 텍스트(COMBO xN)와 섬광은 파괴 순간에. 파괴가 이제 한순간이라 겹치지 않는다.
+	flash_timer = FLASH_DUR
+	hitstop = maxf(hitstop, 0.05)
 
 # 전멸(화면 전체 청소) 클라이맥스 — 보드 중앙에서 퍼지는 큰 충격파 + 골드 섬광 + 히트스톱(셰이크 없음)
 func _fire_climax() -> void:
@@ -843,7 +940,6 @@ func _apply_hit(h: Dictionary) -> void:
 		if etype == "tank":
 			impacts.append({"pos": ep, "life": 0.32, "max": 0.32, "color": C_E_FAST, "radius": CELL * 0.5})
 			_add_floater(ep + Vector2(0.0, -CELL * 0.42), "BLOCK", C_E_FAST, 0.55, 18)
-	sweep_timer = SWEEP_DUR
 
 # 로켓 머리 위치 (prog 0=발사단 → 1=라인 끝)
 func _rocket_pos(rocket: Dictionary, prog: float) -> Vector2:
@@ -917,6 +1013,8 @@ func _reveal_leaks() -> void:
 func _finish_resolve() -> void:
 	resolving = false
 	resolve_hits = []
+	if not clear_done:
+		_burst_lines()   # 안전망: 어떤 경로로든 안 터졌으면 여기서라도 셀을 비운다(보드 정합성)
 	_end_turn()
 
 # 턴 마무리: 적 전진/누수/스폰 → 누수 연출 → 승/패/공간부족 판정
@@ -1059,6 +1157,7 @@ func _place_piece() -> void:
 	for ci in cells:
 		var c: Vector2i = ci as Vector2i
 		board[c.y][c.x] = active["color"]
+	last_color = active["color"]   # 색 통일용: 터질 줄이 이 색으로 물든다
 	# 조각 소비: 트레이 슬롯 비우고 다음 슬롯/리필 (즉시 = 피드백)
 	_consume_slot()
 	# 완성 줄 감지 — 적은 아직 "현재 위치"(이동 전). 로켓이 그 자리 적을 먼저 타격.
@@ -1191,7 +1290,10 @@ func _process(delta: float) -> void:
 	# 전투 순차 연출 진행 (타이머는 항상 0으로 수렴 → 데드락 없음)
 	if resolving:
 		resolve_timer += delta
-		# ② 로켓 발사 — 링 거리만큼 지연(안쪽 링 먼저, 바깥으로 퍼짐). 발사 지점에 머즐 플래시
+		# ② 충전 끝 → 전 셀이 동시에 소멸. 로켓은 짧은 빈 줄(BURST_GAP) 뒤에 나간다.
+		if not clear_done and resolve_timer >= charge_dur:
+			_burst_lines()
+		# ③ 로켓 발사 — 링 거리만큼 지연(안쪽 링 먼저, 바깥으로 퍼짐). 발사 지점에 머즐 플래시
 		for rp in resolve_rocket_plan:
 			if not rp.get("launched", false) and resolve_timer >= rp["launch"]:
 				rp["launched"] = true
@@ -1210,16 +1312,14 @@ func _process(delta: float) -> void:
 
 	if flash_timer > 0.0:
 		flash_timer = maxf(0.0, flash_timer - delta)
-	if line_flash_timer > 0.0:
-		line_flash_timer = maxf(0.0, line_flash_timer - delta)
+	if outline_timer > 0.0:
+		outline_timer = maxf(0.0, outline_timer - delta)
 	if red_flash > 0.0:
 		red_flash = maxf(0.0, red_flash - delta)
 	if climax_flash > 0.0:
 		climax_flash = maxf(0.0, climax_flash - delta)
 	if shake_timer > 0.0:
 		shake_timer = maxf(0.0, shake_timer - delta)
-	if sweep_timer > 0.0:
-		sweep_timer = maxf(0.0, sweep_timer - delta)
 	if callout_timer > 0.0:
 		callout_timer = maxf(0.0, callout_timer - delta)
 	anim_t += delta
@@ -1257,6 +1357,12 @@ func _process(delta: float) -> void:
 		if death_flashes[j]["life"] <= 0.0:
 			death_flashes.remove_at(j)
 		j -= 1
+	var cp: int = cell_pops.size() - 1
+	while cp >= 0:
+		cell_pops[cp]["life"] -= delta
+		if cell_pops[cp]["life"] <= 0.0:
+			cell_pops.remove_at(cp)
+		cp -= 1
 	# 파편 이동·감쇠 (마찰 + 약한 중력)
 	var d: int = debris.size() - 1
 	while d >= 0:
@@ -1327,6 +1433,17 @@ func _draw() -> void:
 		var dsz: float = dpart["size"]
 		var dpos: Vector2 = dpart["pos"]
 		draw_rect(Rect2(dpos - Vector2(dsz, dsz) * 0.5, Vector2(dsz, dsz)), dcol)
+
+	# 블록 소멸 팝 — 사각형이 부풀며 페이드(적 사망의 원형 팝과 형태로 구분: 네모=블록, 원=적)
+	for cpop in cell_pops:
+		var pp: float = clampf(cpop["life"] / cpop["max"], 0.0, 1.0)   # 1→0
+		var pinv: float = 1.0 - pp
+		var psz: float = CELL * (0.86 + 0.75 * pinv)
+		var pc: Color = cpop["color"]
+		var ppos: Vector2 = cpop["pos"]
+		var prect: Rect2 = Rect2(ppos - Vector2(psz, psz) * 0.5, Vector2(psz, psz))
+		draw_rect(prect, Color(pc.r, pc.g, pc.b, pp * 0.55))
+		draw_rect(prect, Color(1.0, 1.0, 1.0, pp * pp * 0.85), false, 3.0)
 
 	# 사망 스케일 팝 (타입 색 디스크가 부풀며 페이드) + 밝은 흰 코어
 	for df in death_flashes:
@@ -1634,18 +1751,50 @@ func _draw_hud(fnt: Font) -> void:
 
 func _draw_board(fnt: Font) -> void:
 	draw_rect(Rect2(BOARD_X - 2, BOARD_Y - 2, COLS * CELL + 4, ROWS * CELL + 4), C_BORD, false)
+	# 충전 중인 셀. 그리드 위에 따로 그린다(부푼 블록이 옆 셀 배경에 잘리지 않게).
+	var charging: Dictionary = {}
+	var chg: float = 0.0
+	if resolving and not clear_done:
+		chg = clampf(resolve_timer / charge_dur, 0.0, 1.0)
+		for ci in clear_cells:
+			charging[ci] = true
+	var bpad: float = 5.0
 	for r in range(ROWS):
 		for c in range(COLS):
 			var rx: float = BOARD_X + c * CELL
 			var ry: float = BOARD_Y + r * CELL
 			draw_rect(Rect2(rx, ry, CELL, CELL), C_CELL)
 			draw_rect(Rect2(rx, ry, CELL, CELL), C_GRID, false)
-			if board[r][c] != "":
-				var pad: float = 5.0
-				draw_rect(Rect2(rx + pad, ry + pad, CELL - pad * 2.0, CELL - pad * 2.0),
-						_color_of(board[r][c]))
+			if board[r][c] == "" or charging.has(Vector2i(c, r)):
+				continue
+			draw_rect(Rect2(rx + bpad, ry + bpad, CELL - bpad * 2.0, CELL - bpad * 2.0),
+					_color_of(board[r][c]))
 
-	# (레이저 밴드 제거 — 공격 연출은 로켓만)
+	# 충전 연출: 원래 색 → 방금 놓은 조각 색으로 물듦(색 통일) → 흰색으로 달아오르며 부풂 → 터짐
+	for ci2 in charging:
+		var cc: Vector2i = ci2 as Vector2i
+		var cx0: float = BOARD_X + cc.x * CELL
+		var cy0: float = BOARD_Y + cc.y * CELL
+		var bcol: Color = _color_of(board[cc.y][cc.x]).lerp(clear_tint, clampf(chg / CHARGE_TINT, 0.0, 1.0))
+		var hot: float = clampf((chg - CHARGE_TINT) / (1.0 - CHARGE_TINT), 0.0, 1.0)
+		bcol = bcol.lerp(Color(1.0, 1.0, 1.0), hot * 0.75)
+		var bsz: float = (CELL - bpad * 2.0) * (1.0 + 0.22 * chg)
+		var boff: float = (CELL - bsz) * 0.5
+		draw_rect(Rect2(cx0 + boff, cy0 + boff, bsz, bsz), bcol)
+		# 달아오를수록 흰 테두리가 살아난다(터지기 직전이 가장 밝음)
+		if hot > 0.0:
+			draw_rect(Rect2(cx0 + boff, cy0 + boff, bsz, bsz), Color(1.0, 1.0, 1.0, hot * 0.9), false, 2.0)
+
+	# ④ 소멸 잔상: 블록이 사라진 바로 그 줄 자리에 색 테두리만 한순간 남는다(BB 실측: 1프레임).
+	#    "여기 있던 줄이 방금 증발했다"를 아주 짧게 못 박는 장치.
+	if outline_timer > 0.0:
+		var oa: float = clampf(outline_timer / LINE_OUTLINE_DUR, 0.0, 1.0)
+		var ocol: Color = clear_tint.lerp(Color.WHITE, 0.5)
+		ocol.a = oa
+		for orow in clear_rows:
+			draw_rect(Rect2(BOARD_X, BOARD_Y + int(orow) * CELL, COLS * CELL, CELL), ocol, false, 3.0)
+		for ocol_i in clear_cols:
+			draw_rect(Rect2(BOARD_X + int(ocol_i) * CELL, BOARD_Y, CELL, ROWS * CELL), ocol, false, 3.0)
 
 	# 로켓 (라인 질주: 굵고 밝은 머리 + 길고 강한 발광 꼬리). 세로줄=아래→위, 가로줄=좌→우.
 	for rocket in rockets:
@@ -1667,27 +1816,63 @@ func _draw_board(fnt: Font) -> void:
 		draw_circle(head, thick, Color(1.0, 0.98, 0.7, 0.98))
 		draw_circle(head, thick * 0.5, Color.WHITE)
 
-	# 고스트 (게임 진행 중, active 슬롯이 채워져 있을 때만)
-	if not game_over and not game_clear:
+	# 고스트 + 줄 완성 프리뷰 (게임 진행 중, active 슬롯이 채워져 있을 때만).
+	# resolve 중엔 입력이 막혀 있으므로 고스트도 숨긴다 — 안 그러면 충전 중인 셀 때문에 _can_place가 false가 돼
+	# 폭발 연출 한복판에 '못 놓음' 빨간 고스트가 얹힌다.
+	if not game_over and not game_clear and not resolving:
 		var active: Dictionary = _active()
 		var ghost: Array = _ghost_cells()
 		var can: bool = _can_place(ghost)
+		var gset: Dictionary = {}
 		for gi in ghost:
-			var gc: Vector2i = gi as Vector2i
+			gset[gi] = true
+		var pulse: float = 0.5 + 0.5 * sin(anim_t * 7.0)
+		var will_clear: bool = false
+
+		# ① 줄 완성 프리뷰: 지금 놓으면 터질 줄을 '조각 색'으로 미리 물들여 맥동시킨다.
+		#    실제 폭발의 색 통일 연출과 같은 색 → 프리뷰가 곧 예고편이 된다(Block Blast 방식).
+		if can and not active.is_empty():
+			var pcol: Color = _color_of(active["color"])
+			var wl: Dictionary = _would_clear_lines(ghost)
+			var pre: Dictionary = {}
+			for pr in wl["rows"]:
+				for pc in range(COLS):
+					pre[Vector2i(pc, int(pr))] = true
+			for pc2 in wl["cols"]:
+				for pr2 in range(ROWS):
+					pre[Vector2i(int(pc2), pr2)] = true
+			will_clear = pre.size() > 0
+			for pi in pre:
+				var pv: Vector2i = pi as Vector2i
+				if gset.has(pv):
+					continue   # 조각이 놓일 칸은 아래 고스트가 진하게 그린다
+				var prx: float = BOARD_X + pv.x * CELL
+				var pry: float = BOARD_Y + pv.y * CELL
+				# 조각 색으로 '완전히' 통일 — 부분 혼합(0.75)은 파랑→노랑 사이 올리브를 거쳐 탁해진다.
+				# 실제 폭발의 색 통일 종착점과 같은 색이라, 프리뷰가 그대로 예고편이 된다.
+				var tint: Color = pcol.lerp(Color.WHITE, 0.10 + 0.22 * pulse)
+				var prect: Rect2 = Rect2(prx + bpad, pry + bpad, CELL - bpad * 2.0, CELL - bpad * 2.0)
+				draw_rect(prect, tint)
+				draw_rect(prect, Color(1.0, 1.0, 1.0, 0.30 + 0.40 * pulse), false, 2.0)
+
+		# ② 고스트: 흐린 dim이 아니라 '실제로 놓인 것과 같은' 활성 색. 미리보기임은 흰 테두리로 표시.
+		for gi2 in ghost:
+			var gc: Vector2i = gi2 as Vector2i
 			if gc.x < 0 or gc.x >= COLS or gc.y < 0 or gc.y >= ROWS:
 				continue
 			var rx: float = BOARD_X + gc.x * CELL
 			var ry: float = BOARD_Y + gc.y * CELL
-			var pad: float = 5.0
-			var gcol: Color
-			if can:
-				gcol = _color_of(active["color"])
-				gcol.a = 0.42
-			else:
-				gcol = Color(1.0, 0.18, 0.18, 0.32)
-			draw_rect(Rect2(rx + pad, ry + pad, CELL - pad * 2.0, CELL - pad * 2.0), gcol)
-
-	# (가로 스윕 밴드 제거 — 공격 연출은 로켓만)
+			var grect: Rect2 = Rect2(rx + bpad, ry + bpad, CELL - bpad * 2.0, CELL - bpad * 2.0)
+			if not can:
+				# 무효는 '빨간 금지'로 확실히. 반투명하게 깔면 밑의 파란 블록과 섞여 자홍색이 되어 안 읽히므로
+				# 불투명하게 덮는다.
+				draw_rect(grect, Color(0.62, 0.12, 0.15))
+				draw_rect(grect, Color(1.0, 0.32, 0.32), false, 2.0)
+				continue
+			draw_rect(grect, _color_of(active["color"]))
+			# 줄이 터질 자리면 프리뷰 줄과 같은 세기로 함께 맥동 = "이 한 수가 줄을 완성한다"
+			var edge: float = (0.30 + 0.40 * pulse) if will_clear else 0.55
+			draw_rect(grect, Color(1.0, 1.0, 1.0, edge), false, 2.0)
 
 	# 넉백 잔상 (밀쳐진 적의 이전→현재 위치 시안 스트릭)
 	for st in push_streaks:
