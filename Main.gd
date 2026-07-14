@@ -171,10 +171,23 @@ const C_GOLD := Color("#ffd700")
 const C_BORD := Color(0.24, 0.24, 0.38)
 
 # 적 타입별 대표 색 (한눈 구분)
-const C_E_BASIC := Color("#e5484d")   # 빨강
+#
+# 적은 빨강 계열을 안 쓴다. 빨강은 조각(C_RED)과 위협 신호(피격 플래시·누수 −1·실패 테두리)가
+# 이미 나눠 갖고 있어서, 적까지 빨강이면 빨간 블록 위의 빨간 적이 통째로 묻힌다(기본 적은
+# C_RED과 헥스까지 같았고, 탱크의 마룬도 같은 버그의 조용한 버전이었다).
+# → basic=바이올렛 / tank=딥 바이올렛으로 이동. 밝기 관계(밝은 기본 ↔ 어두운 무거운 변주)는
+#   마룬-빨강 시절 그대로라, 플레이어가 배운 "탱크 = 육중한 기본"이 유지된다.
+const C_E_BASIC := Color("#a855f7")   # 바이올렛
 const C_E_FAST  := Color("#22d3ee")   # 시안
-const C_E_TANK  := Color("#7a1f3d")   # 어두운 마룬
+const C_E_TANK  := Color("#6d28d9")   # 딥 바이올렛 (basic의 무거운 변주)
 const C_E_SWARM := Color("#a3e635")   # 라임
+
+# 적 외곽선 — 적은 언제나 어두운 테두리를 두르고 보드 위에 '떠' 있다.
+# 색만으로 분리를 보장하면 팔레트가 하나 바뀔 때마다 같은 버그가 재발한다(두더지 잡기).
+# 테두리는 조각 색이 무엇이든 적의 윤곽을 세우므로, 분리가 구조로 보장된다.
+# 탱크가 이미 쓰던 문법(검은 4px 외곽선)을 전 타입으로 일반화한 것 — 새 언어가 아니다.
+const C_E_RIM := Color(0.0, 0.0, 0.0, 0.85)
+const C_E_RIM_W: float = 3.0
 
 # 조각 오프셋 (Vector2i, 원점=(0,0) 기준 정규화)
 const PIECES: Dictionary = {
@@ -1051,7 +1064,7 @@ func _etype_fx_color(etype: String) -> Color:
 		"fast":
 			return C_E_FAST
 		"tank":
-			return Color("#e05a7d")   # 마룬 밝은 변주 (파편이 배경에 묻히지 않게)
+			return Color("#c084fc")   # 딥 바이올렛의 밝은 변주 (파편이 배경에 묻히지 않게)
 		"swarm":
 			return C_E_SWARM
 	return C_E_BASIC
@@ -2130,7 +2143,8 @@ func _draw_board(fnt: Font) -> void:
 	# 착지 프리뷰 — 조각을 '들고 있고', 그 자리에 놓을 수 있을 때만 그린다 (Block Blast 방식).
 	#
 	# 못 놓는 자리에는 아무것도 그리지 않는다. 예전엔 빨간 고스트를 얹었는데, 그 빨강이
-	# R 블록·기본 적(#e5484d로 셋이 같은 색)과 헷갈렸다. 원본 Block Blast는 무효 표시가
+	# R 블록·기본 적과 헷갈렸다(당시 셋이 #e5484d로 같은 색. 적은 그 뒤 바이올렛으로 옮겼지만,
+	# 무효 표시를 안 그리는 결정 자체는 유효하다). 원본 Block Blast는 무효 표시가
 	# 아예 없다 — 조각이 그리드에 붙지 않고 손가락을 따라 그냥 떠 있을 뿐이고, 거절은
 	# 그 '스냅과 프리뷰의 부재' + 놓았을 때 트레이로 되돌아감으로 읽힌다. 긍정 신호만 두면
 	# 어떤 블록 색과도 충돌할 수 없다.
@@ -2227,16 +2241,19 @@ func _draw_board(fnt: Font) -> void:
 					Vector2(cx + s, cy - s * 0.7),
 				])
 				draw_colored_polygon(pts, C_E_FAST)
+				var closed: PackedVector2Array = pts.duplicate()
+				closed.append(pts[0])
+				draw_polyline(closed, C_E_RIM, C_E_RIM_W)
 				rad = s
 				# 깜빡이는 "!" 긴급 마커 (머리 위)
 				var blink: float = 0.5 + 0.5 * sin(anim_t * 10.0)
 				_draw_text_outlined(fnt, Vector2(cx - 4.0, cy - s - 14.0), "!", 26,
 						Color(1.0, 0.95, 0.3, 0.4 + 0.6 * blink))
 			"tank":
-				# 어두운 마룬 큰 사각형 + 두꺼운 외곽선
+				# 딥 바이올렛 큰 사각형 + 더 두꺼운 외곽선 (육중함은 테두리 두께가 진다)
 				var hs: float = CELL * 0.42
 				draw_rect(Rect2(cx - hs, cy - hs, hs * 2.0, hs * 2.0), C_E_TANK)
-				draw_rect(Rect2(cx - hs, cy - hs, hs * 2.0, hs * 2.0), Color(0.0, 0.0, 0.0, 0.85), false, 4.0)
+				draw_rect(Rect2(cx - hs, cy - hs, hs * 2.0, hs * 2.0), C_E_RIM, false, C_E_RIM_W + 1.0)
 				rad = hs
 				bar_w = CELL * 0.78
 				bar_h = 8.0
@@ -2245,12 +2262,15 @@ func _draw_board(fnt: Font) -> void:
 				var offs: Array = [Vector2(-0.16, -0.12), Vector2(0.16, -0.10), Vector2(-0.02, 0.16)]
 				for off in offs:
 					var ov: Vector2 = off as Vector2
-					draw_circle(Vector2(cx + ov.x * CELL, cy + ov.y * CELL), CELL * 0.14, C_E_SWARM)
+					var sp: Vector2 = Vector2(cx + ov.x * CELL, cy + ov.y * CELL)
+					draw_circle(sp, CELL * 0.14, C_E_SWARM)
+					draw_circle(sp, CELL * 0.14, C_E_RIM, false, C_E_RIM_W - 0.5)
 				rad = CELL * 0.24
 			_:
-				# basic: 빨강 원 (hp 비율로 살짝 명암)
-				var bcol: Color = C_E_BASIC.lerp(Color(0.55, 0.12, 0.12), 1.0 - ratio)
+				# basic: 바이올렛 원 (hp 비율로 살짝 명암 — 어두워져도 빨강엔 안 닿는다)
+				var bcol: Color = C_E_BASIC.lerp(Color(0.30, 0.10, 0.48), 1.0 - ratio)
 				draw_circle(Vector2(cx, cy), rad, bcol)
+				draw_circle(Vector2(cx, cy), rad, C_E_RIM, false, C_E_RIM_W)
 		# 피격 흰 플래시 오버레이 (맞은 순간 강조)
 		if flinch > 0.0:
 			draw_circle(Vector2(cx, cy), rad, Color(1.0, 1.0, 1.0, 0.7 * clampf(flinch / 0.22, 0.0, 1.0)))
