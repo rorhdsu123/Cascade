@@ -1748,9 +1748,17 @@ func _draw() -> void:
 # ===== 결과 팝업 =====
 # 화면을 통째로 덮는 텍스트 나열이 아니라, 어두워진 게임 위에 뜨는 '카드'.
 # 시선 순서 = 판정(제목) → 사유 → 남은 적 → 재도전 버튼(착지점).
-const RESULT_PANEL: Rect2 = Rect2(170.0, 264.0, 460.0, 490.0)
-const RETRY_BTN: Rect2 = Rect2(240.0, 552.0, 320.0, 88.0)
-const HOME_BTN: Rect2 = Rect2(300.0, 660.0, 200.0, 40.0)
+#
+# 문자열은 적을수록 읽힌다(C39). 예전엔 8개를 띄웠는데 그중 셋이 같은 두 동작을 반복했다:
+# 초록 버튼 "재도전" + 고스트 버튼 "홈으로" + 맨 아래 힌트 "SPACE 재도전 · ESC 홈".
+# 힌트는 버튼 라벨을 그대로 다시 읽는 줄이라 지웠다(키 입력 자체는 그대로 받는다 — 글자만 뺀 것).
+# 스테이지 이름("1. 첫 방어선")도 지웠다. 기본 동작이 재도전 = 같은 스테이지라, 방금까지
+# 보던 이름을 다시 확인할 이유가 없다.
+# 남은 넷은 크기 격차를 벌려 위계를 세운다: 64 / 20 / 18 / 52 — 예전엔 56·20·24·18·46이
+# 다 엇비슷해서 무엇이 헤드라인인지 눈이 못 정했다.
+const RESULT_PANEL: Rect2 = Rect2(170.0, 264.0, 460.0, 430.0)
+const RETRY_BTN: Rect2 = Rect2(240.0, 526.0, 320.0, 88.0)
+const HOME_BTN: Rect2 = Rect2(300.0, 630.0, 200.0, 40.0)
 
 # 재도전 = 실패면 같은 스테이지, 클리어면 다음(마지막이면 홈)
 func _result_advance() -> void:
@@ -1783,24 +1791,28 @@ func _draw_result(fnt: Font) -> void:
 
 	var cx: float = p.position.x + p.size.x * 0.5
 
+	# ① 판정 — 헤드라인. 혼자만 크다.
+	#    폭에 맞춰 줄인다 — "실패"는 2자라 64px가 넉넉하지만 "스테이지 클리어!"는 8자라
+	#    같은 크기면 패널을 끝까지 밀어낸다. 글자 수가 아니라 패널이 크기를 정하게 한다.
 	var msg: String = "스테이지 클리어!" if game_clear else "실패"
-	var mfs: int = 56
+	var mfs: int = 64
 	var mw: float = fnt.get_string_size(msg, HORIZONTAL_ALIGNMENT_LEFT, -1, mfs).x
-	_draw_text_outlined(fnt, Vector2(cx - mw * 0.5, p.position.y + 82.0), msg, mfs,
+	var max_w: float = p.size.x - 56.0
+	if mw > max_w:
+		mfs = maxi(40, int(float(mfs) * max_w / mw))
+		mw = fnt.get_string_size(msg, HORIZONTAL_ALIGNMENT_LEFT, -1, mfs).x
+	_draw_text_outlined(fnt, Vector2(cx - mw * 0.5, p.position.y + 84.0), msg, mfs,
 			C_GOLD if game_clear else Color.WHITE)
 
-	var sname: String = "%d. %s" % [stage_idx + 1, String(st["name"])]
-	var snw: float = fnt.get_string_size(sname, HORIZONTAL_ALIGNMENT_LEFT, -1, 20).x
-	_draw_text_outlined(fnt, Vector2(cx - snw * 0.5, p.position.y + 114.0), sname, 20, Color(0.75, 0.77, 0.88))
-
+	# ② 사유 — 판정을 받쳐주는 한 줄. 작게 둔다(헤드라인과 안 싸우게).
 	if game_over:
 		var reason: String = "놓을 곳이 없다" if stuck else "거점 파괴"
-		var rw: float = fnt.get_string_size(reason, HORIZONTAL_ALIGNMENT_LEFT, -1, 24).x
-		_draw_text_outlined(fnt, Vector2(cx - rw * 0.5, p.position.y + 152.0), reason, 24, Color(1.0, 0.5, 0.5))
+		var rw: float = fnt.get_string_size(reason, HORIZONTAL_ALIGNMENT_LEFT, -1, 20).x
+		_draw_text_outlined(fnt, Vector2(cx - rw * 0.5, p.position.y + 124.0), reason, 20, Color(1.0, 0.5, 0.5))
 	else:
 		var res: String = "완봉 — 한 마리도 놓치지 않았다" if leaked == 0 else "처치 %d · 누수 %d" % [killed, leaked]
 		var rw2: float = fnt.get_string_size(res, HORIZONTAL_ALIGNMENT_LEFT, -1, 20).x
-		_draw_text_outlined(fnt, Vector2(cx - rw2 * 0.5, p.position.y + 152.0), res, 20,
+		_draw_text_outlined(fnt, Vector2(cx - rw2 * 0.5, p.position.y + 124.0), res, 20,
 				Color(0.45, 0.9, 0.6) if leaked == 0 else Color(0.85, 0.7, 0.5))
 
 	# ── 버튼 바로 위: 못 처치하고 남긴 적. 정의는 HUD 목표 카드와 동일(total - killed - leaked)
@@ -1809,15 +1821,15 @@ func _draw_result(fnt: Font) -> void:
 	var cap: String = "남은 적" if game_over else "처치"
 	var cap_fs: int = 18
 	var cw: float = fnt.get_string_size(cap, HORIZONTAL_ALIGNMENT_LEFT, -1, cap_fs).x
-	_draw_text_outlined(fnt, Vector2(cx - cw * 0.5, p.position.y + 208.0), cap, cap_fs, Color(0.95, 0.85, 0.5))
+	_draw_text_outlined(fnt, Vector2(cx - cw * 0.5, p.position.y + 176.0), cap, cap_fs, Color(0.95, 0.85, 0.5))
 
 	var num: String = str(remaining if game_over else killed)
-	var num_fs: int = 46
-	var icon_s: float = 40.0
+	var num_fs: int = 52
+	var icon_s: float = 44.0
 	var nw2: float = fnt.get_string_size(num, HORIZONTAL_ALIGNMENT_LEFT, -1, num_fs).x
 	var grp_w: float = icon_s + 12.0 + nw2
 	var grp_l: float = cx - grp_w * 0.5
-	var row_y: float = p.position.y + 254.0
+	var row_y: float = p.position.y + 222.0
 	_draw_enemy_icon(Vector2(grp_l + icon_s * 0.5, row_y), icon_s)
 	_draw_text_outlined(fnt, Vector2(grp_l + icon_s + 12.0, row_y + 16.0), num, num_fs,
 			Color(1.0, 0.55, 0.5) if game_over else Color(0.55, 0.95, 0.65))
@@ -1859,9 +1871,8 @@ func _draw_result(fnt: Font) -> void:
 	_draw_text_outlined(fnt, Vector2(h.position.x + h.size.x * 0.5 - hw2 * 0.5, h.position.y + 28.0), hs, hfs,
 			Color.WHITE if _home_hover else Color(0.75, 0.77, 0.88))
 
-	var hint: String = "SPACE %s · ESC 홈" % label
-	var hintw: float = fnt.get_string_size(hint, HORIZONTAL_ALIGNMENT_LEFT, -1, 17).x
-	_draw_text_outlined(fnt, Vector2(400.0 - hintw * 0.5, p.position.y + p.size.y - 26.0), hint, 17, Color(0.5, 0.52, 0.62))
+	# 키 힌트("SPACE 재도전 · ESC 홈")는 없다 — 두 버튼이 이미 같은 말을 하고 있었다.
+	# SPACE·ESC는 그대로 받는다(_result_advance). 글자만 뺀 것.
 
 # ===== 홈(스테이지) 화면 =====
 # Toon Blast식: 위쪽은 진행 상황(스테이지 목록·잠금), 시선의 착지점은 하단의 큰 시작 버튼.
