@@ -122,6 +122,14 @@ const TRAY_SLOT_H: int = 100
 const TRAY_SLOT_GAP: int = 20
 const TRAY_PREVIEW_CELL: int = 17   # 최대 조각이 5칸(I5) → 85px, 슬롯 120×100 안에 여백 확보
 
+# 드래그앤드롭 — 모바일이 최종 타깃. Godot이 터치를 마우스 이벤트로 에뮬레이트하므로
+# 같은 코드가 PC 테스트와 모바일에서 그대로 동작한다.
+const DRAG_LIFT: float = 80.0        # 조각을 포인터 위로 들어올리는 높이. 모바일에서 엄지가 조각을 가리지 않게.
+const SNAPBACK_DUR: float = 0.14     # 못 놓는 자리에서 뗐을 때 트레이로 되돌아가는 시간
+
+# 입력 방식 토글 버튼 — PC 테스트 전용. 모바일 빌드의 기본은 드래그앤드롭.
+const MODE_BTN := Rect2(596.0, 900.0, 184.0, 46.0)
+
 # 레전빌리티 연출
 const RED_FLASH_DUR: float = 0.35
 const SHAKE_DUR: float = 0.28
@@ -230,6 +238,17 @@ var sel: int = 0               # 현재 선택 슬롯
 
 var hover_col: int = 0
 var hover_row: int = 0
+
+# 드래그 상태 — 조각은 '손에 들려' 포인터를 따라다닌다.
+var dragging: bool = false
+var drag_slot: int = -1
+var drag_pos: Vector2 = Vector2.ZERO
+var snapback: Dictionary = {}   # {slot, from(좌상단 px), t} — 못 놓고 뗀 조각이 트레이로 날아가는 중
+
+# PC 테스트 편의용 입력 방식. true면 예전처럼 '조각 클릭 → 보드 클릭'.
+# 화면 규칙은 두 모드가 동일하다 — 클릭 방식에서도 조각은 커서를 따라오고,
+# 못 놓는 자리엔 아무 표시도 하지 않는다(빨간 고스트는 되살리지 않는다).
+var click_mode: bool = false
 
 # 연출 타이머
 var flash_timer: float = 0.0
@@ -366,6 +385,9 @@ func _init_game() -> void:
 	climax_pending = -1.0
 	flash_climax = false
 	shake_timer = 0.0
+	dragging = false
+	drag_slot = -1
+	snapback = {}
 	resolving = false
 	resolve_timer = 0.0
 	resolve_total = 0.0
@@ -620,6 +642,33 @@ func _ghost_cells() -> Array:
 
 func _cell_center(col: int, row: int) -> Vector2:
 	return Vector2(BOARD_X + col * CELL + CELL * 0.5, BOARD_Y + row * CELL + CELL * 0.5)
+
+# 조각이 차지하는 칸 크기 (offsets는 원점 (0,0) 기준 정규화되어 있다)
+func _piece_bbox(offsets: Array) -> Vector2i:
+	var mx: int = 0
+	var my: int = 0
+	for o in offsets:
+		var ov: Vector2i = o as Vector2i
+		mx = maxi(mx, ov.x)
+		my = maxi(my, ov.y)
+	return Vector2i(mx + 1, my + 1)
+
+# 들고 있는 조각의 좌상단 픽셀 — 포인터 위로 DRAG_LIFT 만큼 띄우고 가로 중앙을 맞춘다
+func _drag_origin_px() -> Vector2:
+	var active: Dictionary = _active()
+	if active.is_empty():
+		return Vector2.ZERO
+	var bb: Vector2i = _piece_bbox(active["offsets"])
+	# 클릭 방식(마우스)에선 조각을 커서에 붙인다. 손가락이 가릴 일이 없으니 들어올릴 이유도 없다.
+	var lift: float = 0.0 if click_mode else DRAG_LIFT
+	var ctr: Vector2 = drag_pos - Vector2(0.0, lift)
+	return ctr - Vector2(float(bb.x) * CELL, float(bb.y) * CELL) * 0.5
+
+# 들고 있는 조각의 위치 → 앵커 칸. round이므로 '가장 가까운 칸'에 자석처럼 붙는다.
+func _sync_hover_from_drag() -> void:
+	var tl: Vector2 = _drag_origin_px()
+	hover_col = roundi((tl.x - float(BOARD_X)) / float(CELL))
+	hover_row = roundi((tl.y - float(BOARD_Y)) / float(CELL))
 
 func _add_floater(pos: Vector2, text: String, color: Color, life: float, size: int = 22, pop: bool = false) -> void:
 	floaters.append({"pos": pos, "text": text, "color": color, "life": life, "max": life, "size": size, "pop": pop})
@@ -1196,6 +1245,29 @@ func _consume_slot() -> void:
 		_refill_tray()
 
 # ===== 입력 =====
+# 포인터 아래 트레이 조각을 집는다 (집었으면 true)
+func _pick_up(pos: Vector2) -> bool:
+	for i in range(3):
+		if tray[i].is_empty():
+			continue
+		if _tray_slot_rect(i).has_point(pos):
+			dragging = true
+			drag_slot = i
+			sel = i
+			drag_pos = pos
+			snapback = {}
+			_sync_hover_from_drag()
+			return true
+	return false
+
+# 들고 있던 조각을 트레이로 돌려보낸다 (못 놓는 자리에서 뗐거나, 모드를 바꿨을 때)
+func _return_held() -> void:
+	if not dragging:
+		return
+	snapback = {"slot": drag_slot, "from": _drag_origin_px(), "t": SNAPBACK_DUR}
+	dragging = false
+	drag_slot = -1
+
 func _input(event: InputEvent) -> void:
 	# ── 레벨 선택 화면 ──
 	if mode == "select":
@@ -1254,29 +1326,53 @@ func _input(event: InputEvent) -> void:
 	if resolving:
 		return
 
-	if event is InputEventMouseMotion:
-		var pos: Vector2 = (event as InputEventMouseMotion).position
-		hover_col = int((pos.x - BOARD_X) / CELL)
-		hover_row = int((pos.y - BOARD_Y) / CELL)
+	# 들고 있는 조각은 두 모드 모두 포인터를 따라온다 — 화면 규칙(스냅=가능/부유=불가)이 같아진다.
+	if event is InputEventMouseMotion and dragging:
+		drag_pos = (event as InputEventMouseMotion).position
+		_sync_hover_from_drag()
 
 	if event is InputEventMouseButton:
 		var mbe: InputEventMouseButton = event as InputEventMouseButton
-		if mbe.pressed and mbe.button_index == MOUSE_BUTTON_LEFT:
-			var in_board: bool = (
-				mbe.position.x >= BOARD_X and
-				mbe.position.x < BOARD_X + COLS * CELL and
-				mbe.position.y >= BOARD_Y and
-				mbe.position.y < BOARD_Y + ROWS * CELL
-			)
-			if in_board:
+		if mbe.button_index != MOUSE_BUTTON_LEFT:
+			return
+
+		# 입력 방식 토글 버튼 (PC 테스트 편의용)
+		if mbe.pressed and MODE_BTN.has_point(mbe.position):
+			click_mode = not click_mode
+			_return_held()   # 모드가 바뀌면 들고 있던 조각은 트레이로 돌려놓는다
+			return
+
+		if click_mode:
+			# 클릭 방식: 조각 클릭해 집고 → 보드 클릭해 놓는다. 떼기(release)는 쓰지 않는다.
+			if not mbe.pressed:
+				return
+			if not dragging:
+				_pick_up(mbe.position)
+				return
+			if _pick_up(mbe.position):
+				return   # 트레이의 다른 조각으로 갈아탐
+			drag_pos = mbe.position
+			_sync_hover_from_drag()
+			if _can_place(_ghost_cells()):
+				dragging = false
+				drag_slot = -1
+				_place_piece()
+			# 못 놓는 자리를 클릭하면 조각을 계속 들고 있는다 (매번 다시 집게 하지 않는다)
+			return
+
+		# 드래그앤드롭: 트레이에서 집어 → 끌고 → 뗀다.
+		if mbe.pressed:
+			_pick_up(mbe.position)
+		elif dragging:
+			drag_pos = mbe.position
+			_sync_hover_from_drag()
+			if _can_place(_ghost_cells()):
+				dragging = false
+				drag_slot = -1
 				_place_piece()
 			else:
-				# 트레이 슬롯 선택
-				for i in range(3):
-					var sr: Rect2 = _tray_slot_rect(i)
-					if sr.has_point(mbe.position) and not tray[i].is_empty():
-						sel = i
-						break
+				# 못 놓는 자리 → 트레이로 튕겨 돌아간다. 거절은 색이 아니라 '되돌아감'으로 읽힌다.
+				_return_held()
 
 # ===== 프레임 =====
 func _process(delta: float) -> void:
@@ -1322,6 +1418,10 @@ func _process(delta: float) -> void:
 		shake_timer = maxf(0.0, shake_timer - delta)
 	if callout_timer > 0.0:
 		callout_timer = maxf(0.0, callout_timer - delta)
+	if not snapback.is_empty():
+		snapback["t"] = float(snapback["t"]) - delta
+		if float(snapback["t"]) <= 0.0:
+			snapback = {}
 	anim_t += delta
 	var k: int = push_streaks.size() - 1
 	while k >= 0:
@@ -1409,6 +1509,7 @@ func _draw() -> void:
 	_draw_board(fnt)
 	_draw_core(fnt)
 	_draw_bottom(fnt)
+	_draw_held()
 
 	for fl in floaters:
 		var fa: float = clampf(fl["life"] / fl["max"], 0.0, 1.0)
@@ -1908,10 +2009,16 @@ func _draw_board(fnt: Font) -> void:
 		draw_circle(head, thick, Color(1.0, 0.98, 0.7, 0.98))
 		draw_circle(head, thick * 0.5, Color.WHITE)
 
-	# 고스트 + 줄 완성 프리뷰 (게임 진행 중, active 슬롯이 채워져 있을 때만).
-	# resolve 중엔 입력이 막혀 있으므로 고스트도 숨긴다 — 안 그러면 충전 중인 셀 때문에 _can_place가 false가 돼
-	# 폭발 연출 한복판에 '못 놓음' 빨간 고스트가 얹힌다.
-	if not game_over and not game_clear and not resolving:
+	# 착지 프리뷰 — 조각을 '들고 있고', 그 자리에 놓을 수 있을 때만 그린다 (Block Blast 방식).
+	#
+	# 못 놓는 자리에는 아무것도 그리지 않는다. 예전엔 빨간 고스트를 얹었는데, 그 빨강이
+	# R 블록·기본 적(#e5484d로 셋이 같은 색)과 헷갈렸다. 원본 Block Blast는 무효 표시가
+	# 아예 없다 — 조각이 그리드에 붙지 않고 손가락을 따라 그냥 떠 있을 뿐이고, 거절은
+	# 그 '스냅과 프리뷰의 부재' + 놓았을 때 트레이로 되돌아감으로 읽힌다. 긍정 신호만 두면
+	# 어떤 블록 색과도 충돌할 수 없다.
+	#
+	# resolve 중엔 숨긴다 — 충전 중인 셀 때문에 _can_place가 false가 되어 프리뷰가 깜빡인다.
+	if dragging and not game_over and not game_clear and not resolving:
 		var active: Dictionary = _active()
 		var ghost: Array = _ghost_cells()
 		var can: bool = _can_place(ghost)
@@ -1947,24 +2054,18 @@ func _draw_board(fnt: Font) -> void:
 				draw_rect(prect, tint)
 				draw_rect(prect, Color(1.0, 1.0, 1.0, 0.30 + 0.40 * pulse), false, 2.0)
 
-		# ② 고스트: 흐린 dim이 아니라 '실제로 놓인 것과 같은' 활성 색. 미리보기임은 흰 테두리로 표시.
-		for gi2 in ghost:
-			var gc: Vector2i = gi2 as Vector2i
-			if gc.x < 0 or gc.x >= COLS or gc.y < 0 or gc.y >= ROWS:
-				continue
-			var rx: float = BOARD_X + gc.x * CELL
-			var ry: float = BOARD_Y + gc.y * CELL
-			var grect: Rect2 = Rect2(rx + bpad, ry + bpad, CELL - bpad * 2.0, CELL - bpad * 2.0)
-			if not can:
-				# 무효는 '빨간 금지'로 확실히. 반투명하게 깔면 밑의 파란 블록과 섞여 자홍색이 되어 안 읽히므로
-				# 불투명하게 덮는다.
-				draw_rect(grect, Color(0.62, 0.12, 0.15))
-				draw_rect(grect, Color(1.0, 0.32, 0.32), false, 2.0)
-				continue
-			draw_rect(grect, _color_of(active["color"]))
-			# 줄이 터질 자리면 프리뷰 줄과 같은 세기로 함께 맥동 = "이 한 수가 줄을 완성한다"
-			var edge: float = (0.30 + 0.40 * pulse) if will_clear else 0.55
-			draw_rect(grect, Color(1.0, 1.0, 1.0, edge), false, 2.0)
+		# ② 스냅된 조각: 흐린 dim이 아니라 '실제로 놓인 것과 같은' 활성 색.
+		#    조각이 그리드에 찰칵 붙는 것 자체가 "여기 놓인다"는 신호다.
+		if can:
+			for gi2 in ghost:
+				var gc: Vector2i = gi2 as Vector2i
+				var rx: float = BOARD_X + gc.x * CELL
+				var ry: float = BOARD_Y + gc.y * CELL
+				var grect: Rect2 = Rect2(rx + bpad, ry + bpad, CELL - bpad * 2.0, CELL - bpad * 2.0)
+				draw_rect(grect, _color_of(active["color"]))
+				# 줄이 터질 자리면 프리뷰 줄과 같은 세기로 함께 맥동 = "이 한 수가 줄을 완성한다"
+				var edge: float = (0.30 + 0.40 * pulse) if will_clear else 0.55
+				draw_rect(grect, Color(1.0, 1.0, 1.0, edge), false, 2.0)
 
 	# 넉백 잔상 (밀쳐진 적의 이전→현재 위치 시안 스트릭)
 	for st in push_streaks:
@@ -2080,6 +2181,51 @@ func _draw_core(fnt: Font) -> void:
 			zpts.append(Vector2(zx, zy))
 		draw_polyline(zpts, Color(1.0, 0.2, 0.2, ha), 3.0)
 
+# 조각 한 덩이를 임의 위치·임의 셀 크기로 (드래그 중인 조각, 트레이로 돌아가는 조각 공용)
+func _draw_piece_cells(tl: Vector2, cs: float, col: Color, offsets: Array) -> void:
+	var pad: float = cs * 0.08
+	for o in offsets:
+		var ov: Vector2i = o as Vector2i
+		var sx: float = tl.x + float(ov.x) * cs + 5.0
+		var sy: float = tl.y + float(ov.y) * cs + 7.0
+		draw_rect(Rect2(sx + pad, sy + pad, cs - pad * 2.0, cs - pad * 2.0), Color(0.0, 0.0, 0.0, 0.33))
+	for o2 in offsets:
+		var ov2: Vector2i = o2 as Vector2i
+		var r: Rect2 = Rect2(
+			tl.x + float(ov2.x) * cs + pad,
+			tl.y + float(ov2.y) * cs + pad,
+			cs - pad * 2.0, cs - pad * 2.0)
+		draw_rect(r, col)
+		draw_rect(r, Color(1.0, 1.0, 1.0, 0.5), false, maxf(1.5, cs * 0.03))
+
+# 손에 들린 조각 — 모든 것 위에 뜬다.
+# 놓을 수 있는 자리면 조각은 이미 보드에 스냅되어 그려졌으므로 여기선 안 그린다.
+# 놓을 수 없으면 스냅하지 않고 그림자를 단 채 포인터를 따라 떠 있는다 — 기존 블록 위에
+# 그대로 겹쳐 보이는 것이 곧 "여긴 안 들어간다"는 신호다.
+func _draw_held() -> void:
+	if not snapback.is_empty():
+		var sslot: int = int(snapback["slot"])
+		if sslot >= 0 and sslot < tray.size() and not tray[sslot].is_empty():
+			var sp: Dictionary = tray[sslot]
+			var offs: Array = sp["offsets"]
+			var bb: Vector2i = _piece_bbox(offs)
+			var k: float = 1.0 - clampf(float(snapback["t"]) / SNAPBACK_DUR, 0.0, 1.0)
+			var e: float = k * k * (3.0 - 2.0 * k)   # smoothstep — 감속하며 안착
+			var cs: float = lerpf(float(CELL), float(TRAY_PREVIEW_CELL), e)
+			var src_c: Vector2 = (snapback["from"] as Vector2) + Vector2(float(bb.x), float(bb.y)) * CELL * 0.5
+			var ctr: Vector2 = src_c.lerp(_tray_slot_rect(sslot).get_center(), e)
+			_draw_piece_cells(ctr - Vector2(float(bb.x), float(bb.y)) * cs * 0.5, cs,
+					_color_of(sp["color"]), offs)
+
+	if not dragging or game_over or game_clear or resolving:
+		return
+	var active: Dictionary = _active()
+	if active.is_empty():
+		return
+	if _can_place(_ghost_cells()):
+		return
+	_draw_piece_cells(_drag_origin_px(), float(CELL), _color_of(active["color"]), active["offsets"])
+
 func _draw_bottom(fnt: Font) -> void:
 	draw_rect(Rect2(0, BOT_Y, 800, 1000 - BOT_Y), C_HUD)
 
@@ -2090,12 +2236,15 @@ func _draw_bottom(fnt: Font) -> void:
 		# 슬롯 배경
 		var bg_col: Color = Color(0.18, 0.18, 0.28) if not slot.is_empty() else Color(0.10, 0.10, 0.16)
 		draw_rect(sr, bg_col)
-		# 선택 슬롯 테두리 강조
-		var border_w: float = 3.0 if i == sel else 1.5
-		var border_c: Color = Color(1.0, 0.88, 0.2, 0.9) if i == sel else Color(0.35, 0.35, 0.5, 0.6)
-		draw_rect(sr, border_c, false, border_w)
+		# 드래그앤드롭이라 '선택된 슬롯'은 더 이상 플레이어가 다루는 개념이 아니다(sel은 내부 장부용).
+		# 슬롯 강조를 남겨두면 집지도 않은 조각이 골라진 것처럼 보인다 → 테두리는 전부 동일하게.
+		draw_rect(sr, Color(0.35, 0.35, 0.5, 0.6), false, 1.5)
 
-		if not slot.is_empty():
+		# 손에 들려 있거나 트레이로 되돌아가는 중인 조각은 슬롯에 그리지 않는다 (_draw_held가 그린다)
+		var in_hand: bool = (dragging and i == drag_slot) or (
+				not snapback.is_empty() and int(snapback["slot"]) == i)
+
+		if not slot.is_empty() and not in_hand:
 			# 조각 미니 렌더 — 슬롯 중앙 정렬
 			var offsets: Array = slot["offsets"]
 			# 못 놓는 조각은 회색으로 (Block Blast식 명확화)
@@ -2124,17 +2273,31 @@ func _draw_bottom(fnt: Font) -> void:
 				var px: float = ox + float(ov.x - min_x) * float(ps)
 				var py: float = oy + float(ov.y - min_y) * float(ps)
 				draw_rect(Rect2(px, py, float(ps) - 2.0, float(ps) - 2.0), pcol)
-		else:
-			# 빈 슬롯 표시
+		elif slot.is_empty():
+			# 빈 슬롯 표시 (손에 들려 있을 뿐인 슬롯은 배경만 두고 비워 둔다)
 			var dash: String = "—"
 			var dw: float = fnt.get_string_size(dash, HORIZONTAL_ALIGNMENT_LEFT, -1, 22).x
 			draw_string(fnt, Vector2(sr.position.x + sr.size.x * 0.5 - dw * 0.5,
 					sr.position.y + sr.size.y * 0.5 + 8.0),
 					dash, HORIZONTAL_ALIGNMENT_LEFT, -1, 22, Color(0.3, 0.3, 0.4))
 
+	# 입력 방식 토글 (PC 테스트용) — 눌러서 드래그/클릭 전환
+	draw_rect(MODE_BTN, Color(0.20, 0.20, 0.31))
+	draw_rect(MODE_BTN, Color(0.45, 0.45, 0.6, 0.85), false, 2.0)
+	var mtxt: String = "CLICK MODE" if click_mode else "DRAG MODE"
+	var mw: float = fnt.get_string_size(mtxt, HORIZONTAL_ALIGNMENT_LEFT, -1, 18).x
+	draw_string(fnt, Vector2(MODE_BTN.get_center().x - mw * 0.5, MODE_BTN.position.y + 21.0),
+			mtxt, HORIZONTAL_ALIGNMENT_LEFT, -1, 18, Color(0.88, 0.88, 0.95))
+	var sub: String = "tap to switch"
+	var sw: float = fnt.get_string_size(sub, HORIZONTAL_ALIGNMENT_LEFT, -1, 13).x
+	draw_string(fnt, Vector2(MODE_BTN.get_center().x - sw * 0.5, MODE_BTN.position.y + 38.0),
+			sub, HORIZONTAL_ALIGNMENT_LEFT, -1, 13, Color(0.5, 0.5, 0.62))
+
 	# 조작 안내
 	var inst_y: float = float(BOT_Y) + float(TRAY_SLOT_H) + 30.0
-	draw_string(fnt, Vector2(20.0, inst_y), "Click a piece, then click board to place",
+	var how: String = ("Click a piece, then click board to place" if click_mode
+			else "Drag a piece onto the board to place")
+	draw_string(fnt, Vector2(20.0, inst_y), how,
 			HORIZONTAL_ALIGNMENT_LEFT, -1, 19, Color(0.8, 0.8, 0.85))
 	draw_string(fnt, Vector2(20.0, inst_y + 28.0), "Fill a full row OR column -> blast!",
 			HORIZONTAL_ALIGNMENT_LEFT, -1, 19, Color(0.55, 0.85, 0.6))
