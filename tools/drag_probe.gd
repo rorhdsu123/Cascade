@@ -37,9 +37,8 @@ func _run() -> void:
 	# ① 빈 칸 위 → 착지 그림자 + 스냅.
 	#    이동 직후(조각이 아직 뒤처져 있음) → 그림자가 조각 뒤로 드러나야 한다
 	_move(Vector2(144 + 64 * 3 + 32, 150 + 64 * 2 + 80))
-	await _grab("02a_valid_lagging")
-	await _settle(30)                       # 이징이 끝나면
-	await _grab("02b_valid_settled")         # 조각이 그림자를 정확히 덮어야 한다
+	await _settle(20)                        # 멈춰 있어도
+	await _grab("02_valid_preview")          # 흐린 미리보기가 계속 보여야 한다 (조각은 스냅 안 함)
 
 	# ② 기존 블록(빨강/파랑) 위 → 스냅 없음, 보드 표시 없음, 조각만 떠 있어야
 	_move(Vector2(144 + 64 * 2 + 32, 150 + 64 * 7 + 80))
@@ -118,5 +117,4 @@ func _grab(tag: String) -> void:
 	print("shot ", tag,
 			"  dragging=", main.get("dragging"),
 			" hover=", main.get("hover_col"), ",", main.get("hover_row"),
-			" held=", main.get("held_px"),
 			" snapback=", not (main.get("snapback") as Dictionary).is_empty())
