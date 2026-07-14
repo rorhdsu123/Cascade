@@ -148,6 +148,17 @@ const STUCK_ROW_GAP: float = 0.05    # 한 행 → 다음 행
 const STUCK_FADE: float = 0.05       # 블록 하나가 어둠에서 제 색으로
 const STUCK_HOLD: float = 1.2        # 다 채운 보드를 응시하는 시간 (원본은 ~1.8초, 재도전 반복을 감안해 줄임)
 
+# '거점 파괴' 죽음 — 위에서 아래로 무너진다. stuck의 '차오름'과 방향이 정반대라,
+# 화면만 보고도 어느 쪽으로 죽었는지 안다. 방향이 곧 사유다.
+# 레퍼런스가 없다(Block Blast엔 거점이 없다) — 실측이 아니라 설계값이다.
+const CORE_HITSTOP: float = 0.12     # 뚫리는 순간 시간이 멎는다
+const CORE_BURST: float = 0.26       # 거점 띠가 터진다 (기존 균열·섬광·흔들림을 여기 몰아준다)
+const CORE_FALL_AT: float = 0.46     # 받칠 게 사라진 보드가 쏟아지기 시작
+const CORE_COL_STAGGER: float = 0.04 # 열마다 시차 — 한 판이 아니라 우르르 무너지게
+const CORE_FALL_DUR: float = 0.50    # 한 열이 화면 밖으로
+const CORE_HOLD: float = 0.35        # 텅 빈 보드를 보는 시간
+const CORE_GRAVITY: float = 6500.0   # px/s² — CORE_FALL_DUR 안에 화면을 벗어나는 세기
+
 # 색상
 const C_RED  := Color("#e5484d")
 const C_BLUE := Color("#3b82f6")
@@ -247,6 +258,10 @@ var stuck: bool = false
 # 놓을 곳 없음 죽음 연출: 경과 시간(-1 = 비활성) + 메울 칸→색 (시작 시 확정, 매 프레임 흔들리지 않게)
 var stuck_t: float = -1.0
 var stuck_fill: Dictionary = {}   # Vector2i → 색 키
+
+# 거점 파괴 죽음 연출: 경과 시간(-1 = 비활성) + 띠가 터지는 순간을 한 번만 실행하기 위한 래치
+var core_t: float = -1.0
+var core_burst_done: bool = false
 
 # 3조각 트레이: 슬롯 = { "type", "color", "offsets" }, 빈 슬롯 = {}
 var tray: Array[Dictionary] = [{}, {}, {}]
@@ -406,6 +421,8 @@ func _init_game() -> void:
 	snapback = {}
 	stuck_t = -1.0
 	stuck_fill = {}
+	core_t = -1.0
+	core_burst_done = false
 	resolving = false
 	resolve_timer = 0.0
 	resolve_total = 0.0
@@ -1095,6 +1112,7 @@ func _end_turn() -> void:
 	if pending_core_dead:
 		game_over = true
 		pending_core_dead = false
+		_begin_core_death()
 		fail_streak[stage_idx] = int(fail_streak.get(stage_idx, 0)) + 1   # 연속 실패 → 갓 모드 근접
 		return
 	if not game_clear and not _has_valid_placement():
@@ -1221,7 +1239,51 @@ func _stuck_total() -> float:
 
 # 연출이 재생 중인가 (재생 중엔 결과 팝업을 띄우지 않는다)
 func _death_playing() -> bool:
-	return stuck_t >= 0.0 and stuck_t < _stuck_total()
+	if stuck_t >= 0.0 and stuck_t < _stuck_total():
+		return true
+	return core_t >= 0.0 and core_t < _core_total()
+
+# ===== 거점 파괴 죽음 =====
+func _core_total() -> float:
+	return CORE_FALL_AT + float(COLS - 1) * CORE_COL_STAGGER + CORE_FALL_DUR + CORE_HOLD
+
+func _begin_core_death() -> void:
+	core_t = 0.0
+	core_burst_done = false
+	hitstop = maxf(hitstop, CORE_HITSTOP)   # 뚫리는 순간 시간이 멎는다 (hitstop 중엔 core_t도 멈춘다)
+
+# 거점 띠가 터지는 순간 — 파편이 아래로 쏟아지고 화면이 붉게 흔들린다
+func _core_burst() -> void:
+	red_flash = RED_FLASH_DUR
+	shake_timer = SHAKE_DUR * 2.0
+	var sy: float = float(BOARD_Y + ROWS * CELL) + 4.0
+	var sw: float = float(COLS * CELL)
+	for _n in range(30):
+		var px: float = float(BOARD_X) + randf() * sw
+		var life: float = randf_range(0.35, 0.7)
+		debris.append({
+			"pos": Vector2(px, sy + randf_range(0.0, 32.0)),
+			"vel": Vector2(randf_range(-120.0, 120.0), randf_range(-260.0, -40.0)),
+			"life": life, "max": life,
+			"color": Color(0.95, 0.3, 0.25).lerp(Color(1.0, 0.8, 0.4), randf()),
+			"size": randf_range(4.0, 9.0),
+		})
+
+# 한 열이 무너지기 시작하는 시각 — 열마다 시차를 줘서 한 판이 아니라 우르르
+func _core_fall_offset(col: int) -> float:
+	if core_t < 0.0:
+		return 0.0
+	var dt: float = core_t - (CORE_FALL_AT + float(col) * CORE_COL_STAGGER)
+	if dt <= 0.0:
+		return 0.0
+	return 0.5 * CORE_GRAVITY * dt * dt
+
+# 거점 띠 자체의 낙하 — 보드보다 먼저 떨어진다 (거점이 무너지고 → 받칠 게 없어진 보드가 따라 쏟아진다)
+func _core_strip_offset() -> float:
+	if core_t < 0.0 or core_t <= CORE_BURST:
+		return 0.0
+	var dt: float = core_t - CORE_BURST
+	return 0.5 * CORE_GRAVITY * dt * dt
 
 # 메울 칸과 색을 지금 확정한다 — 매 프레임 randi()를 돌리면 색이 부글부글 끓는다
 func _begin_stuck_death() -> void:
@@ -1474,8 +1536,14 @@ func _process(delta: float) -> void:
 		snapback["t"] = float(snapback["t"]) - delta
 		if float(snapback["t"]) <= 0.0:
 			snapback = {}
-	if _death_playing():
+	if stuck_t >= 0.0 and stuck_t < _stuck_total():
 		stuck_t += delta
+		queue_redraw()
+	if core_t >= 0.0 and core_t < _core_total():
+		core_t += delta
+		if not core_burst_done and core_t >= CORE_BURST:
+			core_burst_done = true
+			_core_burst()
 		queue_redraw()
 	anim_t += delta
 	var k: int = push_streaks.size() - 1
@@ -1564,6 +1632,7 @@ func _draw() -> void:
 	_draw_board(fnt)
 	_draw_core(fnt)
 	_draw_bottom(fnt)
+	_draw_collapse()
 	_draw_held()
 
 	for fl in floaters:
@@ -2016,6 +2085,10 @@ func _draw_board(fnt: Font) -> void:
 			draw_rect(Rect2(rx, ry, CELL, CELL), C_GRID, false)
 			if board[r][c] == "" or charging.has(Vector2i(c, r)):
 				continue
+			# 거점 파괴로 떨어지기 시작한 블록은 여기서 안 그린다 — 하단 패널에 가리지 않게
+			# 위 레이어(_draw_collapse)가 맡는다.
+			if _core_fall_offset(c) > 0.0:
+				continue
 			draw_rect(Rect2(rx + bpad, ry + bpad, CELL - bpad * 2.0, CELL - bpad * 2.0),
 					_color_of(board[r][c]))
 
@@ -2228,6 +2301,10 @@ func _draw_board(fnt: Font) -> void:
 func _draw_core(fnt: Font) -> void:
 	var strip_h: float = 32.0
 	var sx: float = BOARD_X
+	# 거점 파괴: 띠가 보드보다 먼저 떨어져 나간다. 떨어지는 동안은 _draw_collapse가 그린다
+	# (여기서 그리면 하단 패널에 덮여 '무너짐'이 안 보인다). 그 자리는 빈 채로 남는다.
+	if _core_strip_offset() > 0.0:
+		return
 	var sy: float = BOARD_Y + ROWS * CELL + 4.0
 	var sw: float = COLS * CELL
 	var core_max: int = int(st["core_hp"])
@@ -2299,6 +2376,33 @@ func _draw_held() -> void:
 	if active.is_empty():
 		return
 	_draw_piece_cells(_drag_origin_px(), float(CELL), _color_of(active["color"]), active["offsets"])
+
+# 붕괴 층 — 거점 파괴로 떨어지는 것들은 하단 패널 '위'에 그린다.
+# 보드 층에서 그리면 트레이 패널이 덮어버려서 쏟아지는 게 화면 밖으로 나가는 걸 볼 수가 없다.
+func _draw_collapse() -> void:
+	if core_t < 0.0:
+		return
+	var sw: float = float(COLS * CELL)
+
+	# ① 거점 띠 — 보드보다 먼저 떨어져 나간다 (무너지는 순서가 곧 인과다)
+	var sf: float = _core_strip_offset()
+	if sf > 0.0 and sf <= 400.0:
+		var sy: float = float(BOARD_Y + ROWS * CELL) + 4.0 + sf
+		draw_rect(Rect2(float(BOARD_X), sy, sw, 32.0), Color(0.20, 0.05, 0.06))
+		draw_rect(Rect2(float(BOARD_X), sy, sw, 32.0), Color(1.0, 0.35, 0.30, 0.7), false, 2.0)
+
+	# ② 받칠 게 사라진 블록이 열마다 시차를 두고 쏟아진다
+	var bpad: float = 5.0
+	for r in range(ROWS):
+		for c in range(COLS):
+			if board[r][c] == "":
+				continue
+			var fall: float = _core_fall_offset(c)
+			if fall <= 0.0 or fall > 1000.0:
+				continue
+			draw_rect(Rect2(
+					BOARD_X + c * CELL + bpad, BOARD_Y + r * CELL + bpad + fall,
+					CELL - bpad * 2.0, CELL - bpad * 2.0), _color_of(board[r][c]))
 
 func _draw_bottom(fnt: Font) -> void:
 	draw_rect(Rect2(0, BOT_Y, 800, 1000 - BOT_Y), C_HUD)
