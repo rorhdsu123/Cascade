@@ -19,7 +19,6 @@ const LINE_BASE: int = 120
 const STREAK_STEP: float = 0.5
 const BLAST_RING_DELAY: float = 0.4   # 링(추가 레인) 간 순차 발사 텀 (물결 확산 속도. 클수록 극적·느림)
 const FLASH_DUR: float = 0.7
-const CLIMAX_FLASH_DUR: float = 0.95   # 전멸(화면 전체 청소) 골드 섬광 길이(천천히 페이드)
 # 전멸(클라이맥스) 임계 콤보. COMBO_GRACE 도입으로 스트릭이 실제로 자라기 시작(최대콤보 2.7→5.5)했고,
 # 그 사다리의 꼭대기가 되도록 6에 앉힘 → 판당 1~2회(도달 가능하되 드묾). 유예 없던 시절의 3은
 # 이제 판당 10회가 터져 클라이맥스가 아니게 됨.
@@ -235,8 +234,7 @@ var flash_timer: float = 0.0
 var flash_label: String = ""
 var flash_lines: int = 0
 var flash_combo: int = 0
-var flash_climax: bool = false      # 화면 전체 도달(전멸) — 라벨/섬광 강조용
-var climax_flash: float = 0.0       # 전멸 골드 섬광 타이머
+var flash_climax: bool = false      # 화면 전체 도달(전멸) — 라벨 강조용
 var climax_pending: float = -1.0    # 전멸 충격파 발사 예약 시각(resolve_timer 기준, -1=없음)
 
 # 터질 예정인 완성 줄 — 충전이 끝날 때까지 board에 그대로 남아 있다(즉시 삭제 금지).
@@ -361,7 +359,6 @@ func _init_game() -> void:
 	seen_types = {}
 	anim_t = 0.0
 	red_flash = 0.0
-	climax_flash = 0.0
 	climax_pending = -1.0
 	flash_climax = false
 	shake_timer = 0.0
@@ -890,10 +887,9 @@ func _burst_lines() -> void:
 	flash_timer = FLASH_DUR
 	hitstop = maxf(hitstop, 0.05)
 
-# 전멸(화면 전체 청소) 클라이맥스 — 보드 중앙에서 퍼지는 큰 충격파 + 골드 섬광 + 히트스톱(셰이크 없음)
+# 전멸(화면 전체 청소) 클라이맥스 — 보드 중앙에서 퍼지는 큰 충격파 + 히트스톱(셰이크·전체화면 섬광 없음)
 func _fire_climax() -> void:
 	var ctr: Vector2 = Vector2(BOARD_X + COLS * CELL * 0.5, BOARD_Y + ROWS * CELL * 0.5)
-	climax_flash = CLIMAX_FLASH_DUR
 	hitstop = maxf(hitstop, 0.12)
 	impacts.append({"pos": ctr, "life": 1.0, "max": 1.0, "color": Color(1.0, 0.97, 0.65), "radius": CELL * 1.6, "star": true})
 	impacts.append({"pos": ctr, "life": 0.85, "max": 0.85, "color": Color(1.0, 0.82, 0.32), "radius": CELL * 2.8, "star": false})
@@ -1316,8 +1312,6 @@ func _process(delta: float) -> void:
 		outline_timer = maxf(0.0, outline_timer - delta)
 	if red_flash > 0.0:
 		red_flash = maxf(0.0, red_flash - delta)
-	if climax_flash > 0.0:
-		climax_flash = maxf(0.0, climax_flash - delta)
 	if shake_timer > 0.0:
 		shake_timer = maxf(0.0, shake_timer - delta)
 	if callout_timer > 0.0:
@@ -1475,9 +1469,6 @@ func _draw() -> void:
 		var ra: float = (red_flash / RED_FLASH_DUR) * 0.5
 		draw_rect(Rect2(-20, -20, 840, 1040), Color(0.9, 0.05, 0.05, ra))
 
-	if climax_flash > 0.0:
-		var cf: float = climax_flash / CLIMAX_FLASH_DUR
-		draw_rect(Rect2(0, 0, 800, 1000), Color(1.0, 0.9, 0.55, cf * 0.42))
 	if flash_timer > 0.0:
 		var t: float = flash_timer / FLASH_DUR
 		# 콤보↑ = 더 밝고 뜨거운 섬광(흰색→따뜻한 주황)
