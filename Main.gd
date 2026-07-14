@@ -203,6 +203,8 @@ var st: Dictionary = {}          # 현재 스테이지 정의(STAGES[stage_idx])
 var cleared: Dictionary = {}     # 스테이지 인덱스 → 클리어 여부 (세션 한정, 저장 없음)
 var hover_stage: int = -1
 var _play_hover: bool = false    # 하단 시작 버튼 호버
+var _retry_hover: bool = false   # 결과 팝업 재도전 버튼 호버
+var _home_hover: bool = false    # 결과 팝업 홈 버튼 호버
 
 # ===== 상태 =====
 var board: Array = []
@@ -332,6 +334,8 @@ func _init_game() -> void:
 	drought = 0
 	game_over = false
 	game_clear = false
+	_retry_hover = false
+	_home_hover = false
 	stuck = false
 	flash_timer = 0.0
 	flash_label = ""
@@ -1218,22 +1222,24 @@ func _input(event: InputEvent) -> void:
 					_start_stage(pick)
 		return
 
-	# ── 결과 화면: 재시도(SPACE/클릭) or 스테이지 선택으로(ESC) ──
+	# ── 결과 팝업: 재도전 버튼(또는 SPACE) / 홈 버튼(또는 ESC) ──
+	#    빈 곳 클릭은 무시한다 — 모달이므로, 잘못 누르고 홈으로 튕기는 사고를 막는다.
 	if game_over or game_clear:
-		if event is InputEventMouseButton:
+		if event is InputEventMouseMotion:
+			var rp: Vector2 = (event as InputEventMouseMotion).position
+			_retry_hover = RETRY_BTN.has_point(rp)
+			_home_hover = HOME_BTN.has_point(rp)
+		elif event is InputEventMouseButton:
 			var mbe: InputEventMouseButton = event as InputEventMouseButton
-			if mbe.pressed:
-				mode = "select"
+			if mbe.pressed and mbe.button_index == MOUSE_BUTTON_LEFT:
+				if RETRY_BTN.has_point(mbe.position):
+					_result_advance()
+				elif HOME_BTN.has_point(mbe.position):
+					mode = "select"
 		elif event is InputEventKey:
 			var ke: InputEventKey = event as InputEventKey
 			if ke.pressed and ke.keycode == KEY_SPACE:
-				# 클리어면 다음 스테이지로(선형 진행), 실패면 같은 스테이지 재시도
-				if game_clear and stage_idx + 1 < STAGES.size():
-					_start_stage(stage_idx + 1)
-				elif game_clear:
-					mode = "select"          # 마지막 스테이지 클리어 → 홈
-				else:
-					_start_stage(stage_idx)
+				_result_advance()
 			elif ke.pressed and ke.keycode == KEY_ESCAPE:
 				mode = "select"
 		return
@@ -1498,30 +1504,125 @@ func _draw() -> void:
 		_draw_text_outlined(fnt, Vector2(cbx, 183.0), callout_text, 32, Color(1.0, 0.9, 0.4, ca))
 
 	if game_over or game_clear:
-		draw_rect(Rect2(0, 0, 800, 1000), Color(0.0, 0.0, 0.0, 0.72))
-		var msg: String = "스테이지 클리어!" if game_clear else "실패"
-		var mfs: int = 72
-		var mw: float = fnt.get_string_size(msg, HORIZONTAL_ALIGNMENT_LEFT, -1, mfs).x
-		_draw_text_outlined(fnt, Vector2(400.0 - mw * 0.5, 420.0), msg, mfs,
-				C_GOLD if game_clear else Color.WHITE)
-		var sname: String = "%d. %s" % [stage_idx + 1, String(st["name"])]
-		var snw: float = fnt.get_string_size(sname, HORIZONTAL_ALIGNMENT_LEFT, -1, 26).x
-		_draw_text_outlined(fnt, Vector2(400.0 - snw * 0.5, 460.0), sname, 26, Color(0.75, 0.77, 0.88))
-		if game_over:
-			var reason: String = "놓을 곳이 없다" if stuck else "거점 파괴"
-			var rw: float = fnt.get_string_size(reason, HORIZONTAL_ALIGNMENT_LEFT, -1, 30).x
-			_draw_text_outlined(fnt, Vector2(400.0 - rw * 0.5, 506.0), reason, 30, Color(1.0, 0.5, 0.5))
+		_draw_result(fnt)
+
+# ===== 결과 팝업 =====
+# 화면을 통째로 덮는 텍스트 나열이 아니라, 어두워진 게임 위에 뜨는 '카드'.
+# 시선 순서 = 판정(제목) → 사유 → 남은 적 → 재도전 버튼(착지점).
+const RESULT_PANEL: Rect2 = Rect2(170.0, 264.0, 460.0, 490.0)
+const RETRY_BTN: Rect2 = Rect2(240.0, 552.0, 320.0, 88.0)
+const HOME_BTN: Rect2 = Rect2(300.0, 660.0, 200.0, 40.0)
+
+# 재도전 = 실패면 같은 스테이지, 클리어면 다음(마지막이면 홈)
+func _result_advance() -> void:
+	if game_clear:
+		if stage_idx + 1 < STAGES.size():
+			_start_stage(stage_idx + 1)
 		else:
-			# 클리어 품질 = 얼마나 안 흘렸나 (누수 0 = 완봉)
-			var res: String = "완봉 — 한 마리도 놓치지 않았다" if leaked == 0 else "처치 %d · 누수 %d" % [killed, leaked]
-			var rw2: float = fnt.get_string_size(res, HORIZONTAL_ALIGNMENT_LEFT, -1, 22).x
-			_draw_text_outlined(fnt, Vector2(400.0 - rw2 * 0.5, 506.0), res, 22,
-					Color(0.45, 0.9, 0.6) if leaked == 0 else Color(0.85, 0.7, 0.5))
-		var sub: String = "SPACE 다시 · 클릭/ESC 홈"
-		if game_clear:
-			sub = "SPACE 다음 스테이지 · 클릭/ESC 홈" if stage_idx + 1 < STAGES.size() else "SPACE·클릭 홈"
-		var sw: float = fnt.get_string_size(sub, HORIZONTAL_ALIGNMENT_LEFT, -1, 24).x
-		_draw_text_outlined(fnt, Vector2(400.0 - sw * 0.5, 566.0), sub, 24, Color(0.75, 0.75, 0.75))
+			mode = "select"
+	else:
+		_start_stage(stage_idx)
+
+# 시계방향 회전 화살표(재도전) — 링 + 끝단 삼각촉
+func _draw_retry_icon(c: Vector2, r: float, col: Color) -> void:
+	draw_arc(c, r, -PI * 0.35, PI * 1.15, 24, col, 5.0)
+	var tip: Vector2 = c + Vector2(cos(-PI * 0.35), sin(-PI * 0.35)) * r
+	var t2: Vector2 = tip + Vector2(0.0, -r * 0.55)
+	var t3: Vector2 = tip + Vector2(r * 0.55, 0.0)
+	draw_colored_polygon(PackedVector2Array([tip + Vector2(-r * 0.18, r * 0.18), t2, t3]), col)
+
+func _draw_result(fnt: Font) -> void:
+	# 스크림 — 팝업 뒤의 보드를 '멈춘 배경'으로 눌러둔다(모달 표시)
+	draw_rect(Rect2(-20, -20, 840, 1040), Color(0.0, 0.0, 0.0, 0.68))
+
+	var p: Rect2 = RESULT_PANEL
+	var accent: Color = C_GOLD if game_clear else Color(0.85, 0.35, 0.35)
+	draw_rect(Rect2(p.position.x + 6.0, p.position.y + 10.0, p.size.x, p.size.y), Color(0.0, 0.0, 0.0, 0.45))
+	draw_rect(p, Color(0.13, 0.13, 0.2))
+	draw_rect(Rect2(p.position.x, p.position.y, p.size.x, 8.0), accent)   # 상단 강조 바
+	draw_rect(p, accent, false, 3.0)
+
+	var cx: float = p.position.x + p.size.x * 0.5
+
+	var msg: String = "스테이지 클리어!" if game_clear else "실패"
+	var mfs: int = 56
+	var mw: float = fnt.get_string_size(msg, HORIZONTAL_ALIGNMENT_LEFT, -1, mfs).x
+	_draw_text_outlined(fnt, Vector2(cx - mw * 0.5, p.position.y + 82.0), msg, mfs,
+			C_GOLD if game_clear else Color.WHITE)
+
+	var sname: String = "%d. %s" % [stage_idx + 1, String(st["name"])]
+	var snw: float = fnt.get_string_size(sname, HORIZONTAL_ALIGNMENT_LEFT, -1, 20).x
+	_draw_text_outlined(fnt, Vector2(cx - snw * 0.5, p.position.y + 114.0), sname, 20, Color(0.75, 0.77, 0.88))
+
+	if game_over:
+		var reason: String = "놓을 곳이 없다" if stuck else "거점 파괴"
+		var rw: float = fnt.get_string_size(reason, HORIZONTAL_ALIGNMENT_LEFT, -1, 24).x
+		_draw_text_outlined(fnt, Vector2(cx - rw * 0.5, p.position.y + 152.0), reason, 24, Color(1.0, 0.5, 0.5))
+	else:
+		var res: String = "완봉 — 한 마리도 놓치지 않았다" if leaked == 0 else "처치 %d · 누수 %d" % [killed, leaked]
+		var rw2: float = fnt.get_string_size(res, HORIZONTAL_ALIGNMENT_LEFT, -1, 20).x
+		_draw_text_outlined(fnt, Vector2(cx - rw2 * 0.5, p.position.y + 152.0), res, 20,
+				Color(0.45, 0.9, 0.6) if leaked == 0 else Color(0.85, 0.7, 0.5))
+
+	# ── 버튼 바로 위: 못 처치하고 남긴 적. 정의는 HUD 목표 카드와 동일(total - killed - leaked)
+	#    → 게임 중 보던 그 숫자가 그대로 결과에 박힌다(다른 셈이면 "내가 보던 수"와 어긋남).
+	var remaining: int = maxi(0, int(st["total"]) - killed - leaked)
+	var cap: String = "남은 적" if game_over else "처치"
+	var cap_fs: int = 18
+	var cw: float = fnt.get_string_size(cap, HORIZONTAL_ALIGNMENT_LEFT, -1, cap_fs).x
+	_draw_text_outlined(fnt, Vector2(cx - cw * 0.5, p.position.y + 208.0), cap, cap_fs, Color(0.95, 0.85, 0.5))
+
+	var num: String = str(remaining if game_over else killed)
+	var num_fs: int = 46
+	var icon_s: float = 40.0
+	var nw2: float = fnt.get_string_size(num, HORIZONTAL_ALIGNMENT_LEFT, -1, num_fs).x
+	var grp_w: float = icon_s + 12.0 + nw2
+	var grp_l: float = cx - grp_w * 0.5
+	var row_y: float = p.position.y + 254.0
+	_draw_enemy_icon(Vector2(grp_l + icon_s * 0.5, row_y), icon_s)
+	_draw_text_outlined(fnt, Vector2(grp_l + icon_s + 12.0, row_y + 16.0), num, num_fs,
+			Color(1.0, 0.55, 0.5) if game_over else Color(0.55, 0.95, 0.65))
+
+	# ── 재도전 버튼 (시선의 착지점 — 홈 화면 시작 버튼과 같은 초록 3D 문법)
+	var label: String = "재도전"
+	if game_clear:
+		label = "다음 스테이지" if stage_idx + 1 < STAGES.size() else "홈으로"
+	var r: Rect2 = RETRY_BTN
+	draw_rect(Rect2(r.position.x, r.position.y + 7.0, r.size.x, r.size.y), Color(0.10, 0.28, 0.14))
+	var base: Color = Color(0.42, 0.82, 0.32) if _retry_hover else Color(0.34, 0.72, 0.26)
+	draw_rect(r, base)
+	draw_rect(Rect2(r.position.x, r.position.y, r.size.x, r.size.y * 0.32), Color(1.0, 1.0, 1.0, 0.16))
+	draw_rect(r, Color(0.16, 0.42, 0.18), false, 4.0)
+
+	# 회전 화살표는 '다시 한다'는 뜻 — 실패(재도전)에만. 클리어는 앞으로 가는 것이라 아이콘 없이 글자만.
+	var lfs: int = 38
+	var lw: float = fnt.get_string_size(label, HORIZONTAL_ALIGNMENT_LEFT, -1, lfs).x
+	var icon_r: float = 17.0
+	var mid_y: float = r.position.y + r.size.y * 0.5
+	if game_over:
+		var inner_w: float = icon_r * 2.0 + 16.0 + lw
+		var inner_l: float = r.position.x + r.size.x * 0.5 - inner_w * 0.5
+		_draw_retry_icon(Vector2(inner_l + icon_r, mid_y), icon_r, Color.WHITE)
+		_draw_text_outlined(fnt, Vector2(inner_l + icon_r * 2.0 + 16.0, mid_y + 13.0), label, lfs, Color.WHITE,
+				Color(0.10, 0.28, 0.14, 0.95))
+	else:
+		_draw_text_outlined(fnt, Vector2(r.position.x + r.size.x * 0.5 - lw * 0.5, mid_y + 13.0), label, lfs, Color.WHITE,
+				Color(0.10, 0.28, 0.14, 0.95))
+
+	# ── 홈 (부차 동작 — 고스트 버튼)
+	var h: Rect2 = HOME_BTN
+	if _home_hover:
+		draw_rect(h, Color(1.0, 1.0, 1.0, 0.08))
+	draw_rect(h, Color(0.5, 0.52, 0.62, 0.9 if _home_hover else 0.5), false, 2.0)
+	var hs: String = "홈으로"
+	var hfs: int = 20
+	var hw2: float = fnt.get_string_size(hs, HORIZONTAL_ALIGNMENT_LEFT, -1, hfs).x
+	_draw_text_outlined(fnt, Vector2(h.position.x + h.size.x * 0.5 - hw2 * 0.5, h.position.y + 28.0), hs, hfs,
+			Color.WHITE if _home_hover else Color(0.75, 0.77, 0.88))
+
+	var hint: String = "SPACE %s · ESC 홈" % label
+	var hintw: float = fnt.get_string_size(hint, HORIZONTAL_ALIGNMENT_LEFT, -1, 17).x
+	_draw_text_outlined(fnt, Vector2(400.0 - hintw * 0.5, p.position.y + p.size.y - 26.0), hint, 17, Color(0.5, 0.52, 0.62))
 
 # ===== 홈(스테이지) 화면 =====
 # Toon Blast식: 위쪽은 진행 상황(스테이지 목록·잠금), 시선의 착지점은 하단의 큰 시작 버튼.
