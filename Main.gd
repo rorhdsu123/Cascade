@@ -141,6 +141,13 @@ const SHAKE_DUR: float = 0.28
 const SHAKE_AMP: float = 9.0
 const FLOAT_DUR: float = 0.6
 
+# '놓을 곳 없음' 죽음 — 빈 칸을 아래에서 위로 블록으로 메운다. 꽉 찬 보드 자체가 패배 사유의 진술이다.
+# 수치는 레퍼런스(Block Blast) 원본 프레임 실측: 행 간격 50ms, 블록당 페이드인 50ms, 8행 = 0.4초.
+# 채우는 색은 회색이 아니라 평범한 블록 팔레트 — 원본이 그렇고, 꽉 찬 컬러 보드가 "빈 칸 0"을 가장 직설적으로 말한다.
+const STUCK_ROW_GAP: float = 0.05    # 한 행 → 다음 행
+const STUCK_FADE: float = 0.05       # 블록 하나가 어둠에서 제 색으로
+const STUCK_HOLD: float = 1.2        # 다 채운 보드를 응시하는 시간 (원본은 ~1.8초, 재도전 반복을 감안해 줄임)
+
 # 색상
 const C_RED  := Color("#e5484d")
 const C_BLUE := Color("#3b82f6")
@@ -236,6 +243,10 @@ var fail_streak: Dictionary = {}  # 스테이지 인덱스 → 연속 실패 횟
 var game_over: bool = false
 var game_clear: bool = false
 var stuck: bool = false
+
+# 놓을 곳 없음 죽음 연출: 경과 시간(-1 = 비활성) + 메울 칸→색 (시작 시 확정, 매 프레임 흔들리지 않게)
+var stuck_t: float = -1.0
+var stuck_fill: Dictionary = {}   # Vector2i → 색 키
 
 # 3조각 트레이: 슬롯 = { "type", "color", "offsets" }, 빈 슬롯 = {}
 var tray: Array[Dictionary] = [{}, {}, {}]
@@ -393,6 +404,8 @@ func _init_game() -> void:
 	dragging = false
 	drag_slot = -1
 	snapback = {}
+	stuck_t = -1.0
+	stuck_fill = {}
 	resolving = false
 	resolve_timer = 0.0
 	resolve_total = 0.0
@@ -414,6 +427,7 @@ func _init_game() -> void:
 	if not _has_valid_placement():
 		game_over = true
 		stuck = true
+		_begin_stuck_death()
 
 # 진행도 가중 랜덤 조각 1개 생성 (초반 SMALL 편향, 후반 BIG 비중↑)
 func _free_cells() -> int:
@@ -1086,6 +1100,7 @@ func _end_turn() -> void:
 	if not game_clear and not _has_valid_placement():
 		game_over = true
 		stuck = true
+		_begin_stuck_death()
 		fail_streak[stage_idx] = int(fail_streak.get(stage_idx, 0)) + 1
 
 # ===== 스텝 진행 =====
@@ -1199,6 +1214,29 @@ func _check_win() -> void:
 		fail_streak[stage_idx] = 0     # 깼으니 갓 모드 해제
 
 
+# ===== 놓을 곳 없음 죽음 =====
+# 연출 총 길이: 마지막 행이 다 밝아질 때까지 + 응시
+func _stuck_total() -> float:
+	return float(ROWS - 1) * STUCK_ROW_GAP + STUCK_FADE + STUCK_HOLD
+
+# 연출이 재생 중인가 (재생 중엔 결과 팝업을 띄우지 않는다)
+func _death_playing() -> bool:
+	return stuck_t >= 0.0 and stuck_t < _stuck_total()
+
+# 메울 칸과 색을 지금 확정한다 — 매 프레임 randi()를 돌리면 색이 부글부글 끓는다
+func _begin_stuck_death() -> void:
+	stuck_fill = {}
+	for r in range(ROWS):
+		for c in range(COLS):
+			if board[r][c] == "":
+				stuck_fill[Vector2i(c, r)] = COLORS[randi() % COLORS.size()]
+	stuck_t = 0.0
+
+# 특정 칸이 메워지기 시작하는 시각 (맨 아랫줄 = 0)
+func _stuck_cell_alpha(cell: Vector2i) -> float:
+	var start: float = float(ROWS - 1 - cell.y) * STUCK_ROW_GAP
+	return clampf((stuck_t - start) / STUCK_FADE, 0.0, 1.0)
+
 # ===== 조각 배치 =====
 func _place_piece() -> void:
 	if resolving:
@@ -1298,6 +1336,14 @@ func _input(event: InputEvent) -> void:
 				var pick: int = sk.keycode - KEY_1
 				if _is_unlocked(pick):
 					_start_stage(pick)
+		return
+
+	# ── 죽음 연출 재생 중: 아무 입력이나 누르면 건너뛴다 (재도전을 반복할 땐 매번 1.6초가 짐이 된다)
+	if _death_playing():
+		var skip: bool = (event is InputEventMouseButton and (event as InputEventMouseButton).pressed) \
+				or (event is InputEventKey and (event as InputEventKey).pressed)
+		if skip:
+			stuck_t = _stuck_total()
 		return
 
 	# ── 결과 팝업: 재도전 버튼(또는 SPACE) / 홈 버튼(또는 ESC) ──
@@ -1428,6 +1474,9 @@ func _process(delta: float) -> void:
 		snapback["t"] = float(snapback["t"]) - delta
 		if float(snapback["t"]) <= 0.0:
 			snapback = {}
+	if _death_playing():
+		stuck_t += delta
+		queue_redraw()
 	anim_t += delta
 	var k: int = push_streaks.size() - 1
 	while k >= 0:
@@ -1610,7 +1659,8 @@ func _draw() -> void:
 		draw_rect(Rect2(cbx - 16.0, 150.0, cow + 32.0, 46.0), Color(0.05, 0.02, 0.08, 0.62 * ca))
 		_draw_text_outlined(fnt, Vector2(cbx, 183.0), callout_text, 32, Color(1.0, 0.9, 0.4, ca))
 
-	if game_over or game_clear:
+	# 죽음 연출이 재생 중이면 팝업을 미룬다 — 보드가 메워지는 걸 먼저 보여준다
+	if (game_over or game_clear) and not _death_playing():
 		_draw_result(fnt)
 
 # ===== 결과 팝업 =====
@@ -2084,6 +2134,10 @@ func _draw_board(fnt: Font) -> void:
 	for e in enemies:
 		var ec: int = e["col"]
 		var er: int = e["row"]
+		# 놓을 곳 없음 죽음: 차오르는 물결이 지난 줄의 적은 통째로 사라진다.
+		# 블록으로 덮기만 하면 HP 바가 블록 사이 여백으로 삐져나와 커튼에 구멍이 뚫린다.
+		if stuck_t >= 0.0 and er >= 0 and er < ROWS and _stuck_cell_alpha(Vector2i(ec, er)) > 0.0:
+			continue
 		if er < 0 or er >= ROWS:
 			continue
 		# 피격 flinch: 잠깐 떨림
@@ -2156,6 +2210,20 @@ func _draw_board(fnt: Font) -> void:
 				HORIZONTAL_ALIGNMENT_LEFT, -1, hp_fs, Color(0.0, 0.0, 0.0, 0.8))
 		draw_string(fnt, Vector2(cx - tw * 0.5, cy + hp_yoff), hp_str,
 				HORIZONTAL_ALIGNMENT_LEFT, -1, hp_fs, Color.WHITE)
+
+	# ── 놓을 곳 없음: 빈 칸이 아래에서 위로 메워진다. 꽉 찬 보드가 곧 패배 사유의 진술이다
+	#    ("놓을 곳이 없다"를 글이 아니라 사실로 보여준다). 물결이 지난 줄의 적은 위에서 이미 지웠다.
+	if stuck_t >= 0.0:
+		for fi in stuck_fill:
+			var cell: Vector2i = fi as Vector2i
+			var fa: float = _stuck_cell_alpha(cell)
+			if fa <= 0.0:
+				continue
+			var frect: Rect2 = Rect2(
+					BOARD_X + cell.x * CELL + bpad, BOARD_Y + cell.y * CELL + bpad,
+					CELL - bpad * 2.0, CELL - bpad * 2.0)
+			# 셀 배경에서 제 색으로 밝아진다 — 원본의 '어둡게 나타나 밝아짐' (실측 페이드 50ms)
+			draw_rect(frect, C_CELL.lerp(_color_of(stuck_fill[cell]), fa))
 
 func _draw_core(fnt: Font) -> void:
 	var strip_h: float = 32.0
