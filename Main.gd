@@ -2052,20 +2052,9 @@ func _draw_hud(fnt: Font) -> void:
 	_draw_text_outlined(fnt, Vector2(grp_x, box_y + 72.0), n_str, n_fs, n_col)
 	_draw_text_outlined(fnt, Vector2(grp_x + n_w + 4.0, box_y + 72.0), "턴", u_fs, Color(0.72, 0.72, 0.8))
 
-	# ── 진행바(스타바 대응): 처치 진행도 ──
-	var bx: float = start_x
-	var by: float = box_y + box_h + 8.0
-	var bw: float = (adv_r.position.x + aw) - start_x
-	var bh: float = 12.0
-	draw_rect(Rect2(bx, by, bw, bh), Color(0.12, 0.12, 0.18))
-	# 처치(초록) + 누수(빨강)를 나눠 채운다 — 둘 다 '처리된 적'이지만 누수는 못 막은 것.
-	# 붉은 구간이 남아 보여야 "흘려보내며 클리어"가 성취로 안 읽힌다.
-	var tot: float = float(st["total"])
-	var kfrac: float = clampf(float(killed) / tot, 0.0, 1.0)
-	var lfrac: float = clampf(float(leaked) / tot, 0.0, 1.0 - kfrac)
-	draw_rect(Rect2(bx, by, bw * kfrac, bh), Color(0.3, 0.78, 0.46))
-	draw_rect(Rect2(bx + bw * kfrac, by, bw * lfrac, bh), Color(0.8, 0.25, 0.25))
-	draw_rect(Rect2(bx, by, bw, bh), Color(1.0, 1.0, 1.0, 0.4), false)
+	# 처치 진행바는 제거했다 — 빨강/초록 가로 막대라 거점 HP 바(진짜 체력)와 색 언어가 겹쳐
+	# 'HP가 바닥났다'로 오독됐다. 목표 카드의 '남은 적' 숫자만으로 진행도는 충분히 읽힌다.
+	# 이로써 빨강은 거점 HP 전용이 된다.
 
 func _draw_board(fnt: Font) -> void:
 	draw_rect(Rect2(BOARD_X - 2, BOARD_Y - 2, COLS * CELL + 4, ROWS * CELL + 4), C_BORD, false)
