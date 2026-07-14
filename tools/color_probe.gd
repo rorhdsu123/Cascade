@@ -27,14 +27,17 @@ func _run() -> void:
 	main.set("board", board)
 
 	# 적: 각 밴드 위에 4타입을 col 1/3/5/7에 배치. 전진·연출은 멈춘다(step_every 큼).
+	# HP는 실제 스테이지 값에 가깝게 — 탱크는 3자리(256)라 게이지 안에서 하트와 부딪힐 수 있다.
+	var hp_of: Dictionary = {"basic": 65, "tank": 256, "fast": 39, "swarm": 26}
 	var enemies: Array = []
 	var eid: int = 700
 	for r in range(BANDS.size()):
 		for t in range(TYPES.size()):
 			eid += 1
+			var ty0: String = String(TYPES[t])
 			enemies.append({
 				"id": eid, "col": 1 + t * 2, "row": r, "vis_row": float(r),
-				"hp": 30, "maxhp": 30, "etype": String(TYPES[t]),
+				"hp": int(hp_of[ty0]), "maxhp": int(hp_of[ty0]), "etype": ty0,
 				"step_every": 9999, "flinch": 0.0,
 			})
 	# 반피 basic — 저HP 명암이 어두워질 때 빨강/탱크로 안 읽히는지 확인

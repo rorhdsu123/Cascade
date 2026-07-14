@@ -692,6 +692,17 @@ func _ghost_cells() -> Array:
 func _cell_center(col: int, row: int) -> Vector2:
 	return Vector2(BOARD_X + col * CELL + CELL * 0.5, BOARD_Y + row * CELL + CELL * 0.5)
 
+# 적 몸통의 중심 — 셀 중심보다 E_BODY_DY만큼 아래.
+# HP 게이지가 셀 위쪽을 쓰기 때문에, 몸통이 셀 한가운데에 있으면 게이지가 머리를 잘라먹는다
+# (원이 돔이 되고 탱크 사각형이 직사각형이 된다 = 모양으로 타입을 읽는 문법이 무너진다).
+# 몸통을 게이지 아래로 내려앉히면 둘이 안 겹친다.
+# 사망 팝·파편·임팩트·데미지 숫자도 전부 이 좌표를 써야 한다 — 셀 중심을 쓰면 이펙트가
+# 몸통 머리 위에서 터진다. (블록 소멸 팝은 여전히 _cell_center다. 그건 셀의 일이니까.)
+const E_BODY_DY: float = 10.0
+
+func _enemy_pos(col: int, row: int) -> Vector2:
+	return _cell_center(col, row) + Vector2(0.0, E_BODY_DY)
+
 # 조각이 차지하는 칸 크기 (offsets는 원점 (0,0) 기준 정규화되어 있다)
 func _piece_bbox(offsets: Array) -> Vector2i:
 	var mx: int = 0
@@ -1011,7 +1022,7 @@ func _apply_hit(h: Dictionary) -> void:
 	var etype: String = e["etype"]
 	e["hp"] -= h["dmg"]
 	score += h["dmg"]
-	var ep: Vector2 = _cell_center(e["col"], e["row"])
+	var ep: Vector2 = _enemy_pos(e["col"], e["row"])
 	# ② 로켓 명중 임팩트 버스트 (확 커졌다 꺼지는 별+링)
 	impacts.append({"pos": ep, "life": 0.22, "max": 0.22, "color": Color(1.0, 0.98, 0.7), "radius": CELL * 0.30, "star": true})
 	# 데미지 숫자: 크고 팡 (화면 유일 전투 숫자 — 확실히 보이게)
@@ -1033,7 +1044,7 @@ func _apply_hit(h: Dictionary) -> void:
 		if new_row != old_row:
 			e["row"] = new_row
 			push_streaks.append({
-				"from": ep, "to": _cell_center(e["col"], new_row), "life": 0.3, "max": 0.3,
+				"from": ep, "to": _enemy_pos(e["col"], new_row), "life": 0.3, "max": 0.3,
 			})
 		# 탱크가 버틸 때: 청록 방패링 + "BLOCK" 라벨 (역할 학습)
 		if etype == "tank":
@@ -1778,6 +1789,30 @@ func _draw_retry_icon(c: Vector2, r: float, col: Color) -> void:
 	var t3: Vector2 = tip + Vector2(r * 0.55, 0.0)
 	draw_colored_polygon(PackedVector2Array([tip + Vector2(-r * 0.18, r * 0.18), t2, t3]), col)
 
+# 실패 헤드라인 — 심판이 아니라 초대. 얼마나 아깝게 졌는지에 따라 말이 갈린다.
+#
+# 예전엔 "실패" 한 마디였다. 그건 판정을 내리고 대화를 닫는 말이라, 팝업의 일("이만큼
+# 남았다 → 다시", C31)과 정반대로 민다. 매치3 관습도 심판형을 안 쓴다 — Royal Match는
+# 사유를 말하고(`Out of Moves!`), Toon Blast는 재구성한다(`So Close!`).
+# ⚠단 한국어 로컬라이즈 원문은 확인 못 했다(원본 화면 확보 실패) — 아래 문구는 레퍼런스
+#   인용이 아니라 우리 팝업 구조에서 나온 설계값이다. 사람 플테로 판정.
+#
+# 갈리는 이유: 바로 아래에 '남은 적 N'이 찍힌다. 20마리 중 13마리를 남기고 지고서
+# "아쉬워요"라고 하면 헤드라인과 숫자가 서로를 반박한다. 아까운 말은 아까울 때만 해야
+# 힘을 갖는다. 크게 졌을 땐 위로 대신 초대로 넘긴다.
+const FAIL_CLOSE: float = 0.15   # 남은 적이 총량의 15% 이하 = 한 끗 차이
+const FAIL_NEAR: float = 0.40    # 40% 이하 = 아쉬운 판
+
+func _fail_headline() -> String:
+	var total: int = maxi(1, int(st["total"]))
+	var remaining: int = maxi(0, total - killed - leaked)
+	var ratio: float = float(remaining) / float(total)
+	if ratio <= FAIL_CLOSE:
+		return "거의 다 왔어요!"
+	if ratio <= FAIL_NEAR:
+		return "아쉬워요!"
+	return "다시 해볼까요?"
+
 func _draw_result(fnt: Font) -> void:
 	# 스크림 — 팝업 뒤의 보드를 '멈춘 배경'으로 눌러둔다(모달 표시)
 	draw_rect(Rect2(-20, -20, 840, 1040), Color(0.0, 0.0, 0.0, 0.68))
@@ -1791,10 +1826,10 @@ func _draw_result(fnt: Font) -> void:
 
 	var cx: float = p.position.x + p.size.x * 0.5
 
-	# ① 판정 — 헤드라인. 혼자만 크다.
-	#    폭에 맞춰 줄인다 — "실패"는 2자라 64px가 넉넉하지만 "스테이지 클리어!"는 8자라
+	# ① 헤드라인. 혼자만 크다.
+	#    폭에 맞춰 줄인다 — "아쉬워요!"는 5자라 64px가 넉넉하지만 "스테이지 클리어!"는 8자라
 	#    같은 크기면 패널을 끝까지 밀어낸다. 글자 수가 아니라 패널이 크기를 정하게 한다.
-	var msg: String = "스테이지 클리어!" if game_clear else "실패"
+	var msg: String = "스테이지 클리어!" if game_clear else _fail_headline()
 	var mfs: int = 64
 	var mw: float = fnt.get_string_size(msg, HORIZONTAL_ALIGNMENT_LEFT, -1, mfs).x
 	var max_w: float = p.size.x - 56.0
@@ -2080,6 +2115,19 @@ func _draw_hud(fnt: Font) -> void:
 	# 'HP가 바닥났다'로 오독됐다. 목표 카드의 '남은 적' 숫자만으로 진행도는 충분히 읽힌다.
 	# 이로써 빨강은 거점 HP 전용이 된다.
 
+# 하트 — HP 게이지가 체력임을 글자 없이 말하는 기호. 원 둘 + 아래로 뾰족한 삼각형.
+# s = 하트의 폭(=높이). center는 하트의 시각적 중심.
+func _draw_heart(center: Vector2, s: float, col: Color) -> void:
+	var r: float = s * 0.28
+	var top: float = center.y - s * 0.16
+	draw_circle(Vector2(center.x - r * 0.92, top), r, col)
+	draw_circle(Vector2(center.x + r * 0.92, top), r, col)
+	draw_colored_polygon(PackedVector2Array([
+		Vector2(center.x - r * 1.85, top + r * 0.18),
+		Vector2(center.x + r * 1.85, top + r * 0.18),
+		Vector2(center.x, center.y + s * 0.52),
+	]), col)
+
 func _draw_board(fnt: Font) -> void:
 	draw_rect(Rect2(BOARD_X - 2, BOARD_Y - 2, COLS * CELL + 4, ROWS * CELL + 4), C_BORD, false)
 	# 충전 중인 셀. 그리드 위에 따로 그린다(부푼 블록이 옆 셀 배경에 잘리지 않게).
@@ -2236,12 +2284,14 @@ func _draw_board(fnt: Font) -> void:
 		# 표시 y는 vis_row(부드러운 이징) — 전진/넉백이 스르륵
 		var vr: float = e.get("vis_row", float(er))
 		var cx: float = BOARD_X + ec * CELL + CELL * 0.5 + jit.x
-		var cy: float = BOARD_Y + vr * CELL + CELL * 0.5 + jit.y
+		# 몸통은 셀 중심보다 E_BODY_DY 아래 — 위쪽은 HP 게이지 자리다(_enemy_pos와 같은 셈).
+		var cy: float = BOARD_Y + vr * CELL + CELL * 0.5 + E_BODY_DY + jit.y
 		var ratio: float = clampf(float(e["hp"]) / float(e["maxhp"]), 0.0, 1.0)
 		var etype: String = e["etype"]
-		var rad: float = CELL * 0.33
-		var bar_w: float = CELL * 0.66
-		var bar_h: float = 5.0
+		# 크기는 '게이지 아래 남은 높이'가 정한다 — 예전(0.33/0.42)은 게이지와 겹쳤다.
+		var rad: float = CELL * 0.27
+		var bar_w: float = CELL * 0.90   # 하트+숫자를 품어야 하니 예전(0.66)보다 넓다
+		var bar_h: float = 16.0
 		match etype:
 			"fast":
 				# 시안 화살촉(아래 향함) = 속도감
@@ -2262,12 +2312,12 @@ func _draw_board(fnt: Font) -> void:
 						Color(1.0, 0.95, 0.3, 0.4 + 0.6 * blink))
 			"tank":
 				# 딥 바이올렛 큰 사각형 + 더 두꺼운 외곽선 (육중함은 테두리 두께가 진다)
-				var hs: float = CELL * 0.42
+				var hs: float = CELL * 0.32
 				draw_rect(Rect2(cx - hs, cy - hs, hs * 2.0, hs * 2.0), C_E_TANK)
 				draw_rect(Rect2(cx - hs, cy - hs, hs * 2.0, hs * 2.0), C_E_RIM, false, C_E_RIM_W + 1.0)
 				rad = hs
-				bar_w = CELL * 0.78
-				bar_h = 8.0
+				bar_w = CELL * 0.96   # 탱크는 게이지도 크다 = "버티는 게 보임"(C14)
+				bar_h = 18.0
 			"swarm":
 				# 라임 작은 원 여럿 (군집)
 				var offs: Array = [Vector2(-0.16, -0.12), Vector2(0.16, -0.10), Vector2(-0.02, 0.16)]
@@ -2285,24 +2335,41 @@ func _draw_board(fnt: Font) -> void:
 		# 피격 흰 플래시 오버레이 (맞은 순간 강조)
 		if flinch > 0.0:
 			draw_circle(Vector2(cx, cy), rad, Color(1.0, 1.0, 1.0, 0.7 * clampf(flinch / 0.22, 0.0, 1.0)))
-		# HP 바 (타입 색과 구분되게 녹색 유지)
+		# ── HP 게이지 = 하트 + 바 + 숫자, 한 덩어리.
+		#
+		# 예전엔 숫자가 적 '몸통 한가운데'에 떠 있고 HP 바는 머리 위에 따로 있었다. 그러면
+		# 둘이 서로 다른 물건으로 보인다 — 몸통 위의 숫자는 체력이 아니라 이름표·ID로 읽힌다
+		# (플테: "적에 써있는 숫자가 뭔지 모르겠다"). 그래서 숫자를 바 안으로 넣어 하나의
+		# 게이지로 묶고, 하트를 붙여 '이건 체력이다'를 글자 없이 말하게 한다.
+		#
+		# ⚠이 숫자는 사실상 줄어드는 걸 볼 수 없다 — 최소 일격(120)이 basic/fast/swarm의
+		#   최대 HP(65/39/26)를 모든 스테이지에서 넘어 전원 원샷이고, 탱크도 S1·S2에선 원샷이다.
+		#   그래서 '줄어드는 걸 보고 배우는' 경로가 없고, 형태(하트+게이지)가 그 일을 대신해야 한다.
+		#   HP를 살리려면 밸런스를 건드려야 하는데 그건 C25가 검토 후 기각한 축이다(난이도=커버리지).
+		# 게이지는 '적의 셀 안'에 못 박는다 — 머리 위에 띄우면 두 가지가 깨진다:
+		#   ① 적은 항상 row 0에 스폰되므로 게이지가 보드 밖으로 나간다.
+		#   ② 적이 세로로 붙어 서면 위 적의 게이지와 아래 적의 게이지가 포개진다.
+		# 셀에 고정하면 둘 다 구조적으로 불가능해진다. 대신 게이지가 몸통 머리를 조금 덮는데,
+		# 그건 유닛 위에 뜬 체력바라는 흔한 문법이라 형태 인지를 해치지 않는다.
 		var bx: float = cx - bar_w * 0.5
-		var by: float = cy - rad - 9.0
-		draw_rect(Rect2(bx, by, bar_w, bar_h), Color(0.1, 0.1, 0.1, 0.85))
-		draw_rect(Rect2(bx, by, bar_w * ratio, bar_h), Color(0.35, 0.9, 0.35))
-		# HP 텍스트 (탱크는 크게 노출 = "버티는 게 보임" 텔레그래프)
+		var by: float = float(BOARD_Y) + vr * float(CELL) + 2.0 + jit.y
+		# 채움은 '어두운' 초록이다. 밝은 초록(0.35,0.9,0.35) 위에 흰 숫자를 얹었더니 글자가
+		# 배경에 먹혔다 — 배경만 밝게 바꾸고 글자색은 그대로 뒀던 것. 채움을 낮추면 채워진
+		# 쪽이든 빈 쪽이든 흰 글자가 항상 이긴다(글자색 하나로 두 배경을 다 감당해야 한다).
+		draw_rect(Rect2(bx, by, bar_w, bar_h), Color(0.07, 0.07, 0.09, 0.95))
+		draw_rect(Rect2(bx, by, bar_w * ratio, bar_h), Color(0.16, 0.47, 0.20))
+		draw_rect(Rect2(bx, by, bar_w, bar_h), C_E_RIM, false, 1.5)
+		# 하트는 바 왼쪽 안에 — 바 밖으로 나가면 옆 셀 적과 부딪힌다
+		var heart_s: float = bar_h * 0.60
+		var heart_cx: float = bx + heart_s * 0.72 + 3.0
+		_draw_heart(Vector2(heart_cx, by + bar_h * 0.5), heart_s, Color(0.55, 1.0, 0.55))
+		# 숫자는 '바 전체'의 한가운데. 하트를 뺀 나머지 폭의 가운데에 두면 오른쪽으로 밀려 보인다.
+		# 자릿수가 커져 하트와 부딪힐 때만 그만큼 비켜난다(평소엔 정확히 중앙).
 		var hp_str: String = str(e["hp"])
-		var hp_fs: int = 18
-		if etype == "tank":
-			hp_fs = 26
-		elif etype == "swarm":
-			hp_fs = 14
+		var hp_fs: int = 16 if etype != "tank" else 19
 		var tw: float = fnt.get_string_size(hp_str, HORIZONTAL_ALIGNMENT_LEFT, -1, hp_fs).x
-		var hp_yoff: float = float(hp_fs) * 0.34
-		draw_string(fnt, Vector2(cx - tw * 0.5 + 1.0, cy + hp_yoff + 1.0), hp_str,
-				HORIZONTAL_ALIGNMENT_LEFT, -1, hp_fs, Color(0.0, 0.0, 0.0, 0.8))
-		draw_string(fnt, Vector2(cx - tw * 0.5, cy + hp_yoff), hp_str,
-				HORIZONTAL_ALIGNMENT_LEFT, -1, hp_fs, Color.WHITE)
+		var tx: float = maxf(bx + bar_w * 0.5 - tw * 0.5, heart_cx + heart_s * 0.5 + 3.0)
+		_draw_text_outlined(fnt, Vector2(tx, by + bar_h * 0.5 + float(hp_fs) * 0.36), hp_str, hp_fs, Color.WHITE)
 
 	# ── 놓을 곳 없음: 빈 칸이 아래에서 위로 메워진다. 꽉 찬 보드가 곧 패배 사유의 진술이다
 	#    ("놓을 곳이 없다"를 글이 아니라 사실로 보여준다). 물결이 지난 줄의 적은 위에서 이미 지웠다.
