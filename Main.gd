@@ -127,6 +127,11 @@ const TRAY_PREVIEW_CELL: int = 17   # 최대 조각이 5칸(I5) → 85px, 슬롯
 const DRAG_LIFT: float = 80.0        # 조각을 포인터 위로 들어올리는 높이. 모바일에서 엄지가 조각을 가리지 않게.
 const SNAPBACK_DUR: float = 0.14     # 못 놓는 자리에서 뗐을 때 트레이로 되돌아가는 시간
 
+# 조각은 스냅 위치로 '순간이동'하지 않고 미끄러지듯 따라온다. 이 지연 덕에 빠르게 끌 때
+# 착지 그림자가 조각 뒤로 드러나고, 멈추면 조각이 그림자를 정확히 덮는다 (Block Blast 원본 확인).
+const SNAP_TAU: float = 0.055        # 이징 시간상수 (작을수록 딱딱하게 붙음)
+const SHADOW_MIX: float = 0.37       # 착지 그림자 = 셀 배경 위에 조각색을 이 비율로 (원본 프레임 픽셀 샘플링값)
+
 # 입력 방식 토글 버튼 — PC 테스트 전용. 모바일 빌드의 기본은 드래그앤드롭.
 const MODE_BTN := Rect2(596.0, 900.0, 184.0, 46.0)
 
@@ -243,6 +248,7 @@ var hover_row: int = 0
 var dragging: bool = false
 var drag_slot: int = -1
 var drag_pos: Vector2 = Vector2.ZERO
+var held_px: Vector2 = Vector2.ZERO   # 실제로 그려지는 조각의 좌상단 — 목표 위치로 이징된다
 var snapback: Dictionary = {}   # {slot, from(좌상단 px), t} — 못 놓고 뗀 조각이 트레이로 날아가는 중
 
 # PC 테스트 편의용 입력 방식. true면 예전처럼 '조각 클릭 → 보드 클릭'.
@@ -387,6 +393,7 @@ func _init_game() -> void:
 	shake_timer = 0.0
 	dragging = false
 	drag_slot = -1
+	held_px = Vector2.ZERO
 	snapback = {}
 	resolving = false
 	resolve_timer = 0.0
@@ -669,6 +676,23 @@ func _sync_hover_from_drag() -> void:
 	var tl: Vector2 = _drag_origin_px()
 	hover_col = roundi((tl.x - float(BOARD_X)) / float(CELL))
 	hover_row = roundi((tl.y - float(BOARD_Y)) / float(CELL))
+
+# 앵커 칸의 좌상단 픽셀 = 조각이 내려앉을 자리
+func _snap_origin_px() -> Vector2:
+	return Vector2(float(BOARD_X + hover_col * CELL), float(BOARD_Y + hover_row * CELL))
+
+# 조각이 향하는 곳: 놓을 수 있으면 스냅 자리, 없으면 포인터를 그냥 따라간다
+func _held_target_px() -> Vector2:
+	if _can_place(_ghost_cells()):
+		return _snap_origin_px()
+	return _drag_origin_px()
+
+# 조각이 목표에서 얼마나 떠 있나 (0=완전히 내려앉음, 1=떠서 이동 중).
+# 자체 드롭섀도의 세기·오프셋에 쓴다 — 멈추면 그림자가 사라져 '놓인 블록'처럼 보인다.
+func _held_lift() -> float:
+	if not _can_place(_ghost_cells()):
+		return 1.0
+	return clampf(held_px.distance_to(_snap_origin_px()) / (float(CELL) * 0.6), 0.0, 1.0)
 
 func _add_floater(pos: Vector2, text: String, color: Color, life: float, size: int = 22, pop: bool = false) -> void:
 	floaters.append({"pos": pos, "text": text, "color": color, "life": life, "max": life, "size": size, "pop": pop})
@@ -1257,6 +1281,7 @@ func _pick_up(pos: Vector2) -> bool:
 			drag_pos = pos
 			snapback = {}
 			_sync_hover_from_drag()
+			held_px = _drag_origin_px()   # 집는 순간엔 포인터 아래 — 이후 스냅 자리로 미끄러진다
 			return true
 	return false
 
@@ -1422,6 +1447,9 @@ func _process(delta: float) -> void:
 		snapback["t"] = float(snapback["t"]) - delta
 		if float(snapback["t"]) <= 0.0:
 			snapback = {}
+	if dragging:
+		# 프레임레이트 무관 이징 — 목표(스냅 자리 또는 포인터)로 미끄러진다
+		held_px = held_px.lerp(_held_target_px(), 1.0 - exp(-delta / SNAP_TAU))
 	anim_t += delta
 	var k: int = push_streaks.size() - 1
 	while k >= 0:
@@ -2054,18 +2082,20 @@ func _draw_board(fnt: Font) -> void:
 				draw_rect(prect, tint)
 				draw_rect(prect, Color(1.0, 1.0, 1.0, 0.30 + 0.40 * pulse), false, 2.0)
 
-		# ② 스냅된 조각: 흐린 dim이 아니라 '실제로 놓인 것과 같은' 활성 색.
-		#    조각이 그리드에 찰칵 붙는 것 자체가 "여기 놓인다"는 신호다.
+		# ② 착지 그림자: 조각이 내려앉을 칸에 '조각색을 어둡게' 깔아둔다 (회색 아님 — 조각색의 그림자).
+		#    조각은 이 자리로 미끄러지듯 따라오므로(SNAP_TAU), 빠르게 끌 땐 그림자가 조각 뒤로
+		#    드러나고 멈추면 조각이 정확히 덮는다. 원본 Block Blast의 그 그림자다.
 		if can:
+			var shcol: Color = C_CELL.lerp(_color_of(active["color"]), SHADOW_MIX)
 			for gi2 in ghost:
 				var gc: Vector2i = gi2 as Vector2i
 				var rx: float = BOARD_X + gc.x * CELL
 				var ry: float = BOARD_Y + gc.y * CELL
 				var grect: Rect2 = Rect2(rx + bpad, ry + bpad, CELL - bpad * 2.0, CELL - bpad * 2.0)
-				draw_rect(grect, _color_of(active["color"]))
-				# 줄이 터질 자리면 프리뷰 줄과 같은 세기로 함께 맥동 = "이 한 수가 줄을 완성한다"
-				var edge: float = (0.30 + 0.40 * pulse) if will_clear else 0.55
-				draw_rect(grect, Color(1.0, 1.0, 1.0, edge), false, 2.0)
+				draw_rect(grect, shcol)
+				# 줄이 터질 자리면 프리뷰 줄과 같은 세기로 맥동 = "이 한 수가 줄을 완성한다"
+				if will_clear:
+					draw_rect(grect, Color(1.0, 1.0, 1.0, 0.20 + 0.30 * pulse), false, 2.0)
 
 	# 넉백 잔상 (밀쳐진 적의 이전→현재 위치 시안 스트릭)
 	for st in push_streaks:
@@ -2181,14 +2211,17 @@ func _draw_core(fnt: Font) -> void:
 			zpts.append(Vector2(zx, zy))
 		draw_polyline(zpts, Color(1.0, 0.2, 0.2, ha), 3.0)
 
-# 조각 한 덩이를 임의 위치·임의 셀 크기로 (드래그 중인 조각, 트레이로 돌아가는 조각 공용)
-func _draw_piece_cells(tl: Vector2, cs: float, col: Color, offsets: Array) -> void:
+# 조각 한 덩이를 임의 위치·임의 셀 크기로 (드래그 중인 조각, 트레이로 돌아가는 조각 공용).
+# lift 0=완전히 내려앉음(자체 그림자 없음 → 놓인 블록처럼) … 1=떠서 이동 중(그림자 최대)
+func _draw_piece_cells(tl: Vector2, cs: float, col: Color, offsets: Array, lift: float = 1.0) -> void:
 	var pad: float = cs * 0.08
-	for o in offsets:
-		var ov: Vector2i = o as Vector2i
-		var sx: float = tl.x + float(ov.x) * cs + 5.0
-		var sy: float = tl.y + float(ov.y) * cs + 7.0
-		draw_rect(Rect2(sx + pad, sy + pad, cs - pad * 2.0, cs - pad * 2.0), Color(0.0, 0.0, 0.0, 0.33))
+	if lift > 0.01:
+		for o in offsets:
+			var ov: Vector2i = o as Vector2i
+			var sx: float = tl.x + float(ov.x) * cs + 5.0 * lift
+			var sy: float = tl.y + float(ov.y) * cs + 7.0 * lift
+			draw_rect(Rect2(sx + pad, sy + pad, cs - pad * 2.0, cs - pad * 2.0),
+					Color(0.0, 0.0, 0.0, 0.33 * lift))
 	for o2 in offsets:
 		var ov2: Vector2i = o2 as Vector2i
 		var r: Rect2 = Rect2(
@@ -2199,9 +2232,9 @@ func _draw_piece_cells(tl: Vector2, cs: float, col: Color, offsets: Array) -> vo
 		draw_rect(r, Color(1.0, 1.0, 1.0, 0.5), false, maxf(1.5, cs * 0.03))
 
 # 손에 들린 조각 — 모든 것 위에 뜬다.
-# 놓을 수 있는 자리면 조각은 이미 보드에 스냅되어 그려졌으므로 여기선 안 그린다.
-# 놓을 수 없으면 스냅하지 않고 그림자를 단 채 포인터를 따라 떠 있는다 — 기존 블록 위에
-# 그대로 겹쳐 보이는 것이 곧 "여긴 안 들어간다"는 신호다.
+# 놓을 수 있으면 스냅 자리로 미끄러져 내려앉아 착지 그림자를 정확히 덮는다.
+# 놓을 수 없으면 스냅하지 않고 포인터를 따라 떠 있는다 — 기존 블록 위에 그대로 겹쳐
+# 보이는 것과 착지 그림자의 '부재'가 곧 "여긴 안 들어간다"는 신호다.
 func _draw_held() -> void:
 	if not snapback.is_empty():
 		var sslot: int = int(snapback["slot"])
@@ -2222,9 +2255,7 @@ func _draw_held() -> void:
 	var active: Dictionary = _active()
 	if active.is_empty():
 		return
-	if _can_place(_ghost_cells()):
-		return
-	_draw_piece_cells(_drag_origin_px(), float(CELL), _color_of(active["color"]), active["offsets"])
+	_draw_piece_cells(held_px, float(CELL), _color_of(active["color"]), active["offsets"], _held_lift())
 
 func _draw_bottom(fnt: Font) -> void:
 	draw_rect(Rect2(0, BOT_Y, 800, 1000 - BOT_Y), C_HUD)

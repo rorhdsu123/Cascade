@@ -34,9 +34,12 @@ func _run() -> void:
 	_press(slot.get_center())
 	await _grab("01_pickup")
 
-	# ① 빈 칸 위 → 스냅 + 착지 프리뷰
+	# ① 빈 칸 위 → 착지 그림자 + 스냅.
+	#    이동 직후(조각이 아직 뒤처져 있음) → 그림자가 조각 뒤로 드러나야 한다
 	_move(Vector2(144 + 64 * 3 + 32, 150 + 64 * 2 + 80))
-	await _grab("02_valid_snap")
+	await _grab("02a_valid_lagging")
+	await _settle(30)                       # 이징이 끝나면
+	await _grab("02b_valid_settled")         # 조각이 그림자를 정확히 덮어야 한다
 
 	# ② 기존 블록(빨강/파랑) 위 → 스냅 없음, 보드 표시 없음, 조각만 떠 있어야
 	_move(Vector2(144 + 64 * 2 + 32, 150 + 64 * 7 + 80))
@@ -102,6 +105,10 @@ func _move(p: Vector2) -> void:
 	e.position = p
 	main.call("_input", e)
 
+func _settle(frames: int) -> void:
+	for i in range(frames):
+		await process_frame
+
 func _grab(tag: String) -> void:
 	main.queue_redraw()
 	await process_frame
@@ -111,4 +118,5 @@ func _grab(tag: String) -> void:
 	print("shot ", tag,
 			"  dragging=", main.get("dragging"),
 			" hover=", main.get("hover_col"), ",", main.get("hover_row"),
+			" held=", main.get("held_px"),
 			" snapback=", not (main.get("snapback") as Dictionary).is_empty())
