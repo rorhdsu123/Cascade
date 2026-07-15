@@ -692,13 +692,14 @@ func _ghost_cells() -> Array:
 func _cell_center(col: int, row: int) -> Vector2:
 	return Vector2(BOARD_X + col * CELL + CELL * 0.5, BOARD_Y + row * CELL + CELL * 0.5)
 
-# 적 몸통의 중심 — 셀 중심보다 E_BODY_DY만큼 아래.
-# HP 게이지가 셀 위쪽을 쓰기 때문에, 몸통이 셀 한가운데에 있으면 게이지가 머리를 잘라먹는다
-# (원이 돔이 되고 탱크 사각형이 직사각형이 된다 = 모양으로 타입을 읽는 문법이 무너진다).
-# 몸통을 게이지 아래로 내려앉히면 둘이 안 겹친다.
-# 사망 팝·파편·임팩트·데미지 숫자도 전부 이 좌표를 써야 한다 — 셀 중심을 쓰면 이펙트가
-# 몸통 머리 위에서 터진다. (블록 소멸 팝은 여전히 _cell_center다. 그건 셀의 일이니까.)
-const E_BODY_DY: float = 10.0
+# 적 몸통의 중심 = 셀 중심. E_BODY_DY는 0이다.
+# C41은 상시 HP 게이지가 셀 위쪽을 차지하니 몸통을 아래로(=10) 내려 게이지가 머리를
+# 잘라먹지 않게 했다. 이제 게이지는 '피격당하고 살아남은 적'에게만, 그것도 드물게 뜨므로
+# (최소 일격이 대부분의 적을 원샷 — C41) 상시 자리를 비워둘 이유가 없다 → 몸통을 셀
+# 한가운데로 되돌려 '외형만'인 평소 모습을 깔끔하게. 드물게 뜨는 바가 머리를 조금 덮는
+# 건 '유닛 위 체력바'의 흔한 문법이라 모양 인지를 해치지 않는다.
+# 사망 팝·파편·임팩트·데미지 숫자는 계속 이 좌표를 쓴다(이제 셀 중심과 같다).
+const E_BODY_DY: float = 0.0
 
 func _enemy_pos(col: int, row: int) -> Vector2:
 	return _cell_center(col, row) + Vector2(0.0, E_BODY_DY)
@@ -2265,7 +2266,7 @@ func _draw_board(fnt: Font) -> void:
 		var sa: float = clampf(st["life"] / st["max"], 0.0, 1.0)
 		draw_line(st["from"], st["to"], Color(0.6, 0.95, 1.0, sa * 0.7), 4.0)
 
-	# 적 (타입별 색·모양·크기 + HP 바 + HP 텍스트)
+	# 적 (타입별 색·모양·크기 + 피격 생존 시에만 HP 바)
 	for e in enemies:
 		var ec: int = e["col"]
 		var er: int = e["row"]
@@ -2288,10 +2289,10 @@ func _draw_board(fnt: Font) -> void:
 		var cy: float = BOARD_Y + vr * CELL + CELL * 0.5 + E_BODY_DY + jit.y
 		var ratio: float = clampf(float(e["hp"]) / float(e["maxhp"]), 0.0, 1.0)
 		var etype: String = e["etype"]
-		# 크기는 '게이지 아래 남은 높이'가 정한다 — 예전(0.33/0.42)은 게이지와 겹쳤다.
-		var rad: float = CELL * 0.27
-		var bar_w: float = CELL * 0.90   # 하트+숫자를 품어야 하니 예전(0.66)보다 넓다
-		var bar_h: float = 16.0
+		# 몸통은 셀을 꽉 채운다 — 게이지가 상시로 없으니 자리를 양보할 이유가 없다(C41 복원).
+		var rad: float = CELL * 0.33
+		var bar_w: float = CELL * 0.60   # 하트 + 짧은 게이지만. 숫자가 빠져 예전(0.90)보다 좁다
+		var bar_h: float = 14.0
 		match etype:
 			"fast":
 				# 시안 화살촉(아래 향함) = 속도감
@@ -2312,12 +2313,12 @@ func _draw_board(fnt: Font) -> void:
 						Color(1.0, 0.95, 0.3, 0.4 + 0.6 * blink))
 			"tank":
 				# 딥 바이올렛 큰 사각형 + 더 두꺼운 외곽선 (육중함은 테두리 두께가 진다)
-				var hs: float = CELL * 0.32
+				var hs: float = CELL * 0.42
 				draw_rect(Rect2(cx - hs, cy - hs, hs * 2.0, hs * 2.0), C_E_TANK)
 				draw_rect(Rect2(cx - hs, cy - hs, hs * 2.0, hs * 2.0), C_E_RIM, false, C_E_RIM_W + 1.0)
 				rad = hs
-				bar_w = CELL * 0.96   # 탱크는 게이지도 크다 = "버티는 게 보임"(C14)
-				bar_h = 18.0
+				bar_w = CELL * 0.70   # 탱크는 게이지도 크다 = "버티는 게 보임"(C14)
+				bar_h = 16.0
 			"swarm":
 				# 라임 작은 원 여럿 (군집)
 				var offs: Array = [Vector2(-0.16, -0.12), Vector2(0.16, -0.10), Vector2(-0.02, 0.16)]
@@ -2335,41 +2336,29 @@ func _draw_board(fnt: Font) -> void:
 		# 피격 흰 플래시 오버레이 (맞은 순간 강조)
 		if flinch > 0.0:
 			draw_circle(Vector2(cx, cy), rad, Color(1.0, 1.0, 1.0, 0.7 * clampf(flinch / 0.22, 0.0, 1.0)))
-		# ── HP 게이지 = 하트 + 바 + 숫자, 한 덩어리.
+		# ── HP 게이지 = 하트 + 바. 숫자는 없다.
 		#
-		# 예전엔 숫자가 적 '몸통 한가운데'에 떠 있고 HP 바는 머리 위에 따로 있었다. 그러면
-		# 둘이 서로 다른 물건으로 보인다 — 몸통 위의 숫자는 체력이 아니라 이름표·ID로 읽힌다
-		# (플테: "적에 써있는 숫자가 뭔지 모르겠다"). 그래서 숫자를 바 안으로 넣어 하나의
-		# 게이지로 묶고, 하트를 붙여 '이건 체력이다'를 글자 없이 말하게 한다.
+		# 상시로 그리지 않는다 — '피격당하고 살아남은 적'(hp < maxhp)에게만 뜬다.
+		# 최소 일격(120)이 basic/fast/swarm의 최대 HP(65/39/26)를 모든 스테이지에서 넘어
+		# 대부분의 적이 원샷이다(C41). 그래서 상시 게이지는 한 번도 안 줄어드는 죽은 지표였고
+		# (플테: "hp바가 거슬린다"), 숫자는 '이름표·ID'로 오독됐다. → 둘 다 걷어내고, 바가
+		# '뜨는 것 자체'를 신호로 삼는다: 바가 보이면 = "얘는 한 방에 안 죽었다". 탱크처럼
+		# 버티는 적에게만 나타나므로 게이지가 비로소 정보가 된다.
 		#
-		# ⚠이 숫자는 사실상 줄어드는 걸 볼 수 없다 — 최소 일격(120)이 basic/fast/swarm의
-		#   최대 HP(65/39/26)를 모든 스테이지에서 넘어 전원 원샷이고, 탱크도 S1·S2에선 원샷이다.
-		#   그래서 '줄어드는 걸 보고 배우는' 경로가 없고, 형태(하트+게이지)가 그 일을 대신해야 한다.
-		#   HP를 살리려면 밸런스를 건드려야 하는데 그건 C25가 검토 후 기각한 축이다(난이도=커버리지).
-		# 게이지는 '적의 셀 안'에 못 박는다 — 머리 위에 띄우면 두 가지가 깨진다:
-		#   ① 적은 항상 row 0에 스폰되므로 게이지가 보드 밖으로 나간다.
-		#   ② 적이 세로로 붙어 서면 위 적의 게이지와 아래 적의 게이지가 포개진다.
-		# 셀에 고정하면 둘 다 구조적으로 불가능해진다. 대신 게이지가 몸통 머리를 조금 덮는데,
-		# 그건 유닛 위에 뜬 체력바라는 흔한 문법이라 형태 인지를 해치지 않는다.
-		var bx: float = cx - bar_w * 0.5
-		var by: float = float(BOARD_Y) + vr * float(CELL) + 2.0 + jit.y
-		# 채움은 '어두운' 초록이다. 밝은 초록(0.35,0.9,0.35) 위에 흰 숫자를 얹었더니 글자가
-		# 배경에 먹혔다 — 배경만 밝게 바꾸고 글자색은 그대로 뒀던 것. 채움을 낮추면 채워진
-		# 쪽이든 빈 쪽이든 흰 글자가 항상 이긴다(글자색 하나로 두 배경을 다 감당해야 한다).
-		draw_rect(Rect2(bx, by, bar_w, bar_h), Color(0.07, 0.07, 0.09, 0.95))
-		draw_rect(Rect2(bx, by, bar_w * ratio, bar_h), Color(0.16, 0.47, 0.20))
-		draw_rect(Rect2(bx, by, bar_w, bar_h), C_E_RIM, false, 1.5)
-		# 하트는 바 왼쪽 안에 — 바 밖으로 나가면 옆 셀 적과 부딪힌다
-		var heart_s: float = bar_h * 0.60
-		var heart_cx: float = bx + heart_s * 0.72 + 3.0
-		_draw_heart(Vector2(heart_cx, by + bar_h * 0.5), heart_s, Color(0.55, 1.0, 0.55))
-		# 숫자는 '바 전체'의 한가운데. 하트를 뺀 나머지 폭의 가운데에 두면 오른쪽으로 밀려 보인다.
-		# 자릿수가 커져 하트와 부딪힐 때만 그만큼 비켜난다(평소엔 정확히 중앙).
-		var hp_str: String = str(e["hp"])
-		var hp_fs: int = 16 if etype != "tank" else 19
-		var tw: float = fnt.get_string_size(hp_str, HORIZONTAL_ALIGNMENT_LEFT, -1, hp_fs).x
-		var tx: float = maxf(bx + bar_w * 0.5 - tw * 0.5, heart_cx + heart_s * 0.5 + 3.0)
-		_draw_text_outlined(fnt, Vector2(tx, by + bar_h * 0.5 + float(hp_fs) * 0.36), hp_str, hp_fs, Color.WHITE)
+		# 하트는 남긴다 — 숫자가 빠진 자리에서 '이건 체력이다'를 글자 없이 말하는 기호.
+		# 셀에 못 박는다(머리 위에 띄우면 row 0 스폰 시 보드 밖으로 나가거나 세로로 붙은
+		# 적끼리 포개진다). 몸통 머리를 조금 덮는 건 '유닛 위 체력바'의 흔한 문법이다.
+		if e["hp"] < e["maxhp"]:
+			var bx: float = cx - bar_w * 0.5
+			var by: float = float(BOARD_Y) + vr * float(CELL) + 2.0 + jit.y
+			# 채움은 어두운 초록. 배경은 거의 검정 → 채움이 있든 없든 대비가 선다.
+			draw_rect(Rect2(bx, by, bar_w, bar_h), Color(0.07, 0.07, 0.09, 0.95))
+			draw_rect(Rect2(bx, by, bar_w * ratio, bar_h), Color(0.20, 0.72, 0.30))
+			draw_rect(Rect2(bx, by, bar_w, bar_h), C_E_RIM, false, 1.5)
+			# 하트는 바 왼쪽 안에 — 바 밖으로 나가면 옆 셀 적과 부딪힌다
+			var heart_s: float = bar_h * 0.60
+			var heart_cx: float = bx + heart_s * 0.72 + 3.0
+			_draw_heart(Vector2(heart_cx, by + bar_h * 0.5), heart_s, Color(0.55, 1.0, 0.55))
 
 	# ── 놓을 곳 없음: 빈 칸이 아래에서 위로 메워진다. 꽉 찬 보드가 곧 패배 사유의 진술이다
 	#    ("놓을 곳이 없다"를 글이 아니라 사실로 보여준다). 물결이 지난 줄의 적은 위에서 이미 지웠다.
