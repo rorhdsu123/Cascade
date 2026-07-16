@@ -1,8 +1,8 @@
 extends SceneTree
-# 결과 팝업 현황 캡처 — 실패/클리어 두 장. 폴리싱 전 기준선.
-# 실행: godot --path . --script tools/result_shot.gd   (창 모드 필수)
+# 결과 팝업 캡처 — 광고 부활(C47) 3케이스. 창 모드 필수(헤드리스는 렌더 텍스처 null).
+# 실행: godot --path . --script tools/result_shot.gd
 
-const OUT: String = "/private/tmp/claude-501/-Users-im-yujin-Desktop-Cascade/98a1100f-49fc-42c1-9cb4-a221c1201840/scratchpad/res"
+const OUT: String = "/private/tmp/claude-501/-Users-im-yujin-Desktop-Cascade/6beeb68b-ad06-4de4-8f3b-94cbf9731a2e/scratchpad/res"
 
 var main: Node
 
@@ -14,27 +14,30 @@ func _run() -> void:
 	root.add_child(main)
 	await process_frame
 
-	# ── 실패: 일부만 잡고 거점 파괴로 종료
+	# ── 실패 + 부활 가능(거점 파괴·미사용): 광고 이어하기(주) + 재도전(부) + 홈
 	main.call("_start_stage", 0)
 	await process_frame
-	main.set("killed", 5)
-	main.set("leaked", 2)
+	main.set("killed", 6)
+	main.set("leaked", 3)
 	main.set("stuck", false)
+	main.set("enemies", [{"col": 2, "row": 4, "vis_row": 4.0, "hp": 10, "maxhp": 10, "etype": "basic", "id": 1, "step_every": 3}])
+	main.set("revive_used", false)
 	main.set("game_over", true)
-	var st: Dictionary = main.get("st")
-	print("실패 — total=%d killed=5 leaked=2 → 남은 적 %d"
-			% [int(st["total"]), int(st["total"]) - 7])
-	await _grab("fail")
+	await _grab("revive")
 
-	# ── 클리어: 전부 처치
+	# ── 실패 + 부활 불가(이미 사용): 재도전(주) + 홈
+	main.set("revive_used", true)
+	main.set("game_over", true)
+	await _grab("used")
+
+	# ── 클리어
 	main.call("_start_stage", 0)
 	await process_frame
-	st = main.get("st")
+	var st: Dictionary = main.get("st")
 	main.set("killed", int(st["total"]))
 	main.set("leaked", 0)
 	main.set("game_over", false)
 	main.set("game_clear", true)
-	print("클리어 — killed=%d leaked=0" % int(st["total"]))
 	await _grab("clear")
 
 	print("DONE")

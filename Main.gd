@@ -270,6 +270,8 @@ var fail_streak: Dictionary = {}  # 스테이지 인덱스 → 연속 실패 횟
 var game_over: bool = false
 var game_clear: bool = false
 var stuck: bool = false
+var revive_used: bool = false    # 이 판에서 광고 부활을 이미 썼나 (판당 1회 — C47 F2P)
+var _cont_hover: bool = false    # 결과 팝업 '광고 이어하기' 버튼 호버
 
 # 놓을 곳 없음 죽음 연출: 경과 시간(-1 = 비활성) + 메울 칸→색 (시작 시 확정, 매 프레임 흔들리지 않게)
 var stuck_t: float = -1.0
@@ -405,6 +407,8 @@ func _init_game() -> void:
 	game_clear = false
 	_retry_hover = false
 	_home_hover = false
+	_cont_hover = false
+	revive_used = false
 	stuck = false
 	flash_timer = 0.0
 	flash_label = ""
@@ -1479,21 +1483,30 @@ func _input(event: InputEvent) -> void:
 	# ── 결과 팝업: 재도전 버튼(또는 SPACE) / 홈 버튼(또는 ESC) ──
 	#    빈 곳 클릭은 무시한다 — 모달이므로, 잘못 누르고 홈으로 튕기는 사고를 막는다.
 	if game_over or game_clear:
+		var lay: Dictionary = _result_layout()
+		var has_cont: bool = lay["revivable"]
 		if event is InputEventMouseMotion:
 			var rp: Vector2 = (event as InputEventMouseMotion).position
-			_retry_hover = RETRY_BTN.has_point(rp)
-			_home_hover = HOME_BTN.has_point(rp)
+			_retry_hover = (lay["retry"] as Rect2).has_point(rp)
+			_home_hover = (lay["home"] as Rect2).has_point(rp)
+			_cont_hover = has_cont and (lay["cont"] as Rect2).has_point(rp)
 		elif event is InputEventMouseButton:
 			var mbe: InputEventMouseButton = event as InputEventMouseButton
 			if mbe.pressed and mbe.button_index == MOUSE_BUTTON_LEFT:
-				if RETRY_BTN.has_point(mbe.position):
+				if has_cont and (lay["cont"] as Rect2).has_point(mbe.position):
+					_revive()
+				elif (lay["retry"] as Rect2).has_point(mbe.position):
 					_result_advance()
-				elif HOME_BTN.has_point(mbe.position):
+				elif (lay["home"] as Rect2).has_point(mbe.position):
 					mode = "select"
 		elif event is InputEventKey:
 			var ke: InputEventKey = event as InputEventKey
+			# SPACE = 주 동작. 부활 가능하면 '광고 이어하기', 아니면 재도전/다음.
 			if ke.pressed and ke.keycode == KEY_SPACE:
-				_result_advance()
+				if has_cont:
+					_revive()
+				else:
+					_result_advance()
 			elif ke.pressed and ke.keycode == KEY_ESCAPE:
 				mode = "select"
 		return
@@ -1828,9 +1841,45 @@ func _draw() -> void:
 # 보던 이름을 다시 확인할 이유가 없다.
 # 남은 넷은 크기 격차를 벌려 위계를 세운다: 64 / 20 / 18 / 52 — 예전엔 56·20·24·18·46이
 # 다 엇비슷해서 무엇이 헤드라인인지 눈이 못 정했다.
-const RESULT_PANEL: Rect2 = Rect2(170.0, 264.0, 460.0, 430.0)
-const RETRY_BTN: Rect2 = Rect2(240.0, 526.0, 320.0, 88.0)
-const HOME_BTN: Rect2 = Rect2(300.0, 630.0, 200.0, 40.0)
+# 결과 팝업 레이아웃 — 그리기(_draw_result)와 입력(_input)이 이 한 함수를 공유한다.
+#   버튼이 상황에 따라 2개(재도전·홈)거나 3개(광고 이어하기·재도전·홈)라, 좌표를 두 곳에서
+#   따로 적으면 어긋난다(C31 원칙). revivable = 거점 파괴 실패 & 부활 미사용일 때만 광고 버튼.
+#   막힘(stuck)은 보드가 꽉 차 HP 복구가 무의미 → MVP에선 부활 없음(재도전만, C47 ⓑ).
+func _result_layout() -> Dictionary:
+	var revivable: bool = game_over and not stuck and not revive_used
+	if revivable:
+		var p: Rect2 = Rect2(170.0, 234.0, 460.0, 500.0)
+		return {
+			"revivable": true,
+			"panel": p,
+			"cont": Rect2(230.0, p.position.y + 268.0, 340.0, 86.0),   # 주: 광고 이어하기
+			"retry": Rect2(275.0, p.position.y + 372.0, 250.0, 52.0),  # 부: 재도전
+			"home": Rect2(300.0, p.position.y + 446.0, 200.0, 34.0),   # 고스트: 홈
+		}
+	var p2: Rect2 = Rect2(170.0, 264.0, 460.0, 430.0)
+	return {
+		"revivable": false,
+		"panel": p2,
+		"cont": Rect2(),
+		"retry": Rect2(240.0, 526.0, 320.0, 88.0),   # 주: 재도전
+		"home": Rect2(300.0, 630.0, 200.0, 40.0),
+	}
+
+# 광고 부활 — 세컨드 윈드. 거점 HP 풀 복구 + 화면의 적 전부 제거(밀물 리셋)로 즉사 재발을 막는다.
+#   진행도(spawned/killed/leaked)는 유지 = '이어하기'다. 죽음 연출은 취소하고 판을 재개한다.
+#   ⚠광고는 프로토 스텁 — 버튼을 누르면 즉시 부활한다. 실제 리워드 광고 SDK 연동은 나중(C47).
+func _revive() -> void:
+	revive_used = true
+	game_over = false
+	stuck = false
+	pending_core_dead = false
+	core_t = -1.0             # 거점 파괴 연출 취소
+	core_burst_done = false
+	stuck_t = -1.0
+	core_hp = int(st["core_hp"])   # 거점 HP 풀 복구
+	enemies = []                   # 화면 밀물 리셋 = 숨 쉴 틈
+	pending_leaks = []
+	_cont_hover = false
 
 # 재도전 = 실패면 같은 스테이지, 클리어면 다음(마지막이면 홈)
 func _result_advance() -> void:
@@ -1841,6 +1890,14 @@ func _result_advance() -> void:
 			mode = "select"
 	else:
 		_start_stage(stage_idx)
+
+# 재생 삼각형(▶) — '광고 영상을 본다'는 뜻. 오른쪽을 향한 정삼각형.
+func _draw_play_icon(c: Vector2, r: float, col: Color) -> void:
+	draw_colored_polygon(PackedVector2Array([
+		Vector2(c.x - r * 0.6, c.y - r * 0.85),
+		Vector2(c.x - r * 0.6, c.y + r * 0.85),
+		Vector2(c.x + r * 0.85, c.y),
+	]), col)
 
 # 시계방향 회전 화살표(재도전) — 링 + 끝단 삼각촉
 func _draw_retry_icon(c: Vector2, r: float, col: Color) -> void:
@@ -1878,7 +1935,8 @@ func _draw_result(fnt: Font) -> void:
 	# 스크림 — 팝업 뒤의 보드를 '멈춘 배경'으로 눌러둔다(모달 표시)
 	draw_rect(Rect2(-20, -20, 840, 1040), Color(0.0, 0.0, 0.0, 0.68))
 
-	var p: Rect2 = RESULT_PANEL
+	var lay: Dictionary = _result_layout()
+	var p: Rect2 = lay["panel"]
 	var accent: Color = C_GOLD if game_clear else Color(0.85, 0.35, 0.35)
 	draw_rect(Rect2(p.position.x + 6.0, p.position.y + 10.0, p.size.x, p.size.y), Color(0.0, 0.0, 0.0, 0.45))
 	draw_rect(p, Color(0.13, 0.13, 0.2))
@@ -1930,45 +1988,77 @@ func _draw_result(fnt: Font) -> void:
 	_draw_text_outlined(fnt, Vector2(grp_l + icon_s + 12.0, row_y + 16.0), num, num_fs,
 			Color(1.0, 0.55, 0.5) if game_over else Color(0.55, 0.95, 0.65))
 
-	# ── 재도전 버튼 (시선의 착지점 — 홈 화면 시작 버튼과 같은 초록 3D 문법)
+	# ── 광고 이어하기 버튼 (부활 가능할 때만 — 주 착지점, 금색 3D로 재도전 초록과 구분)
+	#    F2P의 심장: 아까운 실패를 광고 한 편으로 이어받는다. 광고임을 'AD' 배지로 명시(정직).
+	var revivable: bool = lay["revivable"]
+	if revivable:
+		var cb: Rect2 = lay["cont"]
+		draw_rect(Rect2(cb.position.x, cb.position.y + 7.0, cb.size.x, cb.size.y), Color(0.4, 0.28, 0.05))
+		var cbase: Color = Color(1.0, 0.86, 0.35) if _cont_hover else Color(0.95, 0.78, 0.25)
+		draw_rect(cb, cbase)
+		draw_rect(Rect2(cb.position.x, cb.position.y, cb.size.x, cb.size.y * 0.32), Color(1.0, 1.0, 1.0, 0.22))
+		draw_rect(cb, Color(0.5, 0.38, 0.1), false, 4.0)
+		# ▶ 아이콘 + "이어하기"
+		var clab: String = "이어하기"
+		var cfs: int = 34
+		var clw: float = fnt.get_string_size(clab, HORIZONTAL_ALIGNMENT_LEFT, -1, cfs).x
+		var pr: float = 15.0
+		var cmid_y: float = cb.position.y + cb.size.y * 0.5
+		var cin_w: float = pr * 1.7 + 16.0 + clw
+		var cin_l: float = cb.position.x + cb.size.x * 0.5 - cin_w * 0.5
+		_draw_play_icon(Vector2(cin_l + pr * 0.85, cmid_y), pr, Color(0.2, 0.15, 0.02))
+		_draw_text_outlined(fnt, Vector2(cin_l + pr * 1.7 + 16.0, cmid_y + 12.0), clab, cfs, Color(0.2, 0.15, 0.02))
+		# 'AD' 배지 — 우상단 코너. 이게 광고 시청임을 숨기지 않는다.
+		var badge: Rect2 = Rect2(cb.position.x + cb.size.x - 42.0, cb.position.y - 9.0, 38.0, 20.0)
+		draw_rect(badge, Color(0.18, 0.16, 0.22))
+		draw_rect(badge, Color(1.0, 0.86, 0.35), false, 1.5)
+		var adw: float = fnt.get_string_size("AD", HORIZONTAL_ALIGNMENT_LEFT, -1, 14).x
+		_draw_text_outlined(fnt, Vector2(badge.position.x + badge.size.x * 0.5 - adw * 0.5, badge.position.y + 16.0), "AD", 14, Color(1.0, 0.9, 0.5))
+
+	# ── 재도전 버튼. 부활 가능하면 부차(작고 톤 다운), 아니면 주(초록 3D — 홈 시작 버튼 문법).
 	var label: String = "재도전"
 	if game_clear:
 		label = "다음 스테이지" if stage_idx + 1 < STAGES.size() else "홈으로"
-	var r: Rect2 = RETRY_BTN
-	draw_rect(Rect2(r.position.x, r.position.y + 7.0, r.size.x, r.size.y), Color(0.10, 0.28, 0.14))
-	var base: Color = Color(0.42, 0.82, 0.32) if _retry_hover else Color(0.34, 0.72, 0.26)
-	draw_rect(r, base)
-	draw_rect(Rect2(r.position.x, r.position.y, r.size.x, r.size.y * 0.32), Color(1.0, 1.0, 1.0, 0.16))
-	draw_rect(r, Color(0.16, 0.42, 0.18), false, 4.0)
+	var r: Rect2 = lay["retry"]
+	var lfs: int = 26 if revivable else 38
+	var icon_r: float = 13.0 if revivable else 17.0
+	var mid_y: float = r.position.y + r.size.y * 0.5
+	if revivable:
+		# 부차: 어두운 초록 필(그림자·하이라이트 없음) — 광고(금색 주)와 홈(회색 고스트) 사이 위계
+		var sbase: Color = Color(0.30, 0.5, 0.28) if _retry_hover else Color(0.22, 0.4, 0.22)
+		draw_rect(r, sbase)
+		draw_rect(r, Color(0.16, 0.34, 0.16), false, 2.0)
+	else:
+		draw_rect(Rect2(r.position.x, r.position.y + 7.0, r.size.x, r.size.y), Color(0.10, 0.28, 0.14))
+		var base: Color = Color(0.42, 0.82, 0.32) if _retry_hover else Color(0.34, 0.72, 0.26)
+		draw_rect(r, base)
+		draw_rect(Rect2(r.position.x, r.position.y, r.size.x, r.size.y * 0.32), Color(1.0, 1.0, 1.0, 0.16))
+		draw_rect(r, Color(0.16, 0.42, 0.18), false, 4.0)
 
 	# 회전 화살표는 '다시 한다'는 뜻 — 실패(재도전)에만. 클리어는 앞으로 가는 것이라 아이콘 없이 글자만.
-	var lfs: int = 38
 	var lw: float = fnt.get_string_size(label, HORIZONTAL_ALIGNMENT_LEFT, -1, lfs).x
-	var icon_r: float = 17.0
-	var mid_y: float = r.position.y + r.size.y * 0.5
 	if game_over:
-		var inner_w: float = icon_r * 2.0 + 16.0 + lw
+		var inner_w: float = icon_r * 2.0 + 12.0 + lw
 		var inner_l: float = r.position.x + r.size.x * 0.5 - inner_w * 0.5
 		_draw_retry_icon(Vector2(inner_l + icon_r, mid_y), icon_r, Color.WHITE)
-		_draw_text_outlined(fnt, Vector2(inner_l + icon_r * 2.0 + 16.0, mid_y + 13.0), label, lfs, Color.WHITE,
+		_draw_text_outlined(fnt, Vector2(inner_l + icon_r * 2.0 + 12.0, mid_y + lfs * 0.34), label, lfs, Color.WHITE,
 				Color(0.10, 0.28, 0.14, 0.95))
 	else:
-		_draw_text_outlined(fnt, Vector2(r.position.x + r.size.x * 0.5 - lw * 0.5, mid_y + 13.0), label, lfs, Color.WHITE,
+		_draw_text_outlined(fnt, Vector2(r.position.x + r.size.x * 0.5 - lw * 0.5, mid_y + lfs * 0.34), label, lfs, Color.WHITE,
 				Color(0.10, 0.28, 0.14, 0.95))
 
 	# ── 홈 (부차 동작 — 고스트 버튼)
-	var h: Rect2 = HOME_BTN
+	var h: Rect2 = lay["home"]
 	if _home_hover:
 		draw_rect(h, Color(1.0, 1.0, 1.0, 0.08))
 	draw_rect(h, Color(0.5, 0.52, 0.62, 0.9 if _home_hover else 0.5), false, 2.0)
 	var hs: String = "홈으로"
 	var hfs: int = 20
 	var hw2: float = fnt.get_string_size(hs, HORIZONTAL_ALIGNMENT_LEFT, -1, hfs).x
-	_draw_text_outlined(fnt, Vector2(h.position.x + h.size.x * 0.5 - hw2 * 0.5, h.position.y + 28.0), hs, hfs,
+	_draw_text_outlined(fnt, Vector2(h.position.x + h.size.x * 0.5 - hw2 * 0.5, h.position.y + h.size.y * 0.5 + 7.0), hs, hfs,
 			Color.WHITE if _home_hover else Color(0.75, 0.77, 0.88))
 
-	# 키 힌트("SPACE 재도전 · ESC 홈")는 없다 — 두 버튼이 이미 같은 말을 하고 있었다.
-	# SPACE·ESC는 그대로 받는다(_result_advance). 글자만 뺀 것.
+	# 키 힌트는 없다(C39). SPACE=주 동작(부활 가능하면 이어하기)·ESC=홈은 그대로 받는다.
 
 # ===== 홈(스테이지) 화면 =====
 # Toon Blast식: 위쪽은 진행 상황(스테이지 목록·잠금), 시선의 착지점은 하단의 큰 시작 버튼.

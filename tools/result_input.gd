@@ -1,70 +1,82 @@
 extends SceneTree
-# 결과 팝업 입력 검증 — 힌트 글자를 지운 뒤에도 SPACE·ESC·클릭이 그대로 사는지.
-# 버튼 Rect도 옮겼으니(패널 축소) 새 좌표로 클릭이 먹는지 함께 본다.
-# 실행: godot --path . --script tools/result_input.gd
+# 결과 팝업 입력 검증 — 광고 부활(C47) 반영. 버튼 좌표는 _result_layout()가 단일 출처.
+#   부활 가능(거점 파괴 실패 & 미사용)이면 [광고 이어하기]가 주·[재도전]이 부, 아니면 [재도전]이 주.
+# 실행: godot --headless --path . --script tools/result_input.gd  (로직·입력만 — 렌더 없음)
 
 func _init() -> void:
 	var S: GDScript = load("res://Main.gd")
 
-	# ① 재도전 버튼 클릭 → 같은 스테이지 재시작
+	# ── A. 부활 가능(거점 파괴·미사용): 광고 버튼 클릭 → 세컨드 윈드
 	var g: Node = S.new()
 	root.add_child(g)
 	await process_frame
 	g._start_stage(0)
 	g.set_process(false)
-	g.killed = 5
-	g.leaked = 2
+	g.killed = 8
+	g.enemies = [{"col": 2, "row": 4, "vis_row": 4.0, "hp": 10, "maxhp": 10, "etype": "basic", "id": 1, "step_every": 3}]
 	g.game_over = true
-	var click: InputEventMouseButton = InputEventMouseButton.new()
-	click.position = g.RETRY_BTN.get_center()
-	click.button_index = MOUSE_BUTTON_LEFT
-	click.pressed = true
-	g._input(click)
-	print("재도전 클릭 %s → game_over=%s killed=%d  (재시작이면 false/0)"
-			% [g.RETRY_BTN.get_center(), g.game_over, g.killed])
+	g.stuck = false
+	var lay: Dictionary = g._result_layout()
+	print("[A] 부활가능? %s  (거점파괴·미사용 → true 여야)" % lay["revivable"])
+	var cc: InputEventMouseButton = InputEventMouseButton.new()
+	cc.position = (lay["cont"] as Rect2).get_center()
+	cc.button_index = MOUSE_BUTTON_LEFT
+	cc.pressed = true
+	g._input(cc)
+	print("    광고클릭 %s → game_over=%s · core_hp=%d(복구=%d) · 적=%d · revive_used=%s"
+			% [(lay["cont"] as Rect2).get_center(), g.game_over, g.core_hp, int(g.st["core_hp"]), g.enemies.size(), g.revive_used])
 
-	# ② SPACE → 재도전 (힌트 글자는 지웠지만 키는 살아 있어야)
-	var g2: Node = S.new()
-	root.add_child(g2)
-	await process_frame
-	g2._start_stage(0)
-	g2.set_process(false)
-	g2.killed = 5
-	g2.game_over = true
+	# ── B. 부활 후 재사망: 이제 재도전이 주, 광고 없음. SPACE → 재시작
+	g.game_over = true
+	g.killed = 12
+	var lay2: Dictionary = g._result_layout()
+	print("[B] 재사망 부활가능? %s  (이미 부활 → false 여야)" % lay2["revivable"])
 	var sp: InputEventKey = InputEventKey.new()
 	sp.keycode = KEY_SPACE
 	sp.pressed = true
-	g2._input(sp)
-	print("SPACE      → game_over=%s killed=%d  (재시작이면 false/0)" % [g2.game_over, g2.killed])
+	g._input(sp)
+	print("    SPACE → game_over=%s killed=%d  (재시작이면 false/0)" % [g.game_over, g.killed])
 
-	# ③ ESC → 홈
-	var g3: Node = S.new()
-	root.add_child(g3)
+	# ── C. 막힘(stuck) 실패: 부활 없음(보드가 꽉 참) — 재도전만
+	var gc: Node = S.new()
+	root.add_child(gc)
 	await process_frame
-	g3._start_stage(0)
-	g3.set_process(false)
-	g3.game_over = true
-	var esc: InputEventKey = InputEventKey.new()
-	esc.keycode = KEY_ESCAPE
-	esc.pressed = true
-	g3._input(esc)
-	print("ESC        → mode=%s  (홈이면 select)" % g3.mode)
+	gc._start_stage(0)
+	gc.set_process(false)
+	gc.game_over = true
+	gc.stuck = true
+	print("[C] 막힘 부활가능? %s  (→ false 여야)" % gc._result_layout()["revivable"])
 
-	# ④ 홈 버튼 클릭 → 홈
-	var g4: Node = S.new()
-	root.add_child(g4)
+	# ── D. 부활 가능 시 SPACE → 부활(주 동작이 이어하기)
+	var gd: Node = S.new()
+	root.add_child(gd)
 	await process_frame
-	g4._start_stage(0)
-	g4.set_process(false)
-	g4.game_over = true
+	gd._start_stage(0)
+	gd.set_process(false)
+	gd.game_over = true
+	gd.enemies = [{"col": 1, "row": 2, "vis_row": 2.0, "hp": 5, "maxhp": 5, "etype": "basic", "id": 2, "step_every": 3}]
+	var spd: InputEventKey = InputEventKey.new()
+	spd.keycode = KEY_SPACE
+	spd.pressed = true
+	gd._input(spd)
+	print("[D] SPACE(부활가능) → game_over=%s revive_used=%s 적=%d  (부활이면 false/true/0)"
+			% [gd.game_over, gd.revive_used, gd.enemies.size()])
+
+	# ── E. 홈 버튼 클릭 → 홈 / 빈 곳 클릭 → 무시(모달)
+	var ge: Node = S.new()
+	root.add_child(ge)
+	await process_frame
+	ge._start_stage(0)
+	ge.set_process(false)
+	ge.game_over = true
+	var le: Dictionary = ge._result_layout()
 	var hc: InputEventMouseButton = InputEventMouseButton.new()
-	hc.position = g4.HOME_BTN.get_center()
+	hc.position = (le["home"] as Rect2).get_center()
 	hc.button_index = MOUSE_BUTTON_LEFT
 	hc.pressed = true
-	g4._input(hc)
-	print("홈 클릭 %s → mode=%s  (홈이면 select)" % [g4.HOME_BTN.get_center(), g4.mode])
+	ge._input(hc)
+	print("[E] 홈클릭 → mode=%s  (홈이면 select)" % ge.mode)
 
-	# ⑤ 빈 곳 클릭 → 아무 일도 없어야(모달)
 	var g5: Node = S.new()
 	root.add_child(g5)
 	await process_frame
@@ -76,7 +88,7 @@ func _init() -> void:
 	stray.button_index = MOUSE_BUTTON_LEFT
 	stray.pressed = true
 	g5._input(stray)
-	print("빈 곳 클릭 → mode=%s game_over=%s  (그대로 play/true여야)" % [g5.mode, g5.game_over])
+	print("    빈곳클릭 → mode=%s game_over=%s  (그대로 play/true여야)" % [g5.mode, g5.game_over])
 
 	print("DONE")
 	quit()
