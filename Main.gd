@@ -83,33 +83,33 @@ const STAGES: Array = [
 	{
 		"name": "첫 방어선", "tag": "줄을 완성해 레인을 청소한다",
 		"total": 20, "core_hp": 7, "base_hp": 30, "hp_ramp": 0.0, "tank_mult": 2.5,
-		"spawn_every": 3, "step_every": 3, "onboard": 20, "floor": 4,
+		"spawn_every": 3, "step_every": 3, "onboard": 20, "floor": 4, "surge_at": 0.85,
 		"weights": {"basic": 100, "fast": 0, "tank": 0, "swarm": 0},
 	},
 	{
 		# desync로 무리 절반이 base_step−1로 더 빨리 전진 → 행·열로 흩어져 한 줄론 못 쓸어냄
 		"name": "무리", "tag": "흩어져 밀려온다 — 한 줄로는 못 쓴다",
 		"total": 30, "core_hp": 3, "base_hp": 32, "hp_ramp": 0.4, "tank_mult": 2.5,
-		"spawn_every": 2, "step_every": 3, "onboard": 4, "floor": 5,
+		"spawn_every": 2, "step_every": 3, "onboard": 4, "floor": 5, "surge_at": 0.82,
 		"weights": {"basic": 40, "fast": 0, "tank": 0, "swarm": 60},
 	},
 	{
 		"name": "속공", "tag": "빠르다 — 시간이 없다",
 		"total": 34, "core_hp": 3, "base_hp": 34, "hp_ramp": 0.5, "tank_mult": 2.5,
-		"spawn_every": 2, "step_every": 3, "onboard": 3, "floor": 5,
+		"spawn_every": 2, "step_every": 3, "onboard": 3, "floor": 5, "surge_at": 0.80,
 		"weights": {"basic": 40, "fast": 50, "tank": 0, "swarm": 10},
 	},
 	{
 		# tank HP를 콤보3(240) 구간에 앉힌다: base 44~50 × 4.5 = 198~227 → 콤보2(180)로는 안 뚫림.
 		"name": "장갑", "tag": "한 방으론 안 뚫린다 — 콤보를 쌓아라",
 		"total": 44, "core_hp": 2, "base_hp": 44, "hp_ramp": 0.3, "tank_mult": 4.5,
-		"spawn_every": 2, "step_every": 3, "onboard": 3, "floor": 5,
+		"spawn_every": 2, "step_every": 3, "onboard": 3, "floor": 5, "surge_at": 0.80,
 		"weights": {"basic": 40, "fast": 0, "tank": 55, "swarm": 5},
 	},
 	{
 		"name": "총력전", "tag": "전부 온다",
 		"total": 48, "core_hp": 2, "base_hp": 46, "hp_ramp": 0.4, "tank_mult": 4.2,
-		"spawn_every": 2, "step_every": 3, "onboard": 2, "floor": 6,
+		"spawn_every": 2, "step_every": 3, "onboard": 2, "floor": 6, "surge_at": 0.78,
 		"weights": {"basic": 20, "fast": 35, "tank": 25, "swarm": 20},
 	},
 ]
@@ -264,6 +264,7 @@ var combo: int = 0
 var combo_miss: int = 0         # 콤보 유예 카운터: 줄 못 지운 연속 배치 수
 var dda_enabled: bool = true    # DDA 온오프 (A/B용)
 var floor_enabled: bool = true  # 밀도 하한(floor) 온오프 (density_probe A/B용)
+var surge_enabled: bool = true  # 후반 서지 온오프 (surge_probe A/B용)
 var drought: int = 0            # 연속 무클리어 배치 수 (DDA의 '고전' 신호)
 var fail_streak: Dictionary = {}  # 스테이지 인덱스 → 연속 실패 횟수 (갓 모드 트리거, 세션 한정)
 var game_over: bool = false
@@ -303,6 +304,7 @@ var flash_lines: int = 0
 var flash_combo: int = 0
 var flash_climax: bool = false      # 화면 전체 도달(전멸) — 라벨 강조용
 var climax_pending: float = -1.0    # 전멸 충격파 발사 예약 시각(resolve_timer 기준, -1=없음)
+var surge_active: bool = false      # 후반 서지 중(진행도 > surge_at) — 전진 가속 + 텔레그래프용
 
 # 터질 예정인 완성 줄 — 충전이 끝날 때까지 board에 그대로 남아 있다(즉시 삭제 금지).
 # 충전이 끝나면 전 셀이 '동시에' 사라진다.
@@ -433,6 +435,7 @@ func _init_game() -> void:
 	red_flash = 0.0
 	climax_pending = -1.0
 	flash_climax = false
+	surge_active = false
 	shake_timer = 0.0
 	dragging = false
 	drag_slot = -1
@@ -1164,9 +1167,22 @@ func _end_turn() -> void:
 # ===== 스텝 진행 =====
 func advance_step() -> void:
 	place_count += 1
+	# 후반 서지: 진행도(spawned/total)가 surge_at을 넘으면 '밀물이 빨라진다'.
+	#   ⚠레버는 전진 속도(step_every)지 스폰 주기가 아니다 — spawn_every를 조이면 적이 뭉쳐
+	#   들어와 한 줄로 더 쓸려나가 오히려 쉬워진다(위 STAGES 주석의 비단조 실측). 실제로 거점을
+	#   터뜨리는 유일한 축은 전진 속도(C25) → 서지 중 모든 적이 한 단계 빨리 내려온다.
+	#   목적: 실패를 판 후반 30%에 몰아 '아까운 실패'를 만든다(F2P 광고 부활의 유인, C47).
+	var total: int = int(st["total"])
+	var surge_at: float = float(st.get("surge_at", 0.0)) if surge_enabled else 0.0
+	surge_active = surge_at > 0.0 and float(spawned) >= surge_at * float(total)
 	# 전진 스로틀: step_every 배치마다 1칸 (fast는 스테이지 주기의 절반 = 2배 빠름)
 	for e in enemies:
 		var step_every: int = e.get("step_every", int(st["step_every"]))
+		if surge_active:
+			# ⚠최소 2로 클램프 — step_every 1은 '매 배치 전진'(2배 점프)이라 과하다.
+			#   step 2인 이미 빠른 적(fast·swarm desync)은 서지 면제, step 3인 느린 적만 2로 가속.
+			#   그래서 서지 강도가 타입 믹스에 비단조로 튀지 않는다(swarm 스테이지 붕괴 방지).
+			step_every = maxi(2, step_every - 1)   # 서지: 한 단계 빨리(하한 2)
 		if place_count % step_every == 0:
 			e["row"] += 1
 
@@ -1196,7 +1212,6 @@ func advance_step() -> void:
 	# 스폰 스로틀: spawn_every 배치마다 1회
 	if place_count % int(st["spawn_every"]) != 0:
 		return
-	var total: int = int(st["total"])
 	if spawned >= total:
 		return
 	var etype: String = "basic" if spawned < int(st["onboard"]) else _pick_etype()
