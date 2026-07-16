@@ -48,6 +48,7 @@ const CHARGE_TINT: float = 0.45
 # 전부 블록이 사라진 '뒤'에 온다(빛 바 스윕 → 파편 → 텍스트).
 # 사라지는 순간 줄 자리에 색 테두리만 한 순간 남는다 = 소멸의 잔상.
 const LINE_OUTLINE_DUR: float = 0.06
+const PLACE_POP_DUR: float = 0.17   # 블록 착지 팝 지속(짧게 '탁')
 # 블록이 사라지고 로켓(=빛 바)이 나가기까지의 짧은 빈 줄 간격 (BB 실측 ~0.07s)
 const BURST_GAP: float = 0.07
 
@@ -82,33 +83,33 @@ const STAGES: Array = [
 	{
 		"name": "첫 방어선", "tag": "줄을 완성해 레인을 청소한다",
 		"total": 20, "core_hp": 7, "base_hp": 30, "hp_ramp": 0.0, "tank_mult": 2.5,
-		"spawn_every": 3, "step_every": 3, "onboard": 20,
+		"spawn_every": 3, "step_every": 3, "onboard": 20, "floor": 4,
 		"weights": {"basic": 100, "fast": 0, "tank": 0, "swarm": 0},
 	},
 	{
 		# desync로 무리 절반이 base_step−1로 더 빨리 전진 → 행·열로 흩어져 한 줄론 못 쓸어냄
 		"name": "무리", "tag": "흩어져 밀려온다 — 한 줄로는 못 쓴다",
 		"total": 30, "core_hp": 3, "base_hp": 32, "hp_ramp": 0.4, "tank_mult": 2.5,
-		"spawn_every": 2, "step_every": 3, "onboard": 4,
+		"spawn_every": 2, "step_every": 3, "onboard": 4, "floor": 5,
 		"weights": {"basic": 40, "fast": 0, "tank": 0, "swarm": 60},
 	},
 	{
 		"name": "속공", "tag": "빠르다 — 시간이 없다",
 		"total": 34, "core_hp": 3, "base_hp": 34, "hp_ramp": 0.5, "tank_mult": 2.5,
-		"spawn_every": 2, "step_every": 3, "onboard": 3,
+		"spawn_every": 2, "step_every": 3, "onboard": 3, "floor": 5,
 		"weights": {"basic": 40, "fast": 50, "tank": 0, "swarm": 10},
 	},
 	{
 		# tank HP를 콤보3(240) 구간에 앉힌다: base 44~50 × 4.5 = 198~227 → 콤보2(180)로는 안 뚫림.
 		"name": "장갑", "tag": "한 방으론 안 뚫린다 — 콤보를 쌓아라",
 		"total": 44, "core_hp": 2, "base_hp": 44, "hp_ramp": 0.3, "tank_mult": 4.5,
-		"spawn_every": 2, "step_every": 3, "onboard": 3,
+		"spawn_every": 2, "step_every": 3, "onboard": 3, "floor": 5,
 		"weights": {"basic": 40, "fast": 0, "tank": 55, "swarm": 5},
 	},
 	{
 		"name": "총력전", "tag": "전부 온다",
 		"total": 48, "core_hp": 2, "base_hp": 46, "hp_ramp": 0.4, "tank_mult": 4.2,
-		"spawn_every": 2, "step_every": 3, "onboard": 2,
+		"spawn_every": 2, "step_every": 3, "onboard": 2, "floor": 6,
 		"weights": {"basic": 20, "fast": 35, "tank": 25, "swarm": 20},
 	},
 ]
@@ -262,6 +263,7 @@ var score: int = 0
 var combo: int = 0
 var combo_miss: int = 0         # 콤보 유예 카운터: 줄 못 지운 연속 배치 수
 var dda_enabled: bool = true    # DDA 온오프 (A/B용)
+var floor_enabled: bool = true  # 밀도 하한(floor) 온오프 (density_probe A/B용)
 var drought: int = 0            # 연속 무클리어 배치 수 (DDA의 '고전' 신호)
 var fail_streak: Dictionary = {}  # 스테이지 인덱스 → 연속 실패 횟수 (갓 모드 트리거, 세션 한정)
 var game_over: bool = false
@@ -316,10 +318,12 @@ var last_color: String = ""         # 마지막으로 놓은 조각의 색 키
 var floaters: Array = []
 var death_flashes: Array = []  # [{pos, life, max, color}] 적 사망 스케일 팝(원형) — '적이 죽었다'의 시각 문법
 var cell_pops: Array = []      # [{pos, life, max, color}] 블록 소멸 팝(사각형) — 적 사망과 형태로 구분
+var place_pops: Array = []     # [{pos, life, max, color}] 블록 착지 팝(사각형, 수축) — 소멸(부풂)과 방향 반대 = '도착'
 var debris: Array = []         # [{pos, vel, life, max, color, size}] 사망 파편 버스트
 var impacts: Array = []        # [{pos, life, max, color, radius}] 빔 임팩트/탱크 막음 링
 var kill_pulse: float = 0.0    # 킬 순간 ENEMIES LEFT 헤드라인 펄스
 var push_streaks: Array = []   # [{from, to, life, max}] 넉백 잔상
+var aim_marks: Array = []      # [{c, r}] 조준 프리뷰 링 — 들고 있는 조각 '위'에 최상단 오버레이로 그린다
 var rockets: Array = []        # [{dir, idx, t, dur, combo, ended}] 라인 따라 질주하는 로켓
 var hitstop: float = 0.0       # 명중 순간 순간 멈칫(게임 타이머 전부 정지)
 var core_hits: Array = []      # [{col, life}] 거점 피격 충격 플래시
@@ -414,6 +418,7 @@ func _init_game() -> void:
 	floaters = []
 	death_flashes = []
 	cell_pops = []
+	place_pops = []
 	debris = []
 	impacts = []
 	kill_pulse = 0.0
@@ -849,6 +854,49 @@ func _full_cols() -> Array:
 func _charge_dur_for(streak: int) -> float:
 	return minf(CHARGE_BASE + CHARGE_PER_COMBO * float(maxi(0, streak - 1)), CHARGE_MAX)
 
+# ② 콤보=청소 범위: 완성 줄에서 매 콤보 '한 줄씩' 추가(총 레인 수 = combo).
+#    추가 방향은 바깥으로 교대(줄0 → +1 → −1 → +2…) = 완성 줄 중심 확산, 보드 밖은 스킵.
+#    링 = 추가 순서(0=완성 줄). 반환 값 col/row → ring.
+#    전멸(combo 임계 or 밴드가 전 열/행 커버)이면 전 열을 ring 0으로 채운다.
+# ★ 실제 처치(_begin_resolve)와 조준 프리뷰(_draw_board)가 이 한 함수를 공유한다 —
+#   프리뷰가 '누가 죽나'를 실제와 어긋나지 않게 말하려면 같은 셈을 써야 한다(C31 원칙).
+func _blast_band(rows: Array, cols: Array, combo_val: int) -> Dictionary:
+	var lanes_n: int = maxi(1, combo_val)
+	var band_cols: Dictionary = {}   # col -> ring(추가 순서)
+	for c in cols:
+		var added: int = 0
+		var k: int = 0
+		while added < lanes_n and k < COLS * 2:
+			var off: int = 0 if k == 0 else ((k + 1) / 2) * (1 if (k % 2) == 1 else -1)
+			k += 1
+			var cc: int = int(c) + off
+			if cc < 0 or cc >= COLS:
+				continue
+			if not band_cols.has(cc) or added < band_cols[cc]:
+				band_cols[cc] = added
+			added += 1
+	var band_rows: Dictionary = {}   # row -> ring(추가 순서)
+	for r in rows:
+		var addedr: int = 0
+		var kr: int = 0
+		while addedr < lanes_n and kr < ROWS * 2:
+			var offr: int = 0 if kr == 0 else ((kr + 1) / 2) * (1 if (kr % 2) == 1 else -1)
+			kr += 1
+			var rr: int = int(r) + offr
+			if rr < 0 or rr >= ROWS:
+				continue
+			if not band_rows.has(rr) or addedr < band_rows[rr]:
+				band_rows[rr] = addedr
+			addedr += 1
+	var full_board: bool = combo_val >= CLIMAX_COMBO or band_cols.size() >= COLS or band_rows.size() >= ROWS
+	if full_board:
+		# 전 열을 ring 0으로 채움 → 모든 적 동시 피격
+		band_cols.clear()
+		band_rows.clear()
+		for c2 in range(COLS):
+			band_cols[c2] = 0
+	return {"cols": band_cols, "rows": band_rows, "full_board": full_board}
+
 # 클리어(rows/cols) 결과를 미리 계획해 resolve 큐에 적재하고 시작
 func _begin_resolve(rows: Array, cols: Array) -> void:
 	resolving = true
@@ -876,50 +924,17 @@ func _begin_resolve(rows: Array, cols: Array) -> void:
 		clear_done = false
 		# 블록이 사라지고 짧은 빈 줄을 거쳐 로켓(=빛 바)이 나간다
 		var fire_t: float = charge_dur + BURST_GAP
-		# ② 콤보=청소 범위: 완성 줄에서 매 콤보 '한 줄씩' 추가(총 레인 수 = combo).
-		#    추가 방향은 바깥으로 교대(줄0 → +1 → −1 → +2…) = 완성 줄 중심 확산, 보드 밖은 스킵.
-		#    링 = 추가 순서(0=완성 줄) → 한 줄씩 순차 발사(심지처럼 번지는 물결). 보드 셀 제거는 완성 줄만.
-		var lanes_n: int = maxi(1, combo)
-		var band_cols: Dictionary = {}   # col -> ring(추가 순서)
-		for c in cols:
-			var added: int = 0
-			var k: int = 0
-			while added < lanes_n and k < COLS * 2:
-				var off: int = 0 if k == 0 else ((k + 1) / 2) * (1 if (k % 2) == 1 else -1)
-				k += 1
-				var cc: int = c + off
-				if cc < 0 or cc >= COLS:
-					continue
-				if not band_cols.has(cc) or added < band_cols[cc]:
-					band_cols[cc] = added
-				added += 1
-		var band_rows: Dictionary = {}   # row -> ring(추가 순서)
-		for r in rows:
-			var addedr: int = 0
-			var kr: int = 0
-			while addedr < lanes_n and kr < ROWS * 2:
-				var offr: int = 0 if kr == 0 else ((kr + 1) / 2) * (1 if (kr % 2) == 1 else -1)
-				kr += 1
-				var rr: int = r + offr
-				if rr < 0 or rr >= ROWS:
-					continue
-				if not band_rows.has(rr) or addedr < band_rows[rr]:
-					band_rows[rr] = addedr
-				addedr += 1
+		# 밴드(콤보=청소 범위)는 _blast_band가 계산 — 조준 프리뷰와 같은 셈을 공유한다.
+		var band: Dictionary = _blast_band(rows, cols, combo)
+		var band_cols: Dictionary = band["cols"]   # col -> ring(추가 순서)
+		var band_rows: Dictionary = band["rows"]   # row -> ring(추가 순서)
+		var full_board: bool = band["full_board"]  # 전멸: 순차 대신 '한 방 전멸'
 		var max_ring: int = 0            # 실제 존재하는 가장 바깥 링(물결 시각 길이 보장용)
 		for v in band_cols.values():
 			max_ring = maxi(max_ring, v)
 		for v in band_rows.values():
 			max_ring = maxi(max_ring, v)
-		# 전멸(화면 전체 청소) = 콤보 임계 도달 or 밴드가 전 열/행 커버 → 순차 대신 '한 방 전멸'
-		var full_board: bool = combo >= CLIMAX_COMBO or band_cols.size() >= COLS or band_rows.size() >= ROWS
 		if full_board:
-			# 전 열을 ring 0으로 채움 → 모든 적 동시 피격 + 세로 로켓 일제 발사
-			band_cols.clear()
-			band_rows.clear()
-			for c2 in range(COLS):
-				band_cols[c2] = 0
-			max_ring = 0
 			climax_pending = fire_t + 0.20   # 피격 착지에 맞춰 중앙 충격파 발사
 		# 로켓 계획 — 파괴 물결이 끝난 직후(fire_t) 발사. 링 거리만큼 지연(0=먼저, 바깥 링일수록 늦게)
 		for c in band_cols:
@@ -1171,6 +1186,13 @@ func advance_step() -> void:
 	if pending_core_dead:
 		return   # 거점 파괴 스텝: 블라스트 없이 누수 연출 후 게임오버
 
+	# 밀도 하한(floor): 보드가 floor보다 비면 스로틀과 무관하게 매 스텝 +1 채운다(시작 버스트
+	#   없이 서서히). 처치·클리어로 보드가 비어도 곧 표적이 다시 생겨 '무표적 발동'을 줄인다.
+	#   난이도는 core_hp·total이 지고, floor는 순수 밀도 손잡이 — 둘을 분리한다.
+	var floor_n: int = int(st.get("floor", 0)) if floor_enabled else 0
+	if floor_n > 0 and enemies.size() < floor_n and spawned < int(st["total"]):
+		_spawn_one(randi() % COLS, _pick_etype())
+
 	# 스폰 스로틀: spawn_every 배치마다 1회
 	if place_count % int(st["spawn_every"]) != 0:
 		return
@@ -1338,6 +1360,12 @@ func _place_piece() -> void:
 		var c: Vector2i = ci as Vector2i
 		board[c.y][c.x] = active["color"]
 	last_color = active["color"]   # 색 통일용: 터질 줄이 이 색으로 물든다
+	# 착지 팝: 놓은 칸마다 '탁' 들어앉는 신호. 완성 못 시킨 수(절반 이상)도 이제 손맛이 남는다.
+	# 소멸 팝(밖으로 부풂)과 반대로 수축해 '도착'을 말한다. 숫자 없음(C9/C23: 목표는 '남은 적').
+	var place_col: Color = _color_of(active["color"])
+	for ci2 in cells:
+		var pc2: Vector2i = ci2 as Vector2i
+		place_pops.append({"pos": _cell_center(pc2.x, pc2.y), "life": PLACE_POP_DUR, "max": PLACE_POP_DUR, "color": place_col})
 	# 조각 소비: 트레이 슬롯 비우고 다음 슬롯/리필 (즉시 = 피드백)
 	_consume_slot()
 	# 완성 줄 감지 — 적은 아직 "현재 위치"(이동 전). 로켓이 그 자리 적을 먼저 타격.
@@ -1611,6 +1639,12 @@ func _process(delta: float) -> void:
 		if cell_pops[cp]["life"] <= 0.0:
 			cell_pops.remove_at(cp)
 		cp -= 1
+	var pp2: int = place_pops.size() - 1
+	while pp2 >= 0:
+		place_pops[pp2]["life"] -= delta
+		if place_pops[pp2]["life"] <= 0.0:
+			place_pops.remove_at(pp2)
+		pp2 -= 1
 	# 파편 이동·감쇠 (마찰 + 약한 중력)
 	var d: int = debris.size() - 1
 	while d >= 0:
@@ -1659,6 +1693,7 @@ func _draw() -> void:
 	_draw_bottom(fnt)
 	_draw_collapse()
 	_draw_held()
+	_draw_aim_overlay()   # 조준 링은 들고 있는 조각 '위' = 최상단 (커서 아래 적도 신호가 안 가려지게)
 
 	for fl in floaters:
 		var fa: float = clampf(fl["life"] / fl["max"], 0.0, 1.0)
@@ -1683,6 +1718,16 @@ func _draw() -> void:
 		var dsz: float = dpart["size"]
 		var dpos: Vector2 = dpart["pos"]
 		draw_rect(Rect2(dpos - Vector2(dsz, dsz) * 0.5, Vector2(dsz, dsz)), dcol)
+
+	# 블록 착지 팝 — 사각형이 '수축'하며 안착(소멸 팝의 부풂과 반대 = 도착). 놓은 색 → 흰 테두리.
+	for ppop in place_pops:
+		var qp: float = clampf(ppop["life"] / ppop["max"], 0.0, 1.0)   # 1→0
+		var psz2: float = CELL * (1.0 + 0.30 * qp)                      # 크게 시작 → 셀 크기로 안착
+		var pcol2: Color = ppop["color"]
+		var ppos2: Vector2 = ppop["pos"]
+		var prect2: Rect2 = Rect2(ppos2 - Vector2(psz2, psz2) * 0.5, Vector2(psz2, psz2))
+		draw_rect(prect2, Color(pcol2.r, pcol2.g, pcol2.b, qp * 0.30))
+		draw_rect(prect2, Color(1.0, 1.0, 1.0, qp * 0.85), false, 3.0)
 
 	# 블록 소멸 팝 — 사각형이 부풀며 페이드(적 사망의 원형 팝과 형태로 구분: 네모=블록, 원=적)
 	for cpop in cell_pops:
@@ -2210,6 +2255,10 @@ func _draw_board(fnt: Font) -> void:
 	# 어떤 블록 색과도 충돌할 수 없다.
 	#
 	# resolve 중엔 숨긴다 — 충전 중인 셀 때문에 _can_place가 false가 되어 프리뷰가 깜빡인다.
+	# 조준 프리뷰가 채운다: 지금 놓으면 죽을 적 id 집합. 아래 적 루프가 링 위치를 aim_marks에
+	# 적재하고, _draw_aim_overlay가 '들고 있는 조각 위'에 그린다(커서 아래 적도 링이 안 가려지게).
+	var doomed: Dictionary = {}
+	aim_marks = []
 	if dragging and not game_over and not game_clear and not resolving:
 		var active: Dictionary = _active()
 		var ghost: Array = _ghost_cells()
@@ -2233,6 +2282,19 @@ func _draw_board(fnt: Font) -> void:
 				for pr2 in range(ROWS):
 					pre[Vector2i(int(pc2), pr2)] = true
 			will_clear = pre.size() > 0
+			if will_clear:
+				# 조준 프리뷰: 지금 놓으면 콤보가 combo+1이 되고, 그 밴드에 걸리는 적이 죽는다.
+				# 실제 처치와 같은 _blast_band를 써서 어긋나지 않는다. 표식이 하나도 안 뜨면
+				# = 무표적 발동("이 수는 아무도 못 잡는다")이 배치 전에 그대로 보인다(C43).
+				var pv_band: Dictionary = _blast_band(wl["rows"], wl["cols"], combo + 1)
+				var pv_cols: Dictionary = pv_band["cols"]
+				var pv_rows: Dictionary = pv_band["rows"]
+				for de in enemies:
+					var der: int = de["row"]
+					if der < 0 or der >= ROWS:
+						continue
+					if pv_cols.has(de["col"]) or pv_rows.has(der):
+						doomed[de["id"]] = true
 			for pi in pre:
 				var pv: Vector2i = pi as Vector2i
 				if gset.has(pv):
@@ -2336,6 +2398,10 @@ func _draw_board(fnt: Font) -> void:
 		# 피격 흰 플래시 오버레이 (맞은 순간 강조)
 		if flinch > 0.0:
 			draw_circle(Vector2(cx, cy), rad, Color(1.0, 1.0, 1.0, 0.7 * clampf(flinch / 0.22, 0.0, 1.0)))
+		# 조준 프리뷰: 이 적은 지금 놓으면 죽는다. 링은 여기서 안 그리고 위치만 적재 —
+		# 실제 렌더는 _draw_aim_overlay(들고 있는 조각 위)가 맡아 커서에 안 가려진다.
+		if doomed.has(e["id"]):
+			aim_marks.append({"c": Vector2(cx, cy), "r": rad})
 		# ── HP 게이지 = 하트 + 바. 숫자는 없다.
 		#
 		# 상시로 그리지 않는다 — '피격당하고 살아남은 적'(hp < maxhp)에게만 뜬다.
@@ -2452,6 +2518,19 @@ func _draw_held() -> void:
 	if active.is_empty():
 		return
 	_draw_piece_cells(_drag_origin_px(), float(CELL), _color_of(active["color"]), active["offsets"])
+
+# 조준 프리뷰 링 — 들고 있는 조각보다 위에 그린다. 로켓과 같은 골드 2겹 글로우(넓은 은은한 +
+# 좁은 밝은)로 맥동해 '이 적을 저 로켓이 친다'로 잇는다. 위치·반지름은 _draw_board 적 루프가
+# aim_marks에 적재한 값(단일 출처) — 커서가 적을 덮어도 이 신호만은 안 가려진다.
+func _draw_aim_overlay() -> void:
+	if aim_marks.is_empty():
+		return
+	var dp: float = 0.5 + 0.5 * sin(anim_t * 7.0)
+	for m in aim_marks:
+		var c: Vector2 = m["c"]
+		var dr: float = float(m["r"]) + 5.0 + 2.0 * dp
+		draw_circle(c, dr + 2.0, Color(1.0, 0.9, 0.4, 0.16 + 0.12 * dp), false, 5.0)
+		draw_circle(c, dr, Color(1.0, 0.98, 0.7, 0.8 + 0.2 * dp), false, 2.5)
 
 # 붕괴 층 — 거점 파괴로 떨어지는 것들은 하단 패널 '위'에 그린다.
 # 보드 층에서 그리면 트레이 패널이 덮어버려서 쏟아지는 게 화면 밖으로 나가는 걸 볼 수가 없다.

@@ -16,11 +16,15 @@ func _init() -> void:
 	var g: Node = S.new()
 	root.add_child(g)
 	g.dda_enabled = false
-	print("── 비-클라이맥스 발동: 밴드(현재) vs 완성줄만 처치 비교 ──")
-	print("stage | 발동수 | 밴드명중 | 줄만명중 | 밴드추가/발동 | 밴드가+한발동% | 클라이맥스/판")
-	print("------+--------+----------+----------+---------------+----------------+-------------")
-	for si in range(g.STAGES.size()):
-		_run_stage(g, si)
+	print("── 밀도 실측: 동시 적 · 무표적 발동 · 빈 레인 (밀도 하한 floor A/B) ──")
+	for pass_i in range(2):
+		g.floor_enabled = (pass_i == 1)
+		print("")
+		print("[ floor %s ]" % ("ON (after)" if g.floor_enabled else "OFF (before)"))
+		print("stage | 평균적 | 최대적 | 무표적발동% | 빈레인% | 밴드명중 | 클라막스 | 밴드+처치%")
+		print("------+--------+--------+------------+---------+----------+----------+-----------")
+		for si in range(g.STAGES.size()):
+			_run_stage(g, si)
 	quit()
 
 func _run_stage(g: Node, si: int) -> void:
@@ -32,6 +36,9 @@ func _run_stage(g: Node, si: int) -> void:
 	var nc_band_sum: float = 0.0       # 밴드(현재) 명중 적
 	var nc_lineonly_sum: float = 0.0   # 완성 줄만 명중 적
 	var nc_bandadds: int = 0           # 밴드가 줄만보다 1마리 이상 더 잡은 발동
+	var nc_notarget: int = 0           # 무표적 발동: 줄 완성했는데 0마리 명중
+	var lane_sum: int = 0              # 총 발사 레인(로켓 계획)
+	var empty_lane_sum: int = 0        # 그 중 적 0인 빈 레인
 	var climax_count: int = 0
 	var games: int = 0
 
@@ -76,6 +83,21 @@ func _run_stage(g: Node, si: int) -> void:
 				nc_lineonly_sum += float(lineonly)
 				if band_hits > lineonly:
 					nc_bandadds += 1
+				if band_hits == 0:
+					nc_notarget += 1
+				# 빈 레인: 로켓 계획 레인 중 적이 0인 것
+				for rp in g.resolve_rocket_plan:
+					lane_sum += 1
+					var occ_lane: bool = false
+					for e2 in g.enemies:
+						if rp["dir"] == "col" and int(e2["col"]) == int(rp["idx"]):
+							occ_lane = true
+							break
+						if rp["dir"] == "row" and int(e2["row"]) == int(rp["idx"]):
+							occ_lane = true
+							break
+					if not occ_lane:
+						empty_lane_sum += 1
 		# 마지막 resolve 소화
 		var s2: int = 0
 		while g.resolving and s2 < 400:
@@ -83,14 +105,15 @@ func _run_stage(g: Node, si: int) -> void:
 			s2 += 1
 
 	var nc: float = maxf(1.0, float(nc_count))
-	print("  %d   | %5.2f  |  %5.2f   |  %5.2f   |     %5.2f     |     %5.1f%%     |    %5.2f" % [
+	print("  %d   | %5.2f | %5.2f |   %5.1f%%   |  %5.1f%%  |  %5.2f  |  %5.2f  |  %5.1f%%" % [
 		si + 1,
-		float(nc_count) / float(maxi(1, games)),
-		nc_band_sum / nc,
-		nc_lineonly_sum / nc,
-		(nc_band_sum - nc_lineonly_sum) / nc,
-		100.0 * float(nc_bandadds) / nc,
-		float(climax_count) / float(maxi(1, games)),
+		turn_enemy_sum / float(maxi(1, turn_count)),   # 평균 동시 적
+		float(max_concurrent),                          # 최대 동시 적
+		100.0 * float(nc_notarget) / nc,                # 무표적 발동%
+		100.0 * float(empty_lane_sum) / float(maxi(1, lane_sum)),  # 빈 레인%
+		nc_band_sum / nc,                               # 밴드 명중/발동
+		float(climax_count) / float(maxi(1, games)),    # 클라이맥스/판
+		100.0 * float(nc_bandadds) / nc,                # 밴드가 +처치한 발동%
 	])
 
 # ───────── 그리디 봇 (tools/sim.gd에서 복제) ─────────
