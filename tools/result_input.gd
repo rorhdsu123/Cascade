@@ -37,7 +37,7 @@ func _init() -> void:
 	g._input(sp)
 	print("    SPACE → game_over=%s killed=%d  (재시작이면 false/0)" % [g.game_over, g.killed])
 
-	# ── C. 막힘(stuck) 실패: 부활 없음(보드가 꽉 참) — 재도전만
+	# ── C. 막힘(stuck) 실패: 부활 가능 — 광고 클릭 시 보드를 비운다(세컨드 윈드)
 	var gc: Node = S.new()
 	root.add_child(gc)
 	await process_frame
@@ -45,7 +45,24 @@ func _init() -> void:
 	gc.set_process(false)
 	gc.game_over = true
 	gc.stuck = true
-	print("[C] 막힘 부활가능? %s  (→ false 여야)" % gc._result_layout()["revivable"])
+	# 보드를 꽉 채워 막힘 상황 재현
+	for r in range(gc.ROWS):
+		for c in range(gc.COLS):
+			gc.board[r][c] = "R"
+	var layc: Dictionary = gc._result_layout()
+	print("[C] 막힘 부활가능? %s  (→ true 여야)" % layc["revivable"])
+	var ccc: InputEventMouseButton = InputEventMouseButton.new()
+	ccc.position = (layc["cont"] as Rect2).get_center()
+	ccc.button_index = MOUSE_BUTTON_LEFT
+	ccc.pressed = true
+	gc._input(ccc)
+	var filled: int = 0
+	for r in range(gc.ROWS):
+		for c in range(gc.COLS):
+			if gc.board[r][c] != "":
+				filled += 1
+	print("    광고클릭 → game_over=%s stuck=%s 보드채움=%d  (부활+보드클리어면 false/false/0)"
+			% [gc.game_over, gc.stuck, filled])
 
 	# ── D. 부활 가능 시 SPACE → 부활(주 동작이 이어하기)
 	var gd: Node = S.new()

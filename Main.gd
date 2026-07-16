@@ -1843,10 +1843,10 @@ func _draw() -> void:
 # 다 엇비슷해서 무엇이 헤드라인인지 눈이 못 정했다.
 # 결과 팝업 레이아웃 — 그리기(_draw_result)와 입력(_input)이 이 한 함수를 공유한다.
 #   버튼이 상황에 따라 2개(재도전·홈)거나 3개(광고 이어하기·재도전·홈)라, 좌표를 두 곳에서
-#   따로 적으면 어긋난다(C31 원칙). revivable = 거점 파괴 실패 & 부활 미사용일 때만 광고 버튼.
-#   막힘(stuck)은 보드가 꽉 차 HP 복구가 무의미 → MVP에선 부활 없음(재도전만, C47 ⓑ).
+#   따로 적으면 어긋난다(C31 원칙). revivable = 실패(거점 파괴·막힘 둘 다) & 부활 미사용.
+#   ※막힘도 부활한다 — 실패 경로 하나만 부활 가능하면 나머지 실패는 그냥 샌다(C48 플테 정정).
 func _result_layout() -> Dictionary:
-	var revivable: bool = game_over and not stuck and not revive_used
+	var revivable: bool = game_over and not revive_used
 	if revivable:
 		var p: Rect2 = Rect2(170.0, 234.0, 460.0, 500.0)
 		return {
@@ -1865,20 +1865,27 @@ func _result_layout() -> Dictionary:
 		"home": Rect2(300.0, 630.0, 200.0, 40.0),
 	}
 
-# 광고 부활 — 세컨드 윈드. 거점 HP 풀 복구 + 화면의 적 전부 제거(밀물 리셋)로 즉사 재발을 막는다.
-#   진행도(spawned/killed/leaked)는 유지 = '이어하기'다. 죽음 연출은 취소하고 판을 재개한다.
+# 광고 부활 — 세컨드 윈드. 실패 원인에 맞춰 판을 살 만하게 리셋한다(진행도 spawned/killed/leaked
+#   는 유지 = '이어하기'). 거점 파괴=밀물에 밀렸으니 적 제거+HP 복구(보드는 쌓은 자산이라 유지),
+#   막힘=보드가 꽉 차 못 놨으니 보드 클리어. 단순 HP 복구만이면 서지 구간 즉사 재발(C47 경계).
 #   ⚠광고는 프로토 스텁 — 버튼을 누르면 즉시 부활한다. 실제 리워드 광고 SDK 연동은 나중(C47).
 func _revive() -> void:
+	var was_stuck: bool = stuck
 	revive_used = true
 	game_over = false
 	stuck = false
 	pending_core_dead = false
 	core_t = -1.0             # 거점 파괴 연출 취소
 	core_burst_done = false
-	stuck_t = -1.0
+	stuck_t = -1.0            # 막힘 연출 취소
 	core_hp = int(st["core_hp"])   # 거점 HP 풀 복구
 	enemies = []                   # 화면 밀물 리셋 = 숨 쉴 틈
 	pending_leaks = []
+	if was_stuck:
+		# 놓을 곳이 없어 죽었으니 보드를 비운다(숨 쉴 틈). 거점 부활은 보드를 안 건드린다.
+		for r in range(ROWS):
+			for c in range(COLS):
+				board[r][c] = ""
 	_cont_hover = false
 
 # 재도전 = 실패면 같은 스테이지, 클리어면 다음(마지막이면 홈)
