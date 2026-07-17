@@ -1881,14 +1881,17 @@ func _revive() -> void:
 	core_burst_done = false
 	stuck_t = -1.0            # 막힘 연출 취소
 	core_hp = int(st["core_hp"])   # 거점 HP 풀 복구
-	enemies = []                   # 화면 밀물 리셋 = 숨 쉴 틈
 	pending_leaks = []
 	if was_stuck:
-		# 놓을 곳이 없어 죽었으니 하단 몇 줄만 비운다(부분 클리어) — 위 구조는 남겨 '이어하는'
-		#   느낌을 지킨다. 거점 부활은 보드를 아예 안 건드린다.
+		# 막힘 = 보드 때문에 죽었다 → 하단 몇 줄만 비워 공간만 되찾는다(부분 클리어). 위 구조도,
+		#   내려오던 적도 그대로 이어받는다(적까지 지우면 보드는 남기면서 밀물만 리셋이라 비일관).
 		for r in range(ROWS - REVIVE_CLEAR_ROWS, ROWS):
 			for c in range(COLS):
 				board[r][c] = ""
+	else:
+		# 거점 파괴 = 밀물에 밀려 죽었다 → 적을 걷어내는 게 세컨드 윈드. 보드(쌓은 자산)는 유지.
+		enemies = []
+	_cont_hover = false
 	_cont_hover = false
 
 # 재도전 = 실패면 같은 스테이지, 클리어면 다음(마지막이면 홈)

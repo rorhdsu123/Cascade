@@ -45,10 +45,14 @@ func _init() -> void:
 	gc.set_process(false)
 	gc.game_over = true
 	gc.stuck = true
-	# 보드를 꽉 채워 막힘 상황 재현
+	# 보드를 꽉 채워 막힘 상황 재현 + 적 2마리(부활 후에도 남아야)
 	for r in range(gc.ROWS):
 		for c in range(gc.COLS):
 			gc.board[r][c] = "R"
+	gc.enemies = [
+		{"col": 1, "row": 2, "vis_row": 2.0, "hp": 5, "maxhp": 5, "etype": "basic", "id": 3, "step_every": 3},
+		{"col": 4, "row": 5, "vis_row": 5.0, "hp": 5, "maxhp": 5, "etype": "basic", "id": 4, "step_every": 3},
+	]
 	var layc: Dictionary = gc._result_layout()
 	print("[C] 막힘 부활가능? %s  (→ true 여야)" % layc["revivable"])
 	var ccc: InputEventMouseButton = InputEventMouseButton.new()
@@ -64,9 +68,9 @@ func _init() -> void:
 				filled += 1
 				if r >= gc.ROWS - gc.REVIVE_CLEAR_ROWS:
 					bottom_filled += 1
-	# 부분 클리어: 하단 3줄(24칸)만 비고 상단 40칸은 남아야 = '이어하는' 느낌
-	print("    광고클릭 → game_over=%s stuck=%s 보드채움=%d 하단3줄채움=%d  (부활+부분클리어면 false/false/40/0)"
-			% [gc.game_over, gc.stuck, filled, bottom_filled])
+	# 부분 클리어: 하단 3줄(24칸)만 비고 상단 40칸 유지 + 적은 그대로(막힘은 적 유지) = '이어하는' 느낌
+	print("    광고클릭 → game_over=%s stuck=%s 보드채움=%d 하단3줄채움=%d 적=%d  (false/false/40/0/적2 유지)"
+			% [gc.game_over, gc.stuck, filled, bottom_filled, gc.enemies.size()])
 
 	# ── D. 부활 가능 시 SPACE → 부활(주 동작이 이어하기)
 	var gd: Node = S.new()
