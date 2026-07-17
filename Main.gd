@@ -325,6 +325,7 @@ var death_flashes: Array = []  # [{pos, life, max, color}] 적 사망 스케일 
 var cell_pops: Array = []      # [{pos, life, max, color}] 블록 소멸 팝(사각형) — 적 사망과 형태로 구분
 var place_pops: Array = []     # [{pos, life, max, color}] 블록 착지 팝(사각형, 수축) — 소멸(부풂)과 방향 반대 = '도착'
 var debris: Array = []         # [{pos, vel, life, max, color, size}] 사망 파편 버스트
+var confetti: Array = []       # [{pos, vel, life, max, color, rot, spin, w, h, sway, phase}] 클리어 축하 색종이
 var impacts: Array = []        # [{pos, life, max, color, radius}] 빔 임팩트/탱크 막음 링
 var kill_pulse: float = 0.0    # 킬 순간 ENEMIES LEFT 헤드라인 펄스
 var push_streaks: Array = []   # [{from, to, life, max}] 넉백 잔상
@@ -427,6 +428,7 @@ func _init_game() -> void:
 	cell_pops = []
 	place_pops = []
 	debris = []
+	confetti = []
 	impacts = []
 	kill_pulse = 0.0
 	push_streaks = []
@@ -1297,6 +1299,28 @@ func _check_win() -> void:
 		game_clear = true
 		cleared[stage_idx] = true
 		fail_streak[stage_idx] = 0     # 깼으니 갓 모드 해제
+		_spawn_confetti()              # 클리어 축하 — 3색 색종이가 위에서 쏟아진다(경축, 공격 아님)
+
+# 클리어 축하 색종이. 화면 위에서 3색(조각 색) 조각이 나풀나풀 떨어진다.
+#   방향(위→아래)이 골드 충격파(중앙→바깥, 공격)와 반대라 '경축'으로 읽힌다. 색은 R/B/Y =
+#   플레이어가 쓴 조각 색이라 '내가 놓은 색들의 축제'(C30 색 통일의 연장). 저아트 톤이라 절제.
+func _spawn_confetti() -> void:
+	confetti = []
+	for _n in range(56):
+		var key: String = COLORS[randi() % COLORS.size()]
+		var life: float = randf_range(2.4, 4.2)
+		confetti.append({
+			"pos": Vector2(randf_range(0.0, 800.0), randf_range(-140.0, -10.0)),
+			"vel": Vector2(randf_range(-24.0, 24.0), randf_range(70.0, 150.0)),
+			"life": life, "max": life,
+			"color": _color_of(key),
+			"rot": randf_range(0.0, TAU),
+			"spin": randf_range(-4.0, 4.0),
+			"w": randf_range(6.0, 10.0),
+			"h": randf_range(3.0, 5.0),
+			"sway": randf_range(0.6, 1.5),     # 좌우 나풀 진폭
+			"phase": randf_range(0.0, TAU),
+		})
 
 
 # ===== 놓을 곳 없음 죽음 =====
@@ -1685,6 +1709,21 @@ func _process(delta: float) -> void:
 		if debris[d]["life"] <= 0.0:
 			debris.remove_at(d)
 		d -= 1
+	# 색종이 — 완만한 중력 + 좌우 나풀거림(sin) + 회전. 화면 아래로 나가거나 수명 다하면 제거.
+	var cf: int = confetti.size() - 1
+	while cf >= 0:
+		var cc: Dictionary = confetti[cf]
+		cc["life"] = float(cc["life"]) - delta
+		var cv: Vector2 = cc["vel"]
+		cv.y = minf(cv.y + 90.0 * delta, 175.0)   # 완만한 중력 + 종단속도
+		cc["vel"] = cv
+		cc["phase"] = float(cc["phase"]) + float(cc["sway"]) * delta * 4.0
+		var sway_x: float = sin(float(cc["phase"])) * float(cc["sway"]) * 22.0
+		cc["pos"] = (cc["pos"] as Vector2) + Vector2(cv.x + sway_x, cv.y) * delta
+		cc["rot"] = float(cc["rot"]) + float(cc["spin"]) * delta
+		if float(cc["life"]) <= 0.0 or (cc["pos"] as Vector2).y > 1040.0:
+			confetti.remove_at(cf)
+		cf -= 1
 	# 임팩트/막음 링 감쇠
 	var im: int = impacts.size() - 1
 	while im >= 0:
@@ -1830,6 +1869,23 @@ func _draw() -> void:
 	# 죽음 연출이 재생 중이면 팝업을 미룬다 — 보드가 메워지는 걸 먼저 보여준다
 	if (game_over or game_clear) and not _death_playing():
 		_draw_result(fnt)
+
+	# 클리어 축하 색종이 — 팝업 '위'에 흩날린다(최상단). 회전한 작은 직사각형.
+	for cc in confetti:
+		var cpos: Vector2 = cc["pos"]
+		var col: Color = cc["color"]
+		col.a = clampf(float(cc["life"]) / float(cc["max"]) * 2.0, 0.0, 1.0)   # 수명 끝물에 페이드
+		var ang: float = cc["rot"]
+		var ca: float = cos(ang)
+		var sa: float = sin(ang)
+		var hw: float = float(cc["w"]) * 0.5
+		var hh: float = float(cc["h"]) * 0.5
+		draw_colored_polygon(PackedVector2Array([
+			cpos + Vector2(-hw * ca + hh * sa, -hw * sa - hh * ca),
+			cpos + Vector2(hw * ca + hh * sa, hw * sa - hh * ca),
+			cpos + Vector2(hw * ca - hh * sa, hw * sa + hh * ca),
+			cpos + Vector2(-hw * ca - hh * sa, -hw * sa + hh * ca),
+		]), col)
 
 # ===== 결과 팝업 =====
 # 화면을 통째로 덮는 텍스트 나열이 아니라, 어두워진 게임 위에 뜨는 '카드'.
