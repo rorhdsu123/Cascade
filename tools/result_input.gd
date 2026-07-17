@@ -36,11 +36,12 @@ func _init() -> void:
 			% [g.game_over, g.core_hp, int(g.st["core_hp"]), g.enemies.size(), top_left, g.combo, g.revive_used])
 	print("        (하단3줄 적만 제거 → 적=1/상단유지=1, combo=0)")
 
-	# ── B. 부활 후 재사망: 이제 재도전이 주, 광고 없음. SPACE → 재시작
+	# ── B. 거점 부활 후 '막힘'으로 재사망: 원인이 달라도 판당 1회 → 이어하기 안 뜸
 	g.game_over = true
+	g.stuck = true          # 첫 부활은 거점 파괴였고, 이번엔 막힘으로 죽음
 	g.killed = 12
 	var lay2: Dictionary = g._result_layout()
-	print("[B] 재사망 부활가능? %s  (이미 부활 → false 여야)" % lay2["revivable"])
+	print("[B] 거점부활 후 '막힘' 재사망 부활가능? %s  (원인 무관 판당 1회 → false 여야)" % lay2["revivable"])
 	var sp: InputEventKey = InputEventKey.new()
 	sp.keycode = KEY_SPACE
 	sp.pressed = true
