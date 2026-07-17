@@ -13,7 +13,12 @@ func _init() -> void:
 	g._start_stage(0)
 	g.set_process(false)
 	g.killed = 8
-	g.enemies = [{"col": 2, "row": 4, "vis_row": 4.0, "hp": 10, "maxhp": 10, "etype": "basic", "id": 1, "step_every": 3}]
+	g.combo = 4
+	# 상단 적(row 2, 유지) + 하단 3줄 적(row 6, 제거). ROWS=8이라 row>=5가 하단 3줄.
+	g.enemies = [
+		{"col": 2, "row": 2, "vis_row": 2.0, "hp": 10, "maxhp": 10, "etype": "basic", "id": 1, "step_every": 3},
+		{"col": 5, "row": 6, "vis_row": 6.0, "hp": 10, "maxhp": 10, "etype": "basic", "id": 2, "step_every": 3},
+	]
 	g.game_over = true
 	g.stuck = false
 	var lay: Dictionary = g._result_layout()
@@ -23,8 +28,13 @@ func _init() -> void:
 	cc.button_index = MOUSE_BUTTON_LEFT
 	cc.pressed = true
 	g._input(cc)
-	print("    광고클릭 %s → game_over=%s · core_hp=%d(복구=%d) · 적=%d · revive_used=%s"
-			% [(lay["cont"] as Rect2).get_center(), g.game_over, g.core_hp, int(g.st["core_hp"]), g.enemies.size(), g.revive_used])
+	var top_left: int = 0
+	for e in g.enemies:
+		if int(e["row"]) < g.ROWS - g.REVIVE_CLEAR_ROWS:
+			top_left += 1
+	print("    광고클릭 → game_over=%s · core_hp=%d(복구=%d) · 적=%d(상단유지=%d) · combo=%d · revive_used=%s"
+			% [g.game_over, g.core_hp, int(g.st["core_hp"]), g.enemies.size(), top_left, g.combo, g.revive_used])
+	print("        (하단3줄 적만 제거 → 적=1/상단유지=1, combo=0)")
 
 	# ── B. 부활 후 재사망: 이제 재도전이 주, 광고 없음. SPACE → 재시작
 	g.game_over = true

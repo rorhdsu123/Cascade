@@ -1866,11 +1866,11 @@ func _result_layout() -> Dictionary:
 		"home": Rect2(300.0, 630.0, 200.0, 40.0),
 	}
 
-# 광고 부활 — 세컨드 윈드. 실패 원인에 맞춰 판을 살 만하게 리셋한다(진행도 spawned/killed/leaked
-#   는 유지 = '이어하기'). 거점 파괴=밀물에 밀렸으니 적 제거+HP 복구(보드는 쌓은 자산이라 유지),
-#   막힘=보드가 꽉 차 못 놨으니 하단 몇 줄만 비운다(Block Blast식 부분 클리어 — 전체 초기화는
-#   '새 판'이라 이어하는 느낌이 안 난다. 쌓은 구조는 남기고 공간만 연다). 단순 HP 복구만이면
-#   서지 구간 즉사 재발(C47 경계). ⚠광고는 프로토 스텁 — 실제 리워드 광고 SDK 연동은 나중.
+# 광고 부활 — 세컨드 윈드. 실패 원인에 맞춰 하단 3줄만 손대 판을 살 만하게 하되 나머지는
+#   그대로 이어받는다(진행도 spawned/killed/leaked 유지, 콤보만 초기화). 두 경로가 '하단 3줄'로
+#   대칭이다: 거점 파괴=거점에 임박한 하단 적만 제거(위쪽 밀물은 유지), 막힘=하단 보드만 비워
+#   공간 확보(위 구조·적 유지). 전멸/전체 초기화는 '새 판'이라 이어하는 느낌이 죽는다(Block Blast식
+#   부분 개입). 단순 HP 복구만이면 서지 구간 즉사 재발(C47 경계). ⚠광고는 프로토 스텁.
 func _revive() -> void:
 	var was_stuck: bool = stuck
 	revive_used = true
@@ -1882,6 +1882,8 @@ func _revive() -> void:
 	stuck_t = -1.0            # 막힘 연출 취소
 	core_hp = int(st["core_hp"])   # 거점 HP 풀 복구
 	pending_leaks = []
+	combo = 0                 # 콤보 초기화 (부활은 새 국면 — 스트릭을 이어주지 않는다)
+	combo_miss = 0
 	if was_stuck:
 		# 막힘 = 보드 때문에 죽었다 → 하단 몇 줄만 비워 공간만 되찾는다(부분 클리어). 위 구조도,
 		#   내려오던 적도 그대로 이어받는다(적까지 지우면 보드는 남기면서 밀물만 리셋이라 비일관).
@@ -1889,9 +1891,13 @@ func _revive() -> void:
 			for c in range(COLS):
 				board[r][c] = ""
 	else:
-		# 거점 파괴 = 밀물에 밀려 죽었다 → 적을 걷어내는 게 세컨드 윈드. 보드(쌓은 자산)는 유지.
-		enemies = []
-	_cont_hover = false
+		# 거점 파괴 = 밀물에 밀려 죽었다 → 거점에 임박한 하단 3줄 적만 걷어낸다(즉사 위협 제거).
+		#   위쪽 적은 유지 = 이어하는 밀물(전멸은 너무 관대 + '새 판' 느낌). 보드는 자산이라 유지.
+		var kept: Array = []
+		for e in enemies:
+			if int(e["row"]) < ROWS - REVIVE_CLEAR_ROWS:
+				kept.append(e)
+		enemies = kept
 	_cont_hover = false
 
 # 재도전 = 실패면 같은 스테이지, 클리어면 다음(마지막이면 홈)
