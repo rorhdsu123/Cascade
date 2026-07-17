@@ -49,6 +49,7 @@ const CHARGE_TINT: float = 0.45
 # 사라지는 순간 줄 자리에 색 테두리만 한 순간 남는다 = 소멸의 잔상.
 const LINE_OUTLINE_DUR: float = 0.06
 const PLACE_POP_DUR: float = 0.17   # 블록 착지 팝 지속(짧게 '탁')
+const REVIVE_CLEAR_ROWS: int = 3    # 막힘 부활 시 비우는 하단 줄 수 (Block Blast식 부분 클리어)
 # 블록이 사라지고 로켓(=빛 바)이 나가기까지의 짧은 빈 줄 간격 (BB 실측 ~0.07s)
 const BURST_GAP: float = 0.07
 
@@ -1867,8 +1868,9 @@ func _result_layout() -> Dictionary:
 
 # 광고 부활 — 세컨드 윈드. 실패 원인에 맞춰 판을 살 만하게 리셋한다(진행도 spawned/killed/leaked
 #   는 유지 = '이어하기'). 거점 파괴=밀물에 밀렸으니 적 제거+HP 복구(보드는 쌓은 자산이라 유지),
-#   막힘=보드가 꽉 차 못 놨으니 보드 클리어. 단순 HP 복구만이면 서지 구간 즉사 재발(C47 경계).
-#   ⚠광고는 프로토 스텁 — 버튼을 누르면 즉시 부활한다. 실제 리워드 광고 SDK 연동은 나중(C47).
+#   막힘=보드가 꽉 차 못 놨으니 하단 몇 줄만 비운다(Block Blast식 부분 클리어 — 전체 초기화는
+#   '새 판'이라 이어하는 느낌이 안 난다. 쌓은 구조는 남기고 공간만 연다). 단순 HP 복구만이면
+#   서지 구간 즉사 재발(C47 경계). ⚠광고는 프로토 스텁 — 실제 리워드 광고 SDK 연동은 나중.
 func _revive() -> void:
 	var was_stuck: bool = stuck
 	revive_used = true
@@ -1882,8 +1884,9 @@ func _revive() -> void:
 	enemies = []                   # 화면 밀물 리셋 = 숨 쉴 틈
 	pending_leaks = []
 	if was_stuck:
-		# 놓을 곳이 없어 죽었으니 보드를 비운다(숨 쉴 틈). 거점 부활은 보드를 안 건드린다.
-		for r in range(ROWS):
+		# 놓을 곳이 없어 죽었으니 하단 몇 줄만 비운다(부분 클리어) — 위 구조는 남겨 '이어하는'
+		#   느낌을 지킨다. 거점 부활은 보드를 아예 안 건드린다.
+		for r in range(ROWS - REVIVE_CLEAR_ROWS, ROWS):
 			for c in range(COLS):
 				board[r][c] = ""
 	_cont_hover = false

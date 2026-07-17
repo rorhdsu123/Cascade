@@ -57,12 +57,16 @@ func _init() -> void:
 	ccc.pressed = true
 	gc._input(ccc)
 	var filled: int = 0
+	var bottom_filled: int = 0
 	for r in range(gc.ROWS):
 		for c in range(gc.COLS):
 			if gc.board[r][c] != "":
 				filled += 1
-	print("    광고클릭 → game_over=%s stuck=%s 보드채움=%d  (부활+보드클리어면 false/false/0)"
-			% [gc.game_over, gc.stuck, filled])
+				if r >= gc.ROWS - gc.REVIVE_CLEAR_ROWS:
+					bottom_filled += 1
+	# 부분 클리어: 하단 3줄(24칸)만 비고 상단 40칸은 남아야 = '이어하는' 느낌
+	print("    광고클릭 → game_over=%s stuck=%s 보드채움=%d 하단3줄채움=%d  (부활+부분클리어면 false/false/40/0)"
+			% [gc.game_over, gc.stuck, filled, bottom_filled])
 
 	# ── D. 부활 가능 시 SPACE → 부활(주 동작이 이어하기)
 	var gd: Node = S.new()
