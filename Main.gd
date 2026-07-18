@@ -76,42 +76,67 @@ const DDA_GOD_FAILS: int = 2      # 같은 스테이지 연속 실패 이 횟수
 # 기준 ③ 누수 봉쇄: 필요 처치 = total − (core_hp − 1). core_hp가 total에 가까우면
 #   '흘려보내며 이기기'가 성립(구 25/28 = 파탄). core_hp는 '허용 누수 횟수 + 1'로 읽는다.
 # 기준 ④ 누수 시계 = ROWS × step_every 배치 (fast는 절반). 유입 = spawn_every 배치당 1회.
-# 기준 ⑤ 난이도 손잡이는 core_hp(허용 누수) + total(적 수) 둘뿐이다. 나머지는 실측상 못 쓴다:
+# 기준 ⑤ 디펜스 축 손잡이는 core_hp(허용 누수) + total(적 수) 둘뿐이다. 나머지는 실측상 못 쓴다:
 #   step_every 3→2 = 절벽(스5 승률 61%→2.5%). 누수 시계가 24→16배치로 줄면 그냥 안 됨.
 #   spawn_every는 비단조 — 2→1로 조이면 스3이 오히려 쉬워졌다(63%→75%). 적이 뭉쳐 들어와
 #   한 레인 청소에 더 많이 쓸려나가기 때문. '더 빨리 온다'가 '더 어렵다'가 아니다.
+# 기준 ⑥ 퍼즐 축 손잡이 = pool(조각 분포, C51 축·기전 / C54 아크 authoring). line-maker(I5) 비율이 주 dial이고,
+#   core_hp가 그 위에 단조로 겹쳐 얹힌다(2D 난이도면). 디펜스 축이 소진된 자리를 여기서 채운다.
+
+# 조각 풀 프리셋 — {조각키: 가중치}. 공통 '변주 base'(테트로미노·직사각 = 손맛)에 I5만 다르게.
+# sim(pool_probe, basic-only) 실측: I5 0%→50%면 승률 5%→84% 단조 상승. 공정성은 _pool_piece
+# 의 fit-guard(지금 보드에 최소 1칸 놓이는 조각만 배급)가 보장 = 강제 즉사 draw 없음.
+const POOL_RICH: Dictionary = {   # 줄-풍부: 온보딩·숨통 (I5 최다)
+	"1": 1, "D2h": 3, "D2v": 3, "I3h": 5, "I3v": 5, "L3a": 3, "L3b": 3, "L3c": 3, "L3d": 3,
+	"O": 4, "T": 4, "S": 3, "Z": 3, "L": 4, "J": 4, "R32": 3, "R23": 3, "I5h": 20, "I5v": 20}
+const POOL_STD: Dictionary = {    # 표준: I5 중간
+	"1": 1, "D2h": 3, "D2v": 3, "I3h": 5, "I3v": 5, "L3a": 3, "L3b": 3, "L3c": 3, "L3d": 3,
+	"O": 4, "T": 4, "S": 3, "Z": 3, "L": 4, "J": 4, "R32": 3, "R23": 3, "I5h": 11, "I5v": 11}
+const POOL_LEAN: Dictionary = {   # 줄-굶김: 퍼즐 축 압박 (I5 희소)
+	"1": 1, "D2h": 3, "D2v": 3, "I3h": 5, "I3v": 5, "L3a": 3, "L3b": 3, "L3c": 3, "L3d": 3,
+	"O": 4, "T": 4, "S": 3, "Z": 3, "L": 4, "J": 4, "R32": 3, "R23": 3, "I5h": 4, "I5v": 4}
+
 const STAGES: Array = [
 	{
+		# 온보딩: basic만 + core_hp 넉넉 + pool RICH(I5 최다) = 퍼즐 무압박으로 '줄 완성' 코어만 가르침
 		"name": "첫 방어선", "tag": "줄을 완성해 레인을 청소한다",
 		"total": 20, "core_hp": 7, "base_hp": 30, "hp_ramp": 0.0, "tank_mult": 2.5,
 		"spawn_every": 3, "step_every": 3, "onboard": 20, "floor": 4, "surge_at": 0.85,
-		"weights": {"basic": 100, "fast": 0, "tank": 0, "swarm": 0},
+		"weights": {"basic": 100, "fast": 0, "tank": 0, "swarm": 0}, "pool": POOL_RICH,
 	},
 	{
 		# desync로 무리 절반이 base_step−1로 더 빨리 전진 → 행·열로 흩어져 한 줄론 못 쓸어냄
 		"name": "무리", "tag": "흩어져 밀려온다 — 한 줄로는 못 쓴다",
 		"total": 30, "core_hp": 3, "base_hp": 32, "hp_ramp": 0.4, "tank_mult": 2.5,
 		"spawn_every": 2, "step_every": 3, "onboard": 4, "floor": 5, "surge_at": 0.82,
-		"weights": {"basic": 40, "fast": 0, "tank": 0, "swarm": 60},
+		"weights": {"basic": 40, "fast": 0, "tank": 0, "swarm": 60}, "pool": POOL_RICH,
 	},
 	{
 		"name": "속공", "tag": "빠르다 — 시간이 없다",
 		"total": 34, "core_hp": 3, "base_hp": 34, "hp_ramp": 0.5, "tank_mult": 2.5,
 		"spawn_every": 2, "step_every": 3, "onboard": 3, "floor": 5, "surge_at": 0.80,
-		"weights": {"basic": 40, "fast": 50, "tank": 0, "swarm": 10},
+		"weights": {"basic": 40, "fast": 50, "tank": 0, "swarm": 10}, "pool": POOL_STD,
+	},
+	{
+		# 퍼즐 축 고립(C54): 새 적 없이 pool LEAN(I5 희소)만으로 압박 = '손이 곧 위협'.
+		# 적은 basic/swarm(이미 배운 것)이라 난이도는 전적으로 조각 분포에서 나온다.
+		"name": "줄 굶김", "tag": "직선이 굶는다 — 손이 곧 위협",
+		"total": 36, "core_hp": 3, "base_hp": 36, "hp_ramp": 0.4, "tank_mult": 2.5,
+		"spawn_every": 2, "step_every": 3, "onboard": 3, "floor": 5, "surge_at": 0.80,
+		"weights": {"basic": 55, "fast": 0, "tank": 0, "swarm": 45}, "pool": POOL_LEAN,
 	},
 	{
 		# tank HP를 콤보3(240) 구간에 앉힌다: base 44~50 × 4.5 = 198~227 → 콤보2(180)로는 안 뚫림.
 		"name": "장갑", "tag": "한 방으론 안 뚫린다 — 콤보를 쌓아라",
 		"total": 44, "core_hp": 2, "base_hp": 44, "hp_ramp": 0.3, "tank_mult": 4.5,
 		"spawn_every": 2, "step_every": 3, "onboard": 3, "floor": 5, "surge_at": 0.80,
-		"weights": {"basic": 40, "fast": 0, "tank": 55, "swarm": 5},
+		"weights": {"basic": 40, "fast": 0, "tank": 55, "swarm": 5}, "pool": POOL_STD,
 	},
 	{
 		"name": "총력전", "tag": "전부 온다",
 		"total": 48, "core_hp": 2, "base_hp": 46, "hp_ramp": 0.4, "tank_mult": 4.2,
 		"spawn_every": 2, "step_every": 3, "onboard": 2, "floor": 6, "surge_at": 0.78,
-		"weights": {"basic": 20, "fast": 35, "tank": 25, "swarm": 20},
+		"weights": {"basic": 20, "fast": 35, "tank": 25, "swarm": 20}, "pool": POOL_STD,
 	},
 ]
 
@@ -2132,8 +2157,8 @@ func _draw_result(fnt: Font) -> void:
 const SEL_X: float = 140.0
 const SEL_W: float = 520.0
 const SEL_Y0: float = 232.0
-const SEL_H: float = 76.0
-const SEL_GAP: float = 12.0
+const SEL_H: float = 70.0     # 6스테이지가 PLAY_BTN(y=742) 위에 다 들어오게 76→70 (C54)
+const SEL_GAP: float = 10.0   # 6번째 타일 하단 = 232 + 5·80 + 70 = 702 < 742
 const PLAY_BTN: Rect2 = Rect2(150.0, 742.0, 500.0, 126.0)
 
 func _stage_rect(i: int) -> Rect2:
