@@ -320,6 +320,7 @@ var combo_miss: int = 0         # 콤보 유예 카운터: 줄 못 지운 연속
 var dda_enabled: bool = true    # DDA 온오프 (A/B용)
 var floor_enabled: bool = true  # 밀도 하한(floor) 온오프 (density_probe A/B용)
 var surge_enabled: bool = true  # 후반 서지 온오프 (surge_probe A/B용)
+var dev_unlock_all: bool = false  # ⚠플테 전용: 전 스테이지 해금(선형 잠금 우회). 기본 false=출시 안전, 선택화면 '0'키 토글
 var drought: int = 0            # 연속 무클리어 배치 수 (DDA의 '고전' 신호)
 var fail_streak: Dictionary = {}  # 스테이지 인덱스 → 연속 실패 횟수 (갓 모드 트리거, 세션 한정)
 var game_over: bool = false
@@ -418,6 +419,8 @@ func _ready() -> void:
 
 # 선형 해금: 1스테이지는 항상 열려 있고, 그다음부턴 직전 스테이지를 깨야 열린다
 func _is_unlocked(i: int) -> bool:
+	if dev_unlock_all:
+		return true   # 플테 전용 우회 (선택화면 '0'키 토글)
 	if i <= 0:
 		return true
 	return bool(cleared.get(i - 1, false))
@@ -1571,6 +1574,9 @@ func _input(event: InputEvent) -> void:
 				var pick: int = sk.keycode - KEY_1
 				if _is_unlocked(pick):
 					_start_stage(pick)
+			elif sk.pressed and sk.keycode == KEY_0:
+				dev_unlock_all = not dev_unlock_all   # ⚠플테 전용: 전 스테이지 해금 토글
+				queue_redraw()
 		return
 
 	# ── 죽음 연출 재생 중: 아무 입력이나 누르면 건너뛴다 (재도전을 반복할 땐 매번 1.6초가 짐이 된다)
@@ -2290,6 +2296,10 @@ func _draw_select(fnt: Font) -> void:
 	var hint: String = "SPACE 또는 버튼 클릭"
 	var hw: float = fnt.get_string_size(hint, HORIZONTAL_ALIGNMENT_LEFT, -1, 17).x
 	_draw_text_outlined(fnt, Vector2(400.0 - hw * 0.5, 902.0), hint, 17, Color(0.5, 0.52, 0.62))
+
+	# ⚠플테 전용: 전체 해금이 켜져 있으면 명시(진짜 진행과 안 헷갈리게). '0'키로 토글.
+	if dev_unlock_all:
+		_draw_text_outlined(fnt, Vector2(SEL_X, 200.0), "DEV: 전체 해금 (0)", 16, Color(1.0, 0.55, 0.3))
 
 # 하단 큰 시작 버튼 — 지금 도전할 스테이지를 크게 적는다(Toon Blast의 "Level N" 버튼)
 func _draw_play_button(fnt: Font, cur: int) -> void:
