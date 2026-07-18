@@ -8,8 +8,11 @@ const BOARD_X: int = 144        # (800 - COLS*CELL)/2
 const BOARD_Y: int = 150        # 보드 상단 y (보드 150~662)
 const BOT_Y: int = 700          # 하단 패널 상단 (거점 띠 670~696 아래, 트레이 700~1000)
 
-# 적 타입 (basic/fast/tank/swarm)
-const ENEMY_TYPES: Array = ["basic", "fast", "tank", "swarm"]
+# 적 타입 (basic/fast/tank/swarm/split)
+# ⚠split은 반드시 배열 끝 — pick_etype iteration 순서가 회귀 시드에 물려 있다(끝+weight0 = 무영향).
+const ENEMY_TYPES: Array = ["basic", "fast", "tank", "swarm", "split"]
+# 분열 자식 HP = 부모 maxhp × 이 비율(결정적 — randi 안 씀). 손자 없음(gen1은 안 쪼개짐).
+const SPLIT_CHILD_FRAC: float = 0.5
 const SLIDE_SPEED: float = 8.0   # 적 전진 표시 이징 속도(칸/초)
 const ROCKET_DUR: float = 0.16  # 로켓 비행 지속(빠르게 질주)
 const CALLOUT_DUR: float = 1.6  # 첫 등장 콜아웃 배너 지속
@@ -102,20 +105,20 @@ const STAGES: Array = [
 		"name": "첫 방어선", "tag": "줄을 완성해 레인을 청소한다",
 		"total": 20, "core_hp": 7, "base_hp": 30, "hp_ramp": 0.0, "tank_mult": 2.5,
 		"spawn_every": 3, "step_every": 3, "onboard": 20, "floor": 4, "surge_at": 0.85,
-		"weights": {"basic": 100, "fast": 0, "tank": 0, "swarm": 0}, "pool": POOL_RICH,
+		"weights": {"basic": 100, "fast": 0, "tank": 0, "swarm": 0, "split": 0}, "pool": POOL_RICH,
 	},
 	{
 		# desync로 무리 절반이 base_step−1로 더 빨리 전진 → 행·열로 흩어져 한 줄론 못 쓸어냄
 		"name": "무리", "tag": "흩어져 밀려온다 — 한 줄로는 못 쓴다",
 		"total": 30, "core_hp": 3, "base_hp": 32, "hp_ramp": 0.4, "tank_mult": 2.5,
 		"spawn_every": 2, "step_every": 3, "onboard": 4, "floor": 5, "surge_at": 0.82,
-		"weights": {"basic": 40, "fast": 0, "tank": 0, "swarm": 60}, "pool": POOL_RICH,
+		"weights": {"basic": 40, "fast": 0, "tank": 0, "swarm": 60, "split": 0}, "pool": POOL_RICH,
 	},
 	{
 		"name": "속공", "tag": "빠르다 — 시간이 없다",
 		"total": 34, "core_hp": 3, "base_hp": 34, "hp_ramp": 0.5, "tank_mult": 2.5,
 		"spawn_every": 2, "step_every": 3, "onboard": 3, "floor": 5, "surge_at": 0.80,
-		"weights": {"basic": 40, "fast": 50, "tank": 0, "swarm": 10}, "pool": POOL_STD,
+		"weights": {"basic": 40, "fast": 50, "tank": 0, "swarm": 10, "split": 0}, "pool": POOL_STD,
 	},
 	{
 		# 퍼즐 축 고립(C54): 새 적 없이 pool LEAN(I5 희소)만으로 압박 = '손이 곧 위협'.
@@ -123,20 +126,20 @@ const STAGES: Array = [
 		"name": "줄 굶김", "tag": "직선이 굶는다 — 손이 곧 위협",
 		"total": 36, "core_hp": 3, "base_hp": 36, "hp_ramp": 0.4, "tank_mult": 2.5,
 		"spawn_every": 2, "step_every": 3, "onboard": 3, "floor": 5, "surge_at": 0.80,
-		"weights": {"basic": 55, "fast": 0, "tank": 0, "swarm": 45}, "pool": POOL_LEAN,
+		"weights": {"basic": 55, "fast": 0, "tank": 0, "swarm": 45, "split": 0}, "pool": POOL_LEAN,
 	},
 	{
 		# tank HP를 콤보3(240) 구간에 앉힌다: base 44~50 × 4.5 = 198~227 → 콤보2(180)로는 안 뚫림.
 		"name": "장갑", "tag": "한 방으론 안 뚫린다 — 콤보를 쌓아라",
 		"total": 44, "core_hp": 2, "base_hp": 44, "hp_ramp": 0.3, "tank_mult": 4.5,
 		"spawn_every": 2, "step_every": 3, "onboard": 3, "floor": 5, "surge_at": 0.80,
-		"weights": {"basic": 40, "fast": 0, "tank": 55, "swarm": 5}, "pool": POOL_STD,
+		"weights": {"basic": 40, "fast": 0, "tank": 55, "swarm": 5, "split": 0}, "pool": POOL_STD,
 	},
 	{
 		"name": "총력전", "tag": "전부 온다",
 		"total": 48, "core_hp": 2, "base_hp": 46, "hp_ramp": 0.4, "tank_mult": 4.2,
 		"spawn_every": 2, "step_every": 3, "onboard": 2, "floor": 6, "surge_at": 0.78,
-		"weights": {"basic": 20, "fast": 35, "tank": 25, "swarm": 20}, "pool": POOL_STD,
+		"weights": {"basic": 20, "fast": 35, "tank": 25, "swarm": 20, "split": 0}, "pool": POOL_STD,
 	},
 ]
 
@@ -208,6 +211,7 @@ const C_E_BASIC := Color("#a855f7")   # 바이올렛
 const C_E_FAST  := Color("#22d3ee")   # 시안
 const C_E_TANK  := Color("#6d28d9")   # 딥 바이올렛 (basic의 무거운 변주)
 const C_E_SWARM := Color("#a3e635")   # 라임
+const C_E_SPLIT := Color("#60a5fa")   # 파랑 — 로스터에서 유일한 한색(빨강 회피). 시안(fast)보다 확연히 파랑
 
 # 적 외곽선 — 적은 언제나 어두운 테두리를 두르고 보드 위에 '떠' 있다.
 # 색만으로 분리를 보장하면 팔레트가 하나 바뀔 때마다 같은 버그가 재발한다(두더지 잡기).
@@ -1116,7 +1120,14 @@ func _apply_hit(h: Dictionary) -> void:
 		# ① 극적 사망: 스케일 팝 + 파편 버스트 + 밝은 플래시 + 히트스톱
 		_spawn_death(etype, ep)
 		enemies.remove_at(found)
-		killed += 1
+		# 분열: gen0(원본)만 웨이브에 카운트되고 죽을 때 자식 2마리를 뱉는다. gen1(자식)은
+		#   웨이브 카운터(killed) 밖 — 순수 추가 위협이라 웨이브 총량을 안 줄인다(swarm 함정 회피).
+		#   자식이 웨이브를 줄이면 '쉽게 쓸려 더 쉬워짐'이 되므로, 카운트에서 뺀다.
+		var is_primary: bool = not (etype == "split" and int(e.get("gen", 0)) == 1)
+		if etype == "split" and int(e.get("gen", 0)) == 0:
+			_spawn_split_children(e)   # e는 remove_at 후에도 유효한 참조(배열은 참조 보관)
+		if is_primary:
+			killed += 1
 		kill_pulse = 0.35   # ④ 킬 → 헤드라인 펄스
 		hitstop = maxf(hitstop, 0.045)   # 처치 순간 멈칫(손맛)
 	else:
@@ -1162,6 +1173,8 @@ func _etype_fx_color(etype: String) -> Color:
 			return Color("#c084fc")   # 딥 바이올렛의 밝은 변주 (파편이 배경에 묻히지 않게)
 		"swarm":
 			return C_E_SWARM
+		"split":
+			return C_E_SPLIT
 	return C_E_BASIC
 
 # 극적 사망 연출: 스케일 팝 + 파편 + 리워드 팝 (타입 flavor)
@@ -1180,6 +1193,9 @@ func _spawn_death(etype: String, ep: Vector2) -> void:
 		"fast":
 			pieces = 7
 			fade = 0.24                                       # 빠른 페이드
+		"split":
+			pieces = 6                                        # 갈라지며 흩는 느낌(자식은 별도 스폰)
+			fade = 0.30
 	# 스케일 팝 + 밝은 플래시
 	death_flashes.append({"pos": ep, "life": fade, "max": fade, "color": col})
 	# 파편 버스트 (사방으로)
@@ -1254,8 +1270,9 @@ func advance_step() -> void:
 	pending_leaks = []
 	while i >= 0:
 		if enemies[i]["row"] >= ROWS:
-			core_hp -= 1
-			leaked += 1
+			core_hp -= 1                     # 자식도 거점은 깎는다(진짜 위협)
+			if int(enemies[i].get("gen", 0)) == 0:
+				leaked += 1                  # 단 웨이브 카운터엔 gen0(원본)만
 			pending_leaks.append(enemies[i]["col"])
 			enemies.remove_at(i)
 		i -= 1
@@ -1293,6 +1310,26 @@ func _spawn_one(col: int, etype: String, step_override: int = 0) -> void:
 				_set_callout("TANK — big combo!")
 			"swarm":
 				_set_callout("SWARM — sweep them!")
+			"split":
+				_set_callout("SPLIT — kill high!")   # 깊으면 자식이 거점 코앞에서 갈라진다
+
+# 분열체(gen0) 처치 시 인접 열로 자식 2마리를 뱉는다. 결정적 배치(randi 없음) = 회귀 시드 불변.
+#   자식은 spawned/killed/leaked 카운터 밖(순수 추가 위협). HP는 부모의 절반, 손자 없음(gen1 고정).
+func _spawn_split_children(parent: Dictionary) -> void:
+	var pcol: int = int(parent["col"])
+	var prow: int = int(parent["row"])
+	var child_hp: int = maxi(1, roundi(float(parent["maxhp"]) * SPLIT_CHILD_FRAC))
+	var pstep: int = int(parent.get("step_every", director.hud_step_every()))
+	var pvis: float = float(parent.get("vis_row", float(prow)))
+	for dc in [-1, 1]:
+		var cc: int = pcol + dc
+		if cc < 0 or cc >= COLS:
+			continue   # 가장자리 분열체는 자식 1마리(보드 밖 생성 안 함)
+		enemies.append({
+			"col": cc, "row": prow, "vis_row": pvis, "hp": child_hp, "maxhp": child_hp,
+			"etype": "split", "id": enemy_seq, "step_every": pstep, "gen": 1,
+		})
+		enemy_seq += 1
 
 func _set_callout(text: String) -> void:
 	callout_text = text
@@ -2587,6 +2624,27 @@ func _draw_board(fnt: Font) -> void:
 					draw_circle(sp, CELL * 0.14, C_E_SWARM)
 					draw_circle(sp, CELL * 0.14, C_E_RIM, false, C_E_RIM_W - 0.5)
 				rad = CELL * 0.24
+			"split":
+				# gen0 = 분열 직전: 좌우로 부푼 쌍둥이 blob + 가운데 갈라지는 금(=곧 둘이 된다).
+				# gen1 = 이미 갈라진 자식: 흉터 하나 있는 단일 blob(다시 안 쪼개짐 = 정직한 tell).
+				var gen: int = int(e.get("gen", 0))
+				if gen == 0:
+					var lobe: float = CELL * 0.22
+					var dx: float = CELL * 0.15
+					draw_circle(Vector2(cx - dx, cy), lobe, C_E_SPLIT)
+					draw_circle(Vector2(cx + dx, cy), lobe, C_E_SPLIT)
+					draw_circle(Vector2(cx - dx, cy), lobe, C_E_RIM, false, C_E_RIM_W)
+					draw_circle(Vector2(cx + dx, cy), lobe, C_E_RIM, false, C_E_RIM_W)
+					# 가운데 세로 균열(어두운 금) — "여기가 갈라진다"
+					draw_line(Vector2(cx, cy - lobe * 0.8), Vector2(cx, cy + lobe * 0.8), C_E_RIM, 2.5)
+					rad = lobe + dx
+				else:
+					var cr: float = CELL * 0.24
+					draw_circle(Vector2(cx, cy), cr, C_E_SPLIT)
+					draw_circle(Vector2(cx, cy), cr, C_E_RIM, false, C_E_RIM_W)
+					# 흉터: 짧은 사선 하나(갈라진 흔적, 세로 균열 아님 = 더는 안 쪼개짐)
+					draw_line(Vector2(cx - cr * 0.4, cy - cr * 0.3), Vector2(cx + cr * 0.2, cy + cr * 0.5), C_E_RIM, 2.0)
+					rad = cr
 			_:
 				# basic: 바이올렛 원 (hp 비율로 살짝 명암 — 어두워져도 빨강엔 안 닿는다)
 				var bcol: Color = C_E_BASIC.lerp(Color(0.30, 0.10, 0.48), 1.0 - ratio)
