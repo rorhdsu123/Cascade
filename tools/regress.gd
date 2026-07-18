@@ -14,6 +14,7 @@ func _init() -> void:
 	var g: Node = S.new()
 	root.add_child(g)
 	g.dda_enabled = false
+	g.seed_game(int(sd) if sd != "" else 20260718)   # 게임 스트림 시드(코스메틱 전역 RNG와 분리)
 	print("── REGRESS (seed=%s N=%d) ──" % [sd if sd != "" else "20260718", N])
 	for pass_i in range(2):
 		g.surge_enabled = (pass_i == 1)

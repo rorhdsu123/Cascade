@@ -70,7 +70,7 @@ func _run_pool(pool: Dictionary, core_hp: int) -> void:
 	var place_sum: int = 0
 	var clear_sum: int = 0
 	var maxcombo_sum: int = 0
-	seed(90210)                # 풀 간 동일 시드(초기 스폰 정렬; 조각 소비로 곧 desync되나 재현성 확보)
+	g.seed_game(90210)         # 게임 스트림 시드(풀 간 동일 시드; 초기 스폰 정렬, 조각 소비로 곧 desync되나 재현성 확보)
 	for t in range(TRIALS):
 		var r: Dictionary = _play(g, st)
 		if r["win"]:

@@ -75,7 +75,7 @@ func plan_floor_spawn(ctx: Dictionary) -> Array:
 	if not bool(ctx["floor_enabled"]):
 		return []
 	if int(ctx["enemy_count"]) < FLOOR_N:
-		var col: int = randi() % int(ctx["cols"])   # 열 먼저(원본 인자 평가 순서)
+		var col: int = ctx["rng"].randi() % int(ctx["cols"])   # 열 먼저(원본 인자 평가 순서)
 		var et: String = pick_etype(ctx)
 		return [{"col": col, "etype": et, "step_override": 0}]
 	return []
@@ -86,17 +86,17 @@ func plan_throttled_spawn(ctx: Dictionary) -> Array:
 	var cols: int = int(ctx["cols"])
 	var etype: String = "basic" if int(ctx["spawned"]) < ONBOARD else pick_etype(ctx)
 	if etype == "swarm":
-		var count: int = mini(3 + (randi() % 2), cols)
+		var count: int = mini(3 + (ctx["rng"].randi() % 2), cols)
 		var pool: Array = []
 		for c in range(cols):
 			pool.append(c)
-		pool.shuffle()
+		rng_shuffle(pool, ctx["rng"])
 		var specs: Array = []
 		for k in range(count):
 			var sstep: int = 2 if k % 2 == 0 else 3   # 무리 내 desync(짝수만 빠름)
 			specs.append({"col": int(pool[k]), "etype": "swarm", "step_override": sstep})
 		return specs
-	return [{"col": randi() % cols, "etype": etype, "step_override": 0}]
+	return [{"col": ctx["rng"].randi() % cols, "etype": etype, "step_override": 0}]
 
 func pick_etype(ctx: Dictionary) -> String:
 	var w: Dictionary = _weights(int(ctx["place_count"]))
@@ -106,7 +106,7 @@ func pick_etype(ctx: Dictionary) -> String:
 		total += int(w.get(t, 0))
 	if total <= 0:
 		return "basic"
-	var r: int = randi() % total
+	var r: int = ctx["rng"].randi() % total
 	for t in types:
 		r -= int(w.get(t, 0))
 		if r < 0:

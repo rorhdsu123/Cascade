@@ -382,8 +382,19 @@ var enemy_seq: int = 0             # 적 고유 id 카운터
 # ===== 초기화 =====
 var _font: Font = null
 
+# 게임 결정성 전용 RNG — 조각 생성·적 스폰만 소비한다. 코스메틱(파편·셰이크·컨페티)은 전역 randf/randi로
+# 분리 유지 → 프레임레이트·연출 변화가 게임 수열을 흔들지 않는다(데일리 시드 리더보드 공정성의 전제).
+# ⚠회귀(tools/regress.gd)는 이 스트림만 시드 고정. Godot 전역 seed(x)와 RandomNumberGenerator.seed=x는
+#   동일 PCG 수열(tools/rng_probe.gd로 실측), shuffle은 rng_shuffle로 동일 소비 패턴 재현.
+var game_rng: RandomNumberGenerator = RandomNumberGenerator.new()
+
+# 게임 스트림 시드 고정(데일리 시드/회귀/sim). 코스메틱 전역 RNG는 건드리지 않는다.
+func seed_game(s: int) -> void:
+	game_rng.seed = s
+
 func _ready() -> void:
-	randomize()
+	randomize()          # 코스메틱 전역 RNG
+	game_rng.randomize()  # 게임 스트림(프리플레이 기본; 데일리/회귀는 seed_game으로 덮어씀)
 	# 한글 렌더용 시스템 폰트(기본 fallback엔 한글 글리프 없음). ⚠배포 시엔 Noto Sans KR 등 번들 필요.
 	var sf := SystemFont.new()
 	sf.font_names = PackedStringArray(["Apple SD Gothic Neo", "AppleGothic", "Noto Sans CJK KR", "Arial"])
@@ -496,7 +507,7 @@ func _init_game() -> void:
 	var start_cols: Array = []
 	for c in range(COLS):
 		start_cols.append(c)
-	start_cols.shuffle()
+	GameMode.rng_shuffle(start_cols, game_rng)
 	_spawn_one(start_cols[0], "basic")    # 시작 적 1마리(row 0)
 	if not _has_valid_placement():
 		game_over = true
@@ -530,7 +541,7 @@ func _random_piece() -> Dictionary:
 	var f: float = float(_free_cells()) / float(ROWS * COLS)
 	var p_big: float = clampf((f - 0.50) / 0.35, 0.0, 1.0) * 0.16
 	var p_mid: float = clampf((f - 0.25) / 0.30, 0.0, 1.0) * 0.60
-	var r: float = randf()
+	var r: float = game_rng.randf()
 	var tier: int = 0                      # 0=SMALL, 1=MID, 2=BIG
 	if r < p_big:
 		tier = 2
@@ -554,7 +565,7 @@ func _random_piece() -> Dictionary:
 	if pool.is_empty():
 		pool = SMALL_POOL.duplicate()      # 보드가 꽉 참 — 어차피 다음 턴에 막힘 판정
 	var ty: String = _weighted_pick(pool)
-	var c: String = COLORS[randi() % COLORS.size()]
+	var c: String = COLORS[game_rng.randi() % COLORS.size()]
 	return {"type": ty, "color": c, "offsets": (PIECES[ty] as Array).duplicate()}
 
 # 스테이지 지정 풀에서 가중추첨. 배치 가능한 조각만 후보로(꽉 차면 풀 전체 → 다음 턴 막힘 판정).
@@ -568,14 +579,14 @@ func _pool_piece(w: Dictionary) -> Dictionary:
 	var total: int = 0
 	for t in fit:
 		total += int(w[t])
-	var r: int = randi() % maxi(1, total)
+	var r: int = game_rng.randi() % maxi(1, total)
 	var ty: String = fit[fit.size() - 1]
 	for t in fit:
 		r -= int(w[t])
 		if r < 0:
 			ty = t
 			break
-	var c: String = COLORS[randi() % COLORS.size()]
+	var c: String = COLORS[game_rng.randi() % COLORS.size()]
 	return {"type": ty, "color": c, "offsets": (PIECES[ty] as Array).duplicate()}
 
 func _tier_pool(tier: int) -> Array:
@@ -591,7 +602,7 @@ func _weighted_pick(pool: Array) -> String:
 	var total: int = 0
 	for t in pool:
 		total += int(PIECE_W[t])
-	var r: int = randi() % total
+	var r: int = game_rng.randi() % total
 	for t in pool:
 		r -= int(PIECE_W[t])
 		if r < 0:
@@ -1309,6 +1320,7 @@ func _director_ctx() -> Dictionary:
 		"fail_streak": int(fail_streak.get(stage_idx, 0)),
 		"surge_enabled": surge_enabled, "floor_enabled": floor_enabled,
 		"cols": COLS, "enemy_types": ENEMY_TYPES,
+		"rng": game_rng,   # 감독 스폰 결정은 게임 스트림에서(코스메틱 분리)
 	}
 
 func _check_win() -> void:

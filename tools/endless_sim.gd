@@ -41,7 +41,7 @@ func _run(g: Node, skill: int, hp: int) -> Dictionary:
 	var dead_core: int = 0
 	var dead_stuck: int = 0
 	for t in range(TRIALS):
-		seed(1000 + t)   # 셀 간 같은 시드 = 공정 비교
+		g.seed_game(1000 + t)   # 게임 스트림 시드(셀 간 같은 시드 = 공정 비교; 코스메틱 분리)
 		var r: Dictionary = _play(g, skill, hp)
 		depths.append(r["depth"])
 		style_sum += r["style"]
