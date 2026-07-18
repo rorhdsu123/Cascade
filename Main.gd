@@ -141,6 +141,28 @@ const STAGES: Array = [
 		"spawn_every": 2, "step_every": 3, "onboard": 2, "floor": 6, "surge_at": 0.78,
 		"weights": {"basic": 20, "fast": 35, "tank": 25, "swarm": 20, "split": 0}, "pool": POOL_STD,
 	},
+	# ── act-3: 하드 로스터 도입(분열) = 랭크 무한 예고편 (C57, C56 ⑥ 실행) ──
+	{
+		# 분열 격리 도입: 적은 basic↔split만(split_probe 믹스와 동형) = 난이도가 전적으로 새 기전에서.
+		# 스킬 축 = 우선순위·템포(C56 ⑤): '높이 있을 때 잡아라 — 깊으면 자식이 거점 코앞에서 갈라진다'.
+		# pool은 STD(퍼즐 굶김으로 이중 압박 안 함, S5 장갑이 tank를 STD로 격리한 것과 동형).
+		# core_hp 3 = 새 위협을 배울 한 칸 여유(다음 스테이지에서 2로 조인다).
+		# ⚠도입은 climax보다 물러야 한다: total·base_hp를 S5/S6 최댓값에서 내리고 split 40%로 격리 —
+		#   split 55%+total52+hp48은 sim서 도입이 climax만큼 가혹(23→10 절벽). 새 기전만 변수로 세운다.
+		"name": "분열", "tag": "갈라진다 — 높이 있을 때 잡아라",
+		"total": 48, "core_hp": 3, "base_hp": 44, "hp_ramp": 0.35, "tank_mult": 4.2,
+		"spawn_every": 2, "step_every": 3, "onboard": 3, "floor": 6, "surge_at": 0.80,
+		"weights": {"basic": 60, "fast": 0, "tank": 0, "swarm": 0, "split": 40}, "pool": POOL_STD,
+	},
+	{
+		# act-3 클라이맥스 = 전 로스터 + 분열 + core_hp 2 (S1 '첫 방어선'과 수미상관 '최종 방어선').
+		# 분열은 방어축 레버(거점사 지배)라 청소 처리량을 굶기는 tank/fast/swarm 위에 겹쳐 얹힌다.
+		# split 25%(수확 시작점) — 100%가 아니라, 다른 위협과 섞여야 '전부 온다'가 성립.
+		"name": "최종 방어선", "tag": "전부 온다 — 그리고 갈라진다",
+		"total": 56, "core_hp": 2, "base_hp": 50, "hp_ramp": 0.4, "tank_mult": 4.2,
+		"spawn_every": 2, "step_every": 3, "onboard": 2, "floor": 6, "surge_at": 0.78,
+		"weights": {"basic": 15, "fast": 25, "tank": 20, "swarm": 15, "split": 25}, "pool": POOL_STD,
+	},
 ]
 
 # 조각 색 키 (시각용만)
@@ -2193,9 +2215,9 @@ func _draw_result(fnt: Font) -> void:
 # Toon Blast식: 위쪽은 진행 상황(스테이지 목록·잠금), 시선의 착지점은 하단의 큰 시작 버튼.
 const SEL_X: float = 140.0
 const SEL_W: float = 520.0
-const SEL_Y0: float = 232.0
-const SEL_H: float = 70.0     # 6스테이지가 PLAY_BTN(y=742) 위에 다 들어오게 76→70 (C54)
-const SEL_GAP: float = 10.0   # 6번째 타일 하단 = 232 + 5·80 + 70 = 702 < 742
+const SEL_Y0: float = 206.0   # 8스테이지 수용 위해 상향(C57). 소제목 y=166 아래 40px 여백
+const SEL_H: float = 58.0     # 8타일이 PLAY_BTN(y=742) 위에 들어오게 70→58 (C57). 내부 텍스트도 상향(+28/+50)
+const SEL_GAP: float = 8.0    # 8번째 타일 하단 = 206 + 7·66 + 58 = 726 < 742
 const PLAY_BTN: Rect2 = Rect2(150.0, 742.0, 500.0, 126.0)
 
 func _stage_rect(i: int) -> Rect2:
@@ -2253,15 +2275,15 @@ func _draw_select(fnt: Font) -> void:
 		# 이름 + 태그. 잠김이면 내용은 숨기고 해금 조건만 (다음 목표를 명확히)
 		var nx: float = r.position.x + 64.0
 		var name_col: Color = Color.WHITE if open else Color(0.45, 0.46, 0.55)
-		_draw_text_outlined(fnt, Vector2(nx, r.position.y + 32.0), String(sd["name"]), 24, name_col)
+		_draw_text_outlined(fnt, Vector2(nx, r.position.y + 28.0), String(sd["name"]), 24, name_col)
 		var line2: String = String(sd["tag"]) if open else "%d 스테이지를 클리어하면 열림" % i
-		_draw_text_outlined(fnt, Vector2(nx, r.position.y + 56.0), line2, 15,
+		_draw_text_outlined(fnt, Vector2(nx, r.position.y + 50.0), line2, 15,
 				Color(0.68, 0.7, 0.82) if open else Color(0.4, 0.41, 0.5))
 
 		if done:
 			var ck: String = "클리어"
 			var cw: float = fnt.get_string_size(ck, HORIZONTAL_ALIGNMENT_LEFT, -1, 16).x
-			_draw_text_outlined(fnt, Vector2(r.position.x + SEL_W - cw - 16.0, r.position.y + 46.0), ck, 16, Color(0.4, 0.9, 0.58))
+			_draw_text_outlined(fnt, Vector2(r.position.x + SEL_W - cw - 16.0, r.position.y + 40.0), ck, 16, Color(0.4, 0.9, 0.58))
 
 	_draw_play_button(fnt, cur)
 
