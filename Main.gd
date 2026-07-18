@@ -496,6 +496,12 @@ func _free_cells() -> int:
 # 평균 조각이 3.56칸까지 내려갔고 3×3은 2%밖에 안 나왔다. 그 사이 막힘사는 300판 중 2~20판까지
 # 줄어든 반면 패배의 대부분은 '적을 못 잡아서'(거점 함락)로 옮겨간 상태 → 조각을 키우는 게 곧 해법.
 func _random_piece() -> Dictionary:
+	# 스테이지가 조각 풀을 명시하면(퍼즐 축 난이도 손잡이, C51) 그 풀에서만 뽑는다.
+	#   풀 = {조각키: 가중치}. line-maker(I5) 비율이 주 dial — sim(pool_probe)에서
+	#   0%→50% 섞으면 승률 5%→84%로 단조 상승, core_hp가 그 위에 겹쳐 얹힘(2D 난이도면).
+	#   공정성은 tier 경로와 동일: 지금 보드에 최소 1칸 놓이는 조각만 배급(강제 즉사 배제).
+	if st.has("pool"):
+		return _pool_piece(st["pool"])
 	var f: float = float(_free_cells()) / float(ROWS * COLS)
 	var p_big: float = clampf((f - 0.50) / 0.35, 0.0, 1.0) * 0.16
 	var p_mid: float = clampf((f - 0.25) / 0.30, 0.0, 1.0) * 0.60
@@ -523,6 +529,27 @@ func _random_piece() -> Dictionary:
 	if pool.is_empty():
 		pool = SMALL_POOL.duplicate()      # 보드가 꽉 참 — 어차피 다음 턴에 막힘 판정
 	var ty: String = _weighted_pick(pool)
+	var c: String = COLORS[randi() % COLORS.size()]
+	return {"type": ty, "color": c, "offsets": (PIECES[ty] as Array).duplicate()}
+
+# 스테이지 지정 풀에서 가중추첨. 배치 가능한 조각만 후보로(꽉 차면 풀 전체 → 다음 턴 막힘 판정).
+func _pool_piece(w: Dictionary) -> Dictionary:
+	var fit: Array = []
+	for t in w:
+		if _piece_fits_at_least(PIECES[t], 1):
+			fit.append(t)
+	if fit.is_empty():
+		fit = w.keys()
+	var total: int = 0
+	for t in fit:
+		total += int(w[t])
+	var r: int = randi() % maxi(1, total)
+	var ty: String = fit[fit.size() - 1]
+	for t in fit:
+		r -= int(w[t])
+		if r < 0:
+			ty = t
+			break
 	var c: String = COLORS[randi() % COLORS.size()]
 	return {"type": ty, "color": c, "offsets": (PIECES[ty] as Array).duplicate()}
 

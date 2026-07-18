@@ -8,23 +8,29 @@ extends SceneTree
 #     Q4. 각 풀이 core_hp를 조일 때 단조롭게 어려워지나? (step_every 절벽·spawn_every 비단조 재판 방지)
 #   실행: godot --headless --path . --script tools/pool_probe.gd
 
-const PoolGame = preload("res://tools/pool_game.gd")
+const PoolGame = preload("res://Main.gd")   # 실코드 경로 직접 구동(_random_piece가 st["pool"]을 읽음)
 const StageMode = preload("res://modes/stage_mode.gd")
 const TRIALS: int = 120
 
 # ── 실험 풀 정의(조각 키는 Main.PIECES 기준) ──
-# clean = 실게임 분포 근사(전 티어 + I5 우세). 나머지는 레버 A/B/C 고립.
+# 혼합 풀 스윕(C51 ⑥): small-tempo(=5% 벽)에 line-maker(I5)를 비율로 섞어
+#   승률을 벽→dial로 끌어올릴 수 있나 검증. small 기본 가중합=35, I5 총가중 lm으로
+#   line-maker 비율 p = lm/(35+lm). 양끝 앵커(clean=76% 천장, small=5% 바닥) 유지.
+const SMK: Array = ["1","D2h","D2v","I3h","I3v","L3a","L3b","L3c","L3d"]
+const SMK5: Array = ["1","D2h","D2v","I3h","I3v","L3a","L3b","L3c","L3d","I5h","I5v"]
 const POOLS: Array = [
 	{"name": "clean       ", "keys": ["1","D2h","D2v","I3h","I3v","L3a","L3b","L3c","L3d","O","I","Iv","T","S","Z","L","J","I5h","I5v","R32","R23","R33"],
 		"w": {"1":1,"D2h":3,"D2v":3,"I3h":6,"I3v":6,"L3a":4,"L3b":4,"L3c":4,"L3d":4,"O":6,"I":4,"Iv":4,"T":4,"S":3,"Z":3,"L":4,"J":4,"I5h":10,"I5v":10,"R32":7,"R23":7,"R33":1}},
-	{"name": "small-tempo ", "keys": ["1","D2h","D2v","I3h","I3v","L3a","L3b","L3c","L3d"],
+	{"name": "small  (0%) ", "keys": SMK,
 		"w": {"1":1,"D2h":3,"D2v":3,"I3h":6,"I3v":6,"L3a":4,"L3b":4,"L3c":4,"L3d":4}},
-	{"name": "no-straights", "keys": ["1","D2h","D2v","L3a","L3b","L3c","L3d","O","T","S","Z","L","J","R32","R23","R33"],
-		"w": {"1":1,"D2h":3,"D2v":3,"L3a":4,"L3b":4,"L3c":4,"L3d":4,"O":6,"T":4,"S":3,"Z":3,"L":4,"J":4,"R32":7,"R23":7,"R33":1}},
-	{"name": "awkward     ", "keys": ["L3a","L3b","L3c","L3d","T","S","Z","L","J"],
-		"w": {"L3a":4,"L3b":4,"L3c":4,"L3d":4,"T":4,"S":4,"Z":4,"L":4,"J":4}},
-	{"name": "blocky      ", "keys": ["D2h","D2v","O","R32","R23","R33"],
-		"w": {"D2h":2,"D2v":2,"O":6,"R32":7,"R23":7,"R33":3}},
+	{"name": "sm+I5  10%  ", "keys": SMK5,   # lm=4  → p≈0.103
+		"w": {"1":1,"D2h":3,"D2v":3,"I3h":6,"I3v":6,"L3a":4,"L3b":4,"L3c":4,"L3d":4,"I5h":2,"I5v":2}},
+	{"name": "sm+I5  19%  ", "keys": SMK5,   # lm=8  → p≈0.186
+		"w": {"1":1,"D2h":3,"D2v":3,"I3h":6,"I3v":6,"L3a":4,"L3b":4,"L3c":4,"L3d":4,"I5h":4,"I5v":4}},
+	{"name": "sm+I5  34%  ", "keys": SMK5,   # lm=18 → p≈0.340
+		"w": {"1":1,"D2h":3,"D2v":3,"I3h":6,"I3v":6,"L3a":4,"L3b":4,"L3c":4,"L3d":4,"I5h":9,"I5v":9}},
+	{"name": "sm+I5  50%  ", "keys": SMK5,   # lm=35 → p=0.500
+		"w": {"1":1,"D2h":3,"D2v":3,"I3h":6,"I3v":6,"L3a":4,"L3b":4,"L3c":4,"L3d":4,"I5h":17,"I5v":18}},
 ]
 
 func _make_st(core_hp: int) -> Dictionary:
@@ -51,9 +57,11 @@ func _run_pool(pool: Dictionary, core_hp: int) -> void:
 	var g = PoolGame.new()
 	root.add_child(g)          # _ready
 	g.dda_enabled = false
-	g.test_pool = pool["keys"]
-	g.test_w = pool["w"]
+	var wd: Dictionary = {}    # keys 순서 보존(추첨 iteration 순서 = 재현성)
+	for k in pool["keys"]:
+		wd[k] = int(pool["w"].get(k, 1))
 	var st: Dictionary = _make_st(core_hp)
+	st["pool"] = wd
 
 	var wins: int = 0
 	var leak_sum: int = 0
@@ -84,6 +92,7 @@ func _run_pool(pool: Dictionary, core_hp: int) -> void:
 	g.free()
 
 func _play(g, st: Dictionary) -> Dictionary:
+	g.st = st                  # _random_piece가 읽는 실 스테이지 정의(pool 포함)
 	g.director = StageMode.new(st)
 	g.mode = "play"
 	g._init_game()
