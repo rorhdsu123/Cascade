@@ -278,9 +278,14 @@ var director: GameMode = null    # 감독(스폰·난이도·종료 결정). _st
 
 # 무한모드(감독=EndlessMode) — 캠페인 스테이지와 형제. C52 설계·C56 game_rng 분리.
 var endless: bool = false          # 무한모드 진행 중(HUD·결과·재도전이 분기)
-var endless_score: int = 0         # 이번 런 점수 = Σ(폭발 처치수 × 콤보), C52 곱셈 점수
+var endless_score: int = 0         # 이번 런 점수 = Σ(줄×기본점 + 처치×콤보×배수), C52+C58
 var endless_best: int = 0          # 로컬 베스트(user:// 영속)
+var endless_prev_best: int = 0     # 런 시작 시점의 베스트(결과 팝업 델타 표시용)
 var endless_new_best: bool = false # 이번 런이 신기록인가(결과 팝업 배지)
+var endless_beat_best: bool = false # 판 중에 이미 최고를 넘었나(HUD 실시간 갱신 신호)
+# 점수 계수(C58, 손맛 튜닝). 처치×콤보가 지배(주 지표), 줄 기본점은 '막힘사도 무보상은 아니게' 하는 하위 항.
+const ENDLESS_CLEAR_BASE: int = 50   # 줄 클리어당 기본점(처치 없어도 클리어는 항상 보상)
+const ENDLESS_KILL_MULT: int = 100   # 처치×콤보 배수(숫자 두툼하게 = 큰 수 쾌감)
 var _endless_hover: bool = false   # 셀렉트 화면 무한 버튼 호버
 var cleared: Dictionary = {}     # 스테이지 인덱스 → 클리어 여부 (세션 한정, 저장 없음)
 var hover_stage: int = -1
@@ -404,6 +409,11 @@ func _ready() -> void:
 	randomize()          # 코스메틱 전역 RNG
 	game_rng.randomize()  # 게임 스트림(프리플레이 기본; 데일리/회귀는 seed_game으로 덮어씀)
 	_load_endless_best()
+	# 한글 렌더용 시스템 폰트(기본 fallback엔 한글 글리프 없음). ⚠배포 시엔 Noto Sans KR 등 번들 필요.
+	var sf := SystemFont.new()
+	sf.font_names = PackedStringArray(["Apple SD Gothic Neo", "AppleGothic", "Noto Sans CJK KR", "Arial"])
+	_font = sf
+	mode = "select"
 
 # 로컬 베스트 영속(user://). 플랫폼 리더보드는 소프트런치 셸에서(C50 ③), 지금은 로컬만.
 const ENDLESS_SAVE: String = "user://endless.save"
@@ -421,11 +431,12 @@ func _save_endless_best() -> void:
 	if f != null:
 		f.store_32(endless_best)
 		f.close()
-	# 한글 렌더용 시스템 폰트(기본 fallback엔 한글 글리프 없음). ⚠배포 시엔 Noto Sans KR 등 번들 필요.
-	var sf := SystemFont.new()
-	sf.font_names = PackedStringArray(["Apple SD Gothic Neo", "AppleGothic", "Noto Sans CJK KR", "Arial"])
-	_font = sf
-	mode = "select"
+
+# 점수 가산 + 판 중 최고 갱신 감지(HUD 실시간 신호). best>0일 때만 = 첫 판(best 0)은 '갱신'이 무의미.
+func _add_endless_score(pts: int) -> void:
+	endless_score += pts
+	if endless_best > 0 and endless_score > endless_best:
+		endless_beat_best = true
 
 # 선형 해금: 1스테이지는 항상 열려 있고, 그다음부턴 직전 스테이지를 깨야 열린다
 func _is_unlocked(i: int) -> bool:
@@ -482,6 +493,8 @@ func _init_game() -> void:
 	leaked = 0
 	score = 0
 	endless_score = 0
+	endless_prev_best = endless_best   # 판 시작 시점 베스트 스냅샷(결과 델타)
+	endless_beat_best = false
 	combo = 0
 	combo_miss = 0
 	drought = 0
@@ -1117,6 +1130,8 @@ func _burst_lines() -> void:
 	if clear_done:
 		return
 	clear_done = true
+	if endless:
+		_add_endless_score(flash_lines * ENDLESS_CLEAR_BASE)   # 클리어당 기본점(막힘사도 무보상은 아니게), C58
 	for ci in clear_cells:
 		var cc: Vector2i = ci as Vector2i
 		board[cc.y][cc.x] = ""
@@ -1169,7 +1184,7 @@ func _apply_hit(h: Dictionary) -> void:
 		enemies.remove_at(found)
 		killed += 1
 		if endless:
-			endless_score += combo   # 이 폭발의 콤보만큼 킬마다 가산 = Σ(폭발 처치수×콤보), C52
+			_add_endless_score(combo * ENDLESS_KILL_MULT)   # 처치×콤보(주 지표) = Σ(폭발 처치수×콤보)×배수, C52
 		kill_pulse = 0.35   # ④ 킬 → 헤드라인 펄스
 		hitstop = maxf(hitstop, 0.045)   # 처치 순간 멈칫(손맛)
 	else:
@@ -2144,7 +2159,12 @@ func _draw_result(fnt: Font) -> void:
 
 	# ── 버튼 바로 위: 무한=최고 기록(신기록 배지), 캠페인=못 처치하고 남긴 적/처치.
 	if endless:
-		var ecap: String = "🏆 신기록!" if endless_new_best else "최고"
+		# 캡션 = 신기록이면 델타를 접어 넣음(획득감), 아니면 '최고'. 델타 별도 줄은 이어하기 버튼과 충돌.
+		var ecap: String
+		if endless_new_best:
+			ecap = "🏆 첫 기록!" if endless_prev_best <= 0 else "🏆 신기록! +%s" % _comma(endless_score - endless_prev_best)
+		else:
+			ecap = "최고"
 		var ecap_fs: int = 20 if endless_new_best else 18
 		var ecap_col: Color = C_GOLD if endless_new_best else Color(0.72, 0.74, 0.9)
 		var ecw: float = fnt.get_string_size(ecap, HORIZONTAL_ALIGNMENT_LEFT, -1, ecap_fs).x
@@ -2454,17 +2474,25 @@ func _draw_hud(fnt: Font) -> void:
 	var adv_r: Rect2 = Rect2(start_x + gw + gap, box_y, aw, box_h)
 
 	if endless:
-		# 무한: GOAL 카드 = 점수(리더보드 지표). 깊이는 좌상단, 콤보는 우상단.
-		_draw_card(goal_r, Color(0.5, 0.42, 0.78))
-		var pt_w: float = fnt.get_string_size("점수", HORIZONTAL_ALIGNMENT_LEFT, -1, 16).x
-		_draw_text_outlined(fnt, Vector2(goal_r.position.x + gw * 0.5 - pt_w * 0.5, box_y + 24.0), "점수", 16, Color(0.82, 0.78, 1.0))
+		# 무한: GOAL 카드 = 점수(리더보드 지표). 최고 넘으면 카드·제목·숫자가 금색으로(실시간 갱신 신호).
+		#   깊이·최고는 좌상단, 콤보는 우상단.
+		var beat: bool = endless_beat_best
+		_draw_card(goal_r, C_GOLD if beat else Color(0.5, 0.42, 0.78))
+		var ptitle: String = "최고 갱신!" if beat else "점수"
+		var pt_w: float = fnt.get_string_size(ptitle, HORIZONTAL_ALIGNMENT_LEFT, -1, 16).x
+		_draw_text_outlined(fnt, Vector2(goal_r.position.x + gw * 0.5 - pt_w * 0.5, box_y + 24.0), ptitle, 16,
+				C_GOLD if beat else Color(0.82, 0.78, 1.0))
 		var sc_str: String = _comma(endless_score)
 		var sc_fs: int = 40
 		var sc_w: float = fnt.get_string_size(sc_str, HORIZONTAL_ALIGNMENT_LEFT, -1, sc_fs).x
-		var sc_col: Color = Color.WHITE.lerp(C_GOLD, kp)
+		var sc_col: Color = C_GOLD if beat else Color.WHITE.lerp(C_GOLD, kp)
 		_draw_text_outlined(fnt, Vector2(goal_r.position.x + gw * 0.5 - sc_w * 0.5, box_y + 70.0), sc_str, sc_fs, sc_col)
-		var depth_str: String = "깊이 %d" % place_count
-		_draw_text_outlined(fnt, Vector2(12.0, 30.0), depth_str, 22, Color(0.72, 0.74, 0.9))
+		# 좌상단: 깊이 + 최고(목표 기준선). 최고를 넘었으면 금색으로 '넘었다'를 색으로도.
+		_draw_text_outlined(fnt, Vector2(12.0, 30.0), "깊이 %d" % place_count, 22, Color(0.72, 0.74, 0.9))
+		if endless_best > 0:
+			var best_lbl: String = "최고 %s" % _comma(endless_best)
+			_draw_text_outlined(fnt, Vector2(12.0, 56.0), best_lbl, 16,
+					C_GOLD if beat else Color(0.6, 0.62, 0.78))
 	else:
 		# GOAL 카드 — 제목 "목표" + 내용 "💀 남은 적 N"(전 타입 소탕이 목표라 타입 중립 해골).
 		_draw_card(goal_r, Color(0.85, 0.7, 0.3))
