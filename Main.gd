@@ -273,7 +273,15 @@ var stage_idx: int = 0
 var st: Dictionary = {}          # 현재 스테이지 정의(STAGES[stage_idx])
 const GameMode = preload("res://modes/game_mode.gd")
 const StageMode = preload("res://modes/stage_mode.gd")
+const EndlessMode = preload("res://modes/endless_mode.gd")
 var director: GameMode = null    # 감독(스폰·난이도·종료 결정). _start_stage에서 st와 함께 세팅
+
+# 무한모드(감독=EndlessMode) — 캠페인 스테이지와 형제. C52 설계·C56 game_rng 분리.
+var endless: bool = false          # 무한모드 진행 중(HUD·결과·재도전이 분기)
+var endless_score: int = 0         # 이번 런 점수 = Σ(폭발 처치수 × 콤보), C52 곱셈 점수
+var endless_best: int = 0          # 로컬 베스트(user:// 영속)
+var endless_new_best: bool = false # 이번 런이 신기록인가(결과 팝업 배지)
+var _endless_hover: bool = false   # 셀렉트 화면 무한 버튼 호버
 var cleared: Dictionary = {}     # 스테이지 인덱스 → 클리어 여부 (세션 한정, 저장 없음)
 var hover_stage: int = -1
 var _play_hover: bool = false    # 하단 시작 버튼 호버
@@ -395,6 +403,24 @@ func seed_game(s: int) -> void:
 func _ready() -> void:
 	randomize()          # 코스메틱 전역 RNG
 	game_rng.randomize()  # 게임 스트림(프리플레이 기본; 데일리/회귀는 seed_game으로 덮어씀)
+	_load_endless_best()
+
+# 로컬 베스트 영속(user://). 플랫폼 리더보드는 소프트런치 셸에서(C50 ③), 지금은 로컬만.
+const ENDLESS_SAVE: String = "user://endless.save"
+
+func _load_endless_best() -> void:
+	if not FileAccess.file_exists(ENDLESS_SAVE):
+		return
+	var f := FileAccess.open(ENDLESS_SAVE, FileAccess.READ)
+	if f != null:
+		endless_best = f.get_32()
+		f.close()
+
+func _save_endless_best() -> void:
+	var f := FileAccess.open(ENDLESS_SAVE, FileAccess.WRITE)
+	if f != null:
+		f.store_32(endless_best)
+		f.close()
 	# 한글 렌더용 시스템 폰트(기본 fallback엔 한글 글리프 없음). ⚠배포 시엔 Noto Sans KR 등 번들 필요.
 	var sf := SystemFont.new()
 	sf.font_names = PackedStringArray(["Apple SD Gothic Neo", "AppleGothic", "Noto Sans CJK KR", "Arial"])
@@ -422,10 +448,23 @@ func _all_cleared() -> bool:
 
 # 스테이지 시작 — 독립 레벨이라 보드·거점·적을 전부 초기화하고 st만 갈아끼운다
 func _start_stage(idx: int) -> void:
+	endless = false             # DDA/surge/floor 플래그는 A/B 노브(regress·sim 소유) — 여기서 건드리지 않음
 	stage_idx = clampi(idx, 0, STAGES.size() - 1)
 	st = STAGES[stage_idx]
 	director = StageMode.new(st)
 	mode = "play"
+	_init_game()
+
+# 무한모드 시작 — 스테이지 dict 없이 EndlessMode가 깊이로 스케줄. DDA off(리더보드 공정성, C52 ⑦).
+func _start_endless() -> void:
+	endless = true
+	stage_idx = -1              # 스테이지 아님(fail_streak 키만 분리; DDA는 어차피 off)
+	st = {}                     # pool 없음 → _random_piece 적응형 티어 경로(무한 기본)
+	director = EndlessMode.new()
+	# DDA는 dda_enabled를 건드리지 않고 endless 플래그로 게이팅(랭크 공정성, _make_piece 참조).
+	# surge/floor는 게임플레이 기본값 true 유지(_start_endless는 게임플레이 전용, 하네스는 미호출).
+	mode = "play"
+	endless_new_best = false
 	_init_game()
 
 func _init_game() -> void:
@@ -442,6 +481,7 @@ func _init_game() -> void:
 	killed = 0
 	leaked = 0
 	score = 0
+	endless_score = 0
 	combo = 0
 	combo_miss = 0
 	drought = 0
@@ -701,7 +741,7 @@ func _dda_score() -> float:
 
 # 후보 N개를 굴린 뒤, 플레이어 상태에 따라 '잘 맞는 것' ↔ '까다로운 것'을 고른다
 func _make_piece() -> Dictionary:
-	if not dda_enabled:
+	if not dda_enabled or endless:   # 무한은 DDA off(랭크 공정성, C52 ⑦) — 플래그 무관하게 게이팅
 		return _random_piece()
 	var d: float = _dda_score()
 	var first: Dictionary = _random_piece()
@@ -1128,6 +1168,8 @@ func _apply_hit(h: Dictionary) -> void:
 		_spawn_death(etype, ep)
 		enemies.remove_at(found)
 		killed += 1
+		if endless:
+			endless_score += combo   # 이 폭발의 콤보만큼 킬마다 가산 = Σ(폭발 처치수×콤보), C52
 		kill_pulse = 0.35   # ④ 킬 → 헤드라인 펄스
 		hitstop = maxf(hitstop, 0.045)   # 처치 순간 멈칫(손맛)
 	else:
@@ -1507,10 +1549,13 @@ func _input(event: InputEvent) -> void:
 			var mp: Vector2 = (event as InputEventMouseMotion).position
 			hover_stage = _stage_at(mp)
 			_play_hover = PLAY_BTN.has_point(mp)
+			_endless_hover = ENDLESS_BTN.has_point(mp)
 		elif event is InputEventMouseButton:
 			var sm: InputEventMouseButton = event as InputEventMouseButton
 			if sm.pressed and sm.button_index == MOUSE_BUTTON_LEFT:
-				if PLAY_BTN.has_point(sm.position):
+				if ENDLESS_BTN.has_point(sm.position):
+					_start_endless()
+				elif PLAY_BTN.has_point(sm.position):
 					_start_stage(_current_stage())      # 하단 큰 버튼 = 지금 도전할 스테이지
 				else:
 					var hit: int = _stage_at(sm.position)   # 이미 깬 스테이지 재도전(잠긴 건 -1)
@@ -1520,6 +1565,8 @@ func _input(event: InputEvent) -> void:
 			var sk: InputEventKey = event as InputEventKey
 			if sk.pressed and (sk.keycode == KEY_SPACE or sk.keycode == KEY_ENTER):
 				_start_stage(_current_stage())
+			elif sk.pressed and (sk.keycode == KEY_E or sk.keycode == KEY_0):
+				_start_endless()                       # E 또는 0 = 무한 모드
 			elif sk.pressed and sk.keycode >= KEY_1 and sk.keycode < KEY_1 + STAGES.size():
 				var pick: int = sk.keycode - KEY_1
 				if _is_unlocked(pick):
@@ -1987,7 +2034,9 @@ func _revive() -> void:
 
 # 재도전 = 실패면 같은 스테이지, 클리어면 다음(마지막이면 홈)
 func _result_advance() -> void:
-	if game_clear:
+	if endless:
+		_start_endless()          # 무한: 재도전 = 새 런
+	elif game_clear:
 		if stage_idx + 1 < STAGES.size():
 			_start_stage(stage_idx + 1)
 		else:
@@ -2049,21 +2098,41 @@ func _draw_result(fnt: Font) -> void:
 
 	var cx: float = p.position.x + p.size.x * 0.5
 
+	# 무한: 런 종료 시점에 베스트 확정(부활로 이어가면 다음 팝업서 재갱신). 신기록이면 배지.
+	if endless and endless_score > endless_best:
+		endless_best = endless_score
+		endless_new_best = true
+		_save_endless_best()
+
 	# ① 헤드라인. 혼자만 크다.
 	#    폭에 맞춰 줄인다 — "아쉬워요!"는 5자라 64px가 넉넉하지만 "스테이지 클리어!"는 8자라
 	#    같은 크기면 패널을 끝까지 밀어낸다. 글자 수가 아니라 패널이 크기를 정하게 한다.
-	var msg: String = "스테이지 클리어!" if game_clear else _fail_headline()
+	var msg: String
+	var msg_col: Color
+	if endless:
+		msg = "%s점" % _comma(endless_score)   # 무한: 점수가 헤드라인(리더보드 지표)
+		msg_col = C_GOLD
+	elif game_clear:
+		msg = "스테이지 클리어!"
+		msg_col = C_GOLD
+	else:
+		msg = _fail_headline()
+		msg_col = Color.WHITE
 	var mfs: int = 64
 	var mw: float = fnt.get_string_size(msg, HORIZONTAL_ALIGNMENT_LEFT, -1, mfs).x
 	var max_w: float = p.size.x - 56.0
 	if mw > max_w:
 		mfs = maxi(40, int(float(mfs) * max_w / mw))
 		mw = fnt.get_string_size(msg, HORIZONTAL_ALIGNMENT_LEFT, -1, mfs).x
-	_draw_text_outlined(fnt, Vector2(cx - mw * 0.5, p.position.y + 84.0), msg, mfs,
-			C_GOLD if game_clear else Color.WHITE)
+	_draw_text_outlined(fnt, Vector2(cx - mw * 0.5, p.position.y + 84.0), msg, mfs, msg_col)
 
 	# ② 사유 — 판정을 받쳐주는 한 줄. 작게 둔다(헤드라인과 안 싸우게).
-	if game_over:
+	if endless:
+		var cause: String = "놓을 곳이 없다" if stuck else "거점 파괴"
+		var er: String = "깊이 %d · %s" % [place_count, cause]
+		var erw: float = fnt.get_string_size(er, HORIZONTAL_ALIGNMENT_LEFT, -1, 20).x
+		_draw_text_outlined(fnt, Vector2(cx - erw * 0.5, p.position.y + 124.0), er, 20, Color(0.8, 0.78, 1.0))
+	elif game_over:
 		var reason: String = "놓을 곳이 없다" if stuck else "거점 파괴"
 		var rw: float = fnt.get_string_size(reason, HORIZONTAL_ALIGNMENT_LEFT, -1, 20).x
 		_draw_text_outlined(fnt, Vector2(cx - rw * 0.5, p.position.y + 124.0), reason, 20, Color(1.0, 0.5, 0.5))
@@ -2073,24 +2142,36 @@ func _draw_result(fnt: Font) -> void:
 		_draw_text_outlined(fnt, Vector2(cx - rw2 * 0.5, p.position.y + 124.0), res, 20,
 				Color(0.45, 0.9, 0.6) if leaked == 0 else Color(0.85, 0.7, 0.5))
 
-	# ── 버튼 바로 위: 못 처치하고 남긴 적. 정의는 HUD 목표 카드와 동일(total - killed - leaked)
-	#    → 게임 중 보던 그 숫자가 그대로 결과에 박힌다(다른 셈이면 "내가 보던 수"와 어긋남).
-	var remaining: int = maxi(0, director.enemy_total() - killed - leaked)
-	var cap: String = "남은 적" if game_over else "처치"
-	var cap_fs: int = 18
-	var cw: float = fnt.get_string_size(cap, HORIZONTAL_ALIGNMENT_LEFT, -1, cap_fs).x
-	_draw_text_outlined(fnt, Vector2(cx - cw * 0.5, p.position.y + 176.0), cap, cap_fs, Color(0.95, 0.85, 0.5))
+	# ── 버튼 바로 위: 무한=최고 기록(신기록 배지), 캠페인=못 처치하고 남긴 적/처치.
+	if endless:
+		var ecap: String = "🏆 신기록!" if endless_new_best else "최고"
+		var ecap_fs: int = 20 if endless_new_best else 18
+		var ecap_col: Color = C_GOLD if endless_new_best else Color(0.72, 0.74, 0.9)
+		var ecw: float = fnt.get_string_size(ecap, HORIZONTAL_ALIGNMENT_LEFT, -1, ecap_fs).x
+		_draw_text_outlined(fnt, Vector2(cx - ecw * 0.5, p.position.y + 176.0), ecap, ecap_fs, ecap_col)
+		var bnum: String = _comma(endless_best)
+		var bnum_fs: int = 52
+		var bnw: float = fnt.get_string_size(bnum, HORIZONTAL_ALIGNMENT_LEFT, -1, bnum_fs).x
+		_draw_text_outlined(fnt, Vector2(cx - bnw * 0.5, p.position.y + 238.0), bnum, bnum_fs,
+				C_GOLD if endless_new_best else Color(0.85, 0.85, 0.95))
+	else:
+		# 정의는 HUD 목표 카드와 동일(total - killed - leaked) → 게임 중 보던 그 숫자가 그대로.
+		var remaining: int = maxi(0, director.enemy_total() - killed - leaked)
+		var cap: String = "남은 적" if game_over else "처치"
+		var cap_fs: int = 18
+		var cw: float = fnt.get_string_size(cap, HORIZONTAL_ALIGNMENT_LEFT, -1, cap_fs).x
+		_draw_text_outlined(fnt, Vector2(cx - cw * 0.5, p.position.y + 176.0), cap, cap_fs, Color(0.95, 0.85, 0.5))
 
-	var num: String = str(remaining if game_over else killed)
-	var num_fs: int = 52
-	var icon_s: float = 44.0
-	var nw2: float = fnt.get_string_size(num, HORIZONTAL_ALIGNMENT_LEFT, -1, num_fs).x
-	var grp_w: float = icon_s + 12.0 + nw2
-	var grp_l: float = cx - grp_w * 0.5
-	var row_y: float = p.position.y + 222.0
-	_draw_enemy_icon(Vector2(grp_l + icon_s * 0.5, row_y), icon_s)
-	_draw_text_outlined(fnt, Vector2(grp_l + icon_s + 12.0, row_y + 16.0), num, num_fs,
-			Color(1.0, 0.55, 0.5) if game_over else Color(0.55, 0.95, 0.65))
+		var num: String = str(remaining if game_over else killed)
+		var num_fs: int = 52
+		var icon_s: float = 44.0
+		var nw2: float = fnt.get_string_size(num, HORIZONTAL_ALIGNMENT_LEFT, -1, num_fs).x
+		var grp_w: float = icon_s + 12.0 + nw2
+		var grp_l: float = cx - grp_w * 0.5
+		var row_y: float = p.position.y + 222.0
+		_draw_enemy_icon(Vector2(grp_l + icon_s * 0.5, row_y), icon_s)
+		_draw_text_outlined(fnt, Vector2(grp_l + icon_s + 12.0, row_y + 16.0), num, num_fs,
+				Color(1.0, 0.55, 0.5) if game_over else Color(0.55, 0.95, 0.65))
 
 	# ── 광고 이어하기 버튼 (부활 가능할 때만 — 주 착지점, 금색 3D로 재도전 초록과 구분)
 	#    F2P의 심장: 아까운 실패를 광고 한 편으로 이어받는다. 광고임을 'AD' 배지로 명시(정직).
@@ -2172,6 +2253,7 @@ const SEL_Y0: float = 232.0
 const SEL_H: float = 70.0     # 6스테이지가 PLAY_BTN(y=742) 위에 다 들어오게 76→70 (C54)
 const SEL_GAP: float = 10.0   # 6번째 타일 하단 = 232 + 5·80 + 70 = 702 < 742
 const PLAY_BTN: Rect2 = Rect2(150.0, 742.0, 500.0, 126.0)
+const ENDLESS_BTN: Rect2 = Rect2(150.0, 884.0, 500.0, 62.0)   # 무한 진입(캠페인 버튼 아래, 듀얼코어 C50)
 
 func _stage_rect(i: int) -> Rect2:
 	return Rect2(SEL_X, SEL_Y0 + float(i) * (SEL_H + SEL_GAP), SEL_W, SEL_H)
@@ -2239,10 +2321,49 @@ func _draw_select(fnt: Font) -> void:
 			_draw_text_outlined(fnt, Vector2(r.position.x + SEL_W - cw - 16.0, r.position.y + 46.0), ck, 16, Color(0.4, 0.9, 0.58))
 
 	_draw_play_button(fnt, cur)
+	_draw_endless_button(fnt)
 
 	var hint: String = "SPACE 또는 버튼 클릭"
 	var hw: float = fnt.get_string_size(hint, HORIZONTAL_ALIGNMENT_LEFT, -1, 17).x
-	_draw_text_outlined(fnt, Vector2(400.0 - hw * 0.5, 902.0), hint, 17, Color(0.5, 0.52, 0.62))
+	_draw_text_outlined(fnt, Vector2(400.0 - hw * 0.5, 724.0), hint, 17, Color(0.5, 0.52, 0.62))
+
+# 무한 진입 버튼 — 캠페인 초록과 대비되는 인디고(표현·경쟁 기둥). 베스트가 있으면 후크로 표시.
+func _draw_endless_button(fnt: Font) -> void:
+	var r: Rect2 = ENDLESS_BTN
+	var hot: bool = _endless_hover
+	draw_rect(Rect2(r.position.x, r.position.y + 6.0, r.size.x, r.size.y), Color(0.14, 0.10, 0.24))
+	var base: Color = Color(0.44, 0.36, 0.72) if hot else Color(0.36, 0.29, 0.62)
+	draw_rect(r, base)
+	draw_rect(Rect2(r.position.x, r.position.y, r.size.x, r.size.y * 0.34), Color(1.0, 1.0, 1.0, 0.14))
+	draw_rect(r, Color(0.20, 0.15, 0.38), false, 3.0)
+	var big: String = "무한 모드"
+	var bfs: int = 30
+	var bw: float = fnt.get_string_size(big, HORIZONTAL_ALIGNMENT_LEFT, -1, bfs).x
+	var cx: float = r.position.x + r.size.x * 0.5
+	if endless_best > 0:
+		# 왼쪽에 라벨, 오른쪽에 최고 점수(후크)
+		_draw_text_outlined(fnt, Vector2(r.position.x + 24.0, r.position.y + 40.0), big, bfs, Color.WHITE,
+				Color(0.14, 0.10, 0.24, 0.95))
+		var bst: String = "최고 %s" % _comma(endless_best)
+		var sfs: int = 20
+		var sw: float = fnt.get_string_size(bst, HORIZONTAL_ALIGNMENT_LEFT, -1, sfs).x
+		_draw_text_outlined(fnt, Vector2(r.position.x + r.size.x - sw - 24.0, r.position.y + 39.0), bst, sfs, C_GOLD,
+				Color(0.14, 0.10, 0.24, 0.95))
+	else:
+		_draw_text_outlined(fnt, Vector2(cx - bw * 0.5, r.position.y + 40.0), big, bfs, Color.WHITE,
+				Color(0.14, 0.10, 0.24, 0.95))
+
+# 천 단위 콤마 (점수 가독성)
+func _comma(n: int) -> String:
+	var s: String = str(n)
+	var out: String = ""
+	var c: int = 0
+	for i in range(s.length() - 1, -1, -1):
+		out = s[i] + out
+		c += 1
+		if c % 3 == 0 and i > 0:
+			out = "," + out
+	return out
 
 # 하단 큰 시작 버튼 — 지금 도전할 스테이지를 크게 적는다(Toon Blast의 "Level N" 버튼)
 func _draw_play_button(fnt: Font, cur: int) -> void:
@@ -2332,22 +2453,35 @@ func _draw_hud(fnt: Font) -> void:
 	var goal_r: Rect2 = Rect2(start_x, box_y, gw, box_h)
 	var adv_r: Rect2 = Rect2(start_x + gw + gap, box_y, aw, box_h)
 
-	# GOAL 카드 — 제목 "목표" + 내용 "💀 남은 적 N"(전 타입 소탕이 목표라 타입 중립 해골).
-	_draw_card(goal_r, Color(0.85, 0.7, 0.3))
-	var gt_w: float = fnt.get_string_size("목표", HORIZONTAL_ALIGNMENT_LEFT, -1, 16).x
-	_draw_text_outlined(fnt, Vector2(goal_r.position.x + gw * 0.5 - gt_w * 0.5, box_y + 24.0), "목표", 16, Color(0.95, 0.85, 0.5))
-	var rem_str: String = str(remaining)
-	var rem_fs: int = 40
-	var cap_fs: int = 18
-	var icon_s: float = 34.0
-	var cap_w: float = fnt.get_string_size("남은 적", HORIZONTAL_ALIGNMENT_LEFT, -1, cap_fs).x
-	var rem_w: float = fnt.get_string_size(rem_str, HORIZONTAL_ALIGNMENT_LEFT, -1, rem_fs).x
-	var grp_w: float = icon_s + 8.0 + cap_w + 8.0 + rem_w
-	var grp_l: float = goal_r.position.x + gw * 0.5 - grp_w * 0.5
-	_draw_enemy_icon(Vector2(grp_l + icon_s * 0.5, box_y + 56.0), icon_s)
-	_draw_text_outlined(fnt, Vector2(grp_l + icon_s + 8.0, box_y + 62.0), "남은 적", cap_fs, Color(0.95, 0.85, 0.5))
-	var rem_col: Color = Color.WHITE.lerp(C_GOLD, kp)
-	_draw_text_outlined(fnt, Vector2(grp_l + icon_s + 8.0 + cap_w + 8.0, box_y + 70.0), rem_str, rem_fs, rem_col)
+	if endless:
+		# 무한: GOAL 카드 = 점수(리더보드 지표). 깊이는 좌상단, 콤보는 우상단.
+		_draw_card(goal_r, Color(0.5, 0.42, 0.78))
+		var pt_w: float = fnt.get_string_size("점수", HORIZONTAL_ALIGNMENT_LEFT, -1, 16).x
+		_draw_text_outlined(fnt, Vector2(goal_r.position.x + gw * 0.5 - pt_w * 0.5, box_y + 24.0), "점수", 16, Color(0.82, 0.78, 1.0))
+		var sc_str: String = _comma(endless_score)
+		var sc_fs: int = 40
+		var sc_w: float = fnt.get_string_size(sc_str, HORIZONTAL_ALIGNMENT_LEFT, -1, sc_fs).x
+		var sc_col: Color = Color.WHITE.lerp(C_GOLD, kp)
+		_draw_text_outlined(fnt, Vector2(goal_r.position.x + gw * 0.5 - sc_w * 0.5, box_y + 70.0), sc_str, sc_fs, sc_col)
+		var depth_str: String = "깊이 %d" % place_count
+		_draw_text_outlined(fnt, Vector2(12.0, 30.0), depth_str, 22, Color(0.72, 0.74, 0.9))
+	else:
+		# GOAL 카드 — 제목 "목표" + 내용 "💀 남은 적 N"(전 타입 소탕이 목표라 타입 중립 해골).
+		_draw_card(goal_r, Color(0.85, 0.7, 0.3))
+		var gt_w: float = fnt.get_string_size("목표", HORIZONTAL_ALIGNMENT_LEFT, -1, 16).x
+		_draw_text_outlined(fnt, Vector2(goal_r.position.x + gw * 0.5 - gt_w * 0.5, box_y + 24.0), "목표", 16, Color(0.95, 0.85, 0.5))
+		var rem_str: String = str(remaining)
+		var rem_fs: int = 40
+		var cap_fs: int = 18
+		var icon_s: float = 34.0
+		var cap_w: float = fnt.get_string_size("남은 적", HORIZONTAL_ALIGNMENT_LEFT, -1, cap_fs).x
+		var rem_w: float = fnt.get_string_size(rem_str, HORIZONTAL_ALIGNMENT_LEFT, -1, rem_fs).x
+		var grp_w: float = icon_s + 8.0 + cap_w + 8.0 + rem_w
+		var grp_l: float = goal_r.position.x + gw * 0.5 - grp_w * 0.5
+		_draw_enemy_icon(Vector2(grp_l + icon_s * 0.5, box_y + 56.0), icon_s)
+		_draw_text_outlined(fnt, Vector2(grp_l + icon_s + 8.0, box_y + 62.0), "남은 적", cap_fs, Color(0.95, 0.85, 0.5))
+		var rem_col: Color = Color.WHITE.lerp(C_GOLD, kp)
+		_draw_text_outlined(fnt, Vector2(grp_l + icon_s + 8.0 + cap_w + 8.0, box_y + 70.0), rem_str, rem_fs, rem_col)
 
 	# ADVANCE 카드 — 적 전진 카운트다운(임박 시 붉은 강조). 제목·숫자 중앙정렬
 	var acc: Color = Color(0.85, 0.3, 0.28) if imminent else Color(0.4, 0.45, 0.6)
