@@ -246,6 +246,9 @@ const PIECE_W: Dictionary = {
 var mode: String = "select"
 var stage_idx: int = 0
 var st: Dictionary = {}          # 현재 스테이지 정의(STAGES[stage_idx])
+const GameMode = preload("res://modes/game_mode.gd")
+const StageMode = preload("res://modes/stage_mode.gd")
+var director: GameMode = null    # 감독(스폰·난이도·종료 결정). _start_stage에서 st와 함께 세팅
 var cleared: Dictionary = {}     # 스테이지 인덱스 → 클리어 여부 (세션 한정, 저장 없음)
 var hover_stage: int = -1
 var _play_hover: bool = false    # 하단 시작 버튼 호버
@@ -385,6 +388,7 @@ func _all_cleared() -> bool:
 func _start_stage(idx: int) -> void:
 	stage_idx = clampi(idx, 0, STAGES.size() - 1)
 	st = STAGES[stage_idx]
+	director = StageMode.new(st)
 	mode = "play"
 	_init_game()
 
@@ -396,7 +400,7 @@ func _init_game() -> void:
 			row_arr.append("")
 		board.append(row_arr)
 	enemies = []
-	core_hp = int(st["core_hp"])
+	core_hp = director.core_hp_max()
 	place_count = 0
 	spawned = 0
 	killed = 0
@@ -609,9 +613,11 @@ func _piece_can_clear(offsets: Array) -> bool:
 	return false
 
 # 플레이어 상태 → −1(고전) ~ +1(압도)
+# TODO(감독): DDA 로직·god모드는 스테이지 전용(fail_streak[stage_idx]). 무한모드 도입 시
+#   director.difficulty_bias(ctx)로 래핑해 모드별 난이도 보정을 분리할 것. 지금은 Main 유지(최저 위험).
 func _dda_score() -> float:
 	var fill: float = 1.0 - float(_free_cells()) / float(ROWS * COLS)
-	var hp: float = float(core_hp) / float(maxi(1, int(st["core_hp"])))
+	var hp: float = float(core_hp) / float(maxi(1, director.core_hp_max()))
 	var struggle: float = 0.0
 	if fill > 0.6:
 		struggle += 1.0          # 보드가 빡빡하다
@@ -1179,17 +1185,13 @@ func advance_step() -> void:
 	#   들어와 한 줄로 더 쓸려나가 오히려 쉬워진다(위 STAGES 주석의 비단조 실측). 실제로 거점을
 	#   터뜨리는 유일한 축은 전진 속도(C25) → 서지 중 모든 적이 한 단계 빨리 내려온다.
 	#   목적: 실패를 판 후반 30%에 몰아 '아까운 실패'를 만든다(F2P 광고 부활의 유인, C47).
-	var total: int = int(st["total"])
-	var surge_at: float = float(st.get("surge_at", 0.0)) if surge_enabled else 0.0
-	surge_active = surge_at > 0.0 and float(spawned) >= surge_at * float(total)
-	# 전진 스로틀: step_every 배치마다 1칸 (fast는 스테이지 주기의 절반 = 2배 빠름)
+	var ctx: Dictionary = _director_ctx()
+	surge_active = director.is_surge_active(ctx)   # 렌더/텔레그래프도 읽는 Main 필드 → 스텝당 1회
+	ctx["surge_active"] = surge_active
+	# 전진 스로틀: step_every 배치마다 1칸. 서지 클램프(하한 2)는 director.effective_step_every가 캡슐화.
 	for e in enemies:
-		var step_every: int = e.get("step_every", int(st["step_every"]))
-		if surge_active:
-			# ⚠최소 2로 클램프 — step_every 1은 '매 배치 전진'(2배 점프)이라 과하다.
-			#   step 2인 이미 빠른 적(fast·swarm desync)은 서지 면제, step 3인 느린 적만 2로 가속.
-			#   그래서 서지 강도가 타입 믹스에 비단조로 튀지 않는다(swarm 스테이지 붕괴 방지).
-			step_every = maxi(2, step_every - 1)   # 서지: 한 단계 빨리(하한 2)
+		var base_step: int = e.get("step_every", director.hud_step_every())
+		var step_every: int = director.effective_step_every(base_step, ctx)
 		if place_count % step_every == 0:
 			e["row"] += 1
 
@@ -1209,71 +1211,23 @@ func advance_step() -> void:
 	if pending_core_dead:
 		return   # 거점 파괴 스텝: 블라스트 없이 누수 연출 후 게임오버
 
-	# 밀도 하한(floor): 보드가 floor보다 비면 스로틀과 무관하게 매 스텝 +1 채운다(시작 버스트
-	#   없이 서서히). 처치·클리어로 보드가 비어도 곧 표적이 다시 생겨 '무표적 발동'을 줄인다.
-	#   난이도는 core_hp·total이 지고, floor는 순수 밀도 손잡이 — 둘을 분리한다.
-	var floor_n: int = int(st.get("floor", 0)) if floor_enabled else 0
-	if floor_n > 0 and enemies.size() < floor_n and spawned < int(st["total"]):
-		_spawn_one(randi() % COLS, _pick_etype())
+	# 스폰: 감독이 스케줄(밀도 하한 floor + 스로틀·온보딩·swarm 클러스터)을 결정하고, 코어는 spec을 실행만.
+	#   ⚠감독의 randi 순서는 원본과 정확히 일치(floor=열→타입 / throttle=타입→(swarm:count→shuffle | col)).
+	#   floor·swarm·surge의 설계 의도(밀도 손잡이, desync, 비단조)는 StageMode 주석 참조.
+	var sctx: Dictionary = _director_ctx()   # 누수 반영된 현재 상태(enemy_count)
+	for spec in director.plan_floor_spawn(sctx):
+		_spawn_one(spec["col"], spec["etype"], spec["step_override"])
+	sctx["spawned"] = spawned                # floor 스폰이 올린 spawned를 스로틀이 읽도록
+	for spec in director.plan_throttled_spawn(sctx):
+		_spawn_one(spec["col"], spec["etype"], spec["step_override"])
 
-	# 스폰 스로틀: spawn_every 배치마다 1회
-	if place_count % int(st["spawn_every"]) != 0:
-		return
-	if spawned >= total:
-		return
-	var etype: String = "basic" if spawned < int(st["onboard"]) else _pick_etype()
-	if etype == "swarm":
-		# 클러스터 3~4마리. ⚠인접 열에 '나란히' 스폰하면 전원이 같은 row에 영원히 머물러
-		#   가로줄 하나로 통째 전멸 = 가장 싸게 잡히는 적이 됨(설계 의도의 정반대, 실측 확인).
-		#   → ① 열을 보드 전체에 흩고 ② 전진 주기를 멤버마다 엇갈려(desync) 행까지 벌어지게 한다.
-		#   결과: 한 줄로는 못 쓸어내고 콤보 레인(범위)이 실제로 필요해짐 = '무리'의 정체성.
-		var count: int = 3 + (randi() % 2)
-		count = mini(count, total - spawned)
-		count = mini(count, COLS)
-		var pool: Array = []
-		for c in range(COLS):
-			pool.append(c)
-		pool.shuffle()
-		var base_step: int = int(st["step_every"])
-		for k in range(count):
-			# 절반은 한 칸 빠르게 → 몇 스텝 뒤엔 행이 서로 벌어진다(압박은 유지)
-			var sstep: int = maxi(1, base_step - 1) if k % 2 == 0 else base_step
-			_spawn_one(int(pool[k]), "swarm", sstep)
-	else:
-		_spawn_one(randi() % COLS, etype)
-
-# 가중 랜덤 타입 선택
-func _pick_etype() -> String:
-	var w: Dictionary = st["weights"]
-	var total: int = 0
-	for t in ENEMY_TYPES:
-		total += int(w[t])
-	if total <= 0:
-		return "basic"
-	var r: int = randi() % total
-	for t in ENEMY_TYPES:
-		r -= int(w[t])
-		if r < 0:
-			return t
-	return "basic"
+# _pick_etype는 StageMode.pick_etype로 이동(감독이 스폰 결정을 소유).
 
 # 적 1마리 스폰 (타입별 HP 배율 적용). step_override>0이면 전진 주기를 강제(무리 desync용)
 func _spawn_one(col: int, etype: String, step_override: int = 0) -> void:
-	var base: int = roundi(float(st["base_hp"]) + float(spawned) * float(st["hp_ramp"]))
-	var hp: int = base
-	match etype:
-		"fast":
-			hp = roundi(base * 0.6)
-		"tank":
-			hp = roundi(base * float(st["tank_mult"]))   # 콤보2~3 구간에 앉히는 게 목적(관통 요구)
-		"swarm":
-			hp = roundi(base * 0.4)
-	hp = maxi(1, hp)
-	# 전진 스로틀: fast는 스테이지 주기의 절반(2배 빠름), 나머지는 스테이지 주기
-	var base_step: int = int(st["step_every"])
-	var step_every: int = maxi(1, base_step - 1) if etype == "fast" else base_step
-	if step_override > 0:
-		step_every = step_override
+	# HP·전진주기는 감독(StageMode)이 소유. spawned = 이 스폰의 인덱스(HP 램프에 사용).
+	var hp: int = director.enemy_hp(etype, spawned)
+	var step_every: int = step_override if step_override > 0 else director.enemy_step(etype)
 	enemies.append({"col": col, "row": 0, "vis_row": 0.0, "hp": hp, "maxhp": hp, "etype": etype, "id": enemy_seq, "step_every": step_every})
 	enemy_seq += 1
 	spawned += 1
@@ -1294,8 +1248,19 @@ func _set_callout(text: String) -> void:
 
 # 클리어 = 모든 적이 '처리'됨(처치 or 누수) = 더 이상 올 적도, 보드 위 적도 없음.
 # 누수분은 거점 HP로 이미 값을 치렀고, core_hp를 total보다 훨씬 작게 잡아 '흘려보내며 이기기'를 봉쇄한다(기준 ③).
+# 감독에 넘길 런타임 스냅샷. 감독은 이 값만 읽고 스폰·난이도·종료를 결정한다(코어 상태 직접 접근 X).
+func _director_ctx() -> Dictionary:
+	return {
+		"place_count": place_count, "spawned": spawned, "killed": killed, "leaked": leaked,
+		"core_hp": core_hp, "combo": combo, "drought": drought,
+		"enemy_count": enemies.size(), "free_cells": _free_cells(),
+		"fail_streak": int(fail_streak.get(stage_idx, 0)),
+		"surge_enabled": surge_enabled, "floor_enabled": floor_enabled,
+		"cols": COLS, "enemy_types": ENEMY_TYPES,
+	}
+
 func _check_win() -> void:
-	if killed + leaked >= int(st["total"]):
+	if director.is_cleared(_director_ctx()):
 		game_clear = true
 		cleared[stage_idx] = true
 		fail_streak[stage_idx] = 0     # 깼으니 갓 모드 해제
@@ -1936,7 +1901,7 @@ func _revive() -> void:
 	core_t = -1.0             # 거점 파괴 연출 취소
 	core_burst_done = false
 	stuck_t = -1.0            # 막힘 연출 취소
-	core_hp = int(st["core_hp"])   # 거점 HP 풀 복구
+	core_hp = director.core_hp_max()   # 거점 HP 풀 복구
 	pending_leaks = []
 	combo = 0                 # 콤보 초기화 (부활은 새 국면 — 스트릭을 이어주지 않는다)
 	combo_miss = 0
@@ -1997,7 +1962,7 @@ const FAIL_CLOSE: float = 0.15   # 남은 적이 총량의 15% 이하 = 한 끗 
 const FAIL_NEAR: float = 0.40    # 40% 이하 = 아쉬운 판
 
 func _fail_headline() -> String:
-	var total: int = maxi(1, int(st["total"]))
+	var total: int = maxi(1, director.enemy_total())
 	var remaining: int = maxi(0, total - killed - leaked)
 	var ratio: float = float(remaining) / float(total)
 	if ratio <= FAIL_CLOSE:
@@ -2046,7 +2011,7 @@ func _draw_result(fnt: Font) -> void:
 
 	# ── 버튼 바로 위: 못 처치하고 남긴 적. 정의는 HUD 목표 카드와 동일(total - killed - leaked)
 	#    → 게임 중 보던 그 숫자가 그대로 결과에 박힌다(다른 셈이면 "내가 보던 수"와 어긋남).
-	var remaining: int = maxi(0, int(st["total"]) - killed - leaked)
+	var remaining: int = maxi(0, director.enemy_total() - killed - leaked)
 	var cap: String = "남은 적" if game_over else "처치"
 	var cap_fs: int = 18
 	var cw: float = fnt.get_string_size(cap, HORIZONTAL_ALIGNMENT_LEFT, -1, cap_fs).x
@@ -2285,12 +2250,12 @@ func _draw_hud(fnt: Font) -> void:
 		var scol: Color = Color(1.0, 0.45, 0.3) if risky else C_GOLD
 		_draw_text_outlined(fnt, Vector2(788.0 - stw, 26.0), streak, 22, scol)
 
-	var step_every: int = int(st["step_every"])
+	var step_every: int = director.hud_step_every()
 	var remain: int = step_every - (place_count % step_every)
 	var imminent: bool = remain <= 1
 	# 남은 적 = 아직 처리 안 된 적(스폰 예정 + 보드 위). 누수분은 '더 이상 안 오니' 빠지지만
 	# 그 대가는 거점 HP로 이미 치렀다.
-	var remaining: int = int(st["total"]) - killed - leaked
+	var remaining: int = director.enemy_total() - killed - leaked
 	var kp: float = clampf(kill_pulse / 0.35, 0.0, 1.0)
 
 	# ── 두 카드: GOAL(남은 적=클리어 목표) + ADVANCE(적 전진 시계) ──
@@ -2629,7 +2594,7 @@ func _draw_core(fnt: Font) -> void:
 		return
 	var sy: float = BOARD_Y + ROWS * CELL + 4.0
 	var sw: float = COLS * CELL
-	var core_max: int = int(st["core_hp"])
+	var core_max: int = director.core_hp_max()
 	var ratio: float = clampf(float(core_hp) / float(core_max), 0.0, 1.0)
 	# HP바: 빈 트랙(어두움) + 체력 그라데이션(빨강↔초록) + 밝은 테두리
 	draw_rect(Rect2(sx, sy, sw, strip_h), Color(0.08, 0.03, 0.04))
