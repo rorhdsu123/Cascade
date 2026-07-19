@@ -13,6 +13,10 @@ const BOT_Y: int = 700          # 하단 패널 상단 (거점 띠 670~696 아�
 const ENEMY_TYPES: Array = ["basic", "fast", "tank", "swarm", "split"]
 # 분열 자식 HP = 부모 maxhp × 이 비율(결정적 — randi 안 씀). 손자 없음(gen1은 안 쪼개짐).
 const SPLIT_CHILD_FRAC: float = 0.5
+# 분열선: gen0가 이 행에 닿으면 '죽여서'가 아니라 '너무 내려와서' 저절로 쪼개진다.
+#   ⚠인센티브 축: 선 위(row<SPLIT_ROW)에서 잡으면 안 쪼개짐(깨끗한 처치=이득). 못 잡고 넘기면
+#   그때 쌍둥이가 생겨 -2 위협이 됨(늦은 대가지 잡은 벌이 아님). 선 아래 ROWS-SPLIT_ROW행 = 레이스 창.
+const SPLIT_ROW: int = 5
 const SLIDE_SPEED: float = 8.0   # 적 전진 표시 이징 속도(칸/초)
 const ROCKET_DUR: float = 0.16  # 로켓 비행 지속(빠르게 질주)
 const CALLOUT_DUR: float = 1.6  # 첫 등장 콜아웃 배너 지속
@@ -1145,12 +1149,10 @@ func _apply_hit(h: Dictionary) -> void:
 		# ① 극적 사망: 스케일 팝 + 파편 버스트 + 밝은 플래시 + 히트스톱
 		_spawn_death(etype, ep)
 		enemies.remove_at(found)
-		# 분열: gen0(원본)만 웨이브에 카운트되고 죽을 때 자식 2마리를 뱉는다. gen1(자식)은
-		#   웨이브 카운터(killed) 밖 — 순수 추가 위협이라 웨이브 총량을 안 줄인다(swarm 함정 회피).
-		#   자식이 웨이브를 줄이면 '쉽게 쓸려 더 쉬워짐'이 되므로, 카운트에서 뺀다.
+		# 분열은 이제 '처치'가 아니라 '분열선 도달'로 발동한다(advance_step). 여기선 안 뱉는다 —
+		#   선 위에서 잡으면 쌍둥이가 아예 안 생김(잡는 게 이득). 웨이브 카운트엔 gen0만: gen1(쌍둥이)은
+		#   순수 추가 위협이라 killed에서 뺀다(웨이브 총량을 안 줄여 '쉽게 쓸려 더 쉬워짐' 함정 회피).
 		var is_primary: bool = not (etype == "split" and int(e.get("gen", 0)) == 1)
-		if etype == "split" and int(e.get("gen", 0)) == 0:
-			_spawn_split_children(e)   # e는 remove_at 후에도 유효한 참조(배열은 참조 보관)
 		if is_primary:
 			killed += 1
 		kill_pulse = 0.35   # ④ 킬 → 헤드라인 펄스
@@ -1288,6 +1290,16 @@ func advance_step() -> void:
 		if place_count % step_every == 0:
 			e["row"] += 1
 
+	# 분열: gen0가 분열선(SPLIT_ROW)에 닿는 순간 갈라진다 — 죽여서가 아니라 너무 내려와서.
+	#   부모는 절반 HP로 남아 gen0(=웨이브 카운트 유지)이되 split_done으로 재분열 봉쇄, 인접 열에
+	#   절반 HP 쌍둥이(gen1=카운터 밖)를 하나 뱉는다. 선 위에서 잡으면 이 분기 자체가 안 옴(깨끗한 처치).
+	var pre_split_n: int = enemies.size()   # 이 스텝에 새로 뱉는 쌍둥이는 재검사 안 함
+	for si in range(pre_split_n):
+		var se: Dictionary = enemies[si]
+		if se["etype"] == "split" and int(se.get("gen", 0)) == 0 \
+				and not bool(se.get("split_done", false)) and int(se["row"]) >= SPLIT_ROW:
+			_split_enemy(se)
+
 	# 누수(거점 도달): 로직은 즉시 반영, 시각 연출은 resolve 끝물로 지연.
 	# ⚠누수는 killed가 아니라 leaked로 센다. (구버전은 killed++ 해서 '흘려보내도 목표 진행'
 	#  = 진행도·승리조건이 못 막은 적한테 보상을 줬음.)
@@ -1336,25 +1348,33 @@ func _spawn_one(col: int, etype: String, step_override: int = 0) -> void:
 			"swarm":
 				_set_callout("SWARM — sweep them!")
 			"split":
-				_set_callout("SPLIT — kill high!")   # 깊으면 자식이 거점 코앞에서 갈라진다
+				_set_callout("SPLIT — kill above the line!")   # 이제 파랑 점선이 실제로 보인다(공간 기준)
 
-# 분열체(gen0) 처치 시 인접 열로 자식 2마리를 뱉는다. 결정적 배치(randi 없음) = 회귀 시드 불변.
-#   자식은 spawned/killed/leaked 카운터 밖(순수 추가 위협). HP는 부모의 절반, 손자 없음(gen1 고정).
-func _spawn_split_children(parent: Dictionary) -> void:
+# 분열선 도달 → 부모는 절반 HP로 남고(gen0 유지=웨이브 카운트 불변, split_done로 재분열 봉쇄),
+#   빈 인접 열 하나에 절반 HP 쌍둥이(gen1)를 뱉는다. 결정적 배치(randi 없음) = 회귀 시드 불변.
+#   쌍둥이는 spawned/killed/leaked 카운터 밖(순수 추가 위협). 손자 없음(gen1·split_done 고정).
+func _split_enemy(parent: Dictionary) -> void:
+	var half: int = maxi(1, roundi(float(parent["maxhp"]) * SPLIT_CHILD_FRAC))
+	parent["maxhp"] = half
+	parent["hp"] = mini(int(parent["hp"]), half)   # 하나가 둘로 = 부모도 절반짜리 몸으로
+	parent["split_done"] = true
 	var pcol: int = int(parent["col"])
 	var prow: int = int(parent["row"])
-	var child_hp: int = maxi(1, roundi(float(parent["maxhp"]) * SPLIT_CHILD_FRAC))
 	var pstep: int = int(parent.get("step_every", director.hud_step_every()))
 	var pvis: float = float(parent.get("vis_row", float(prow)))
+	# 쌍둥이는 빈 인접 열 하나에(왼쪽 우선). 가장자리면 반대쪽. 결정적(randi 없음).
 	for dc in [-1, 1]:
 		var cc: int = pcol + dc
 		if cc < 0 or cc >= COLS:
-			continue   # 가장자리 분열체는 자식 1마리(보드 밖 생성 안 함)
+			continue
 		enemies.append({
-			"col": cc, "row": prow, "vis_row": pvis, "hp": child_hp, "maxhp": child_hp,
-			"etype": "split", "id": enemy_seq, "step_every": pstep, "gen": 1,
+			"col": cc, "row": prow, "vis_row": pvis, "hp": half, "maxhp": half,
+			"etype": "split", "id": enemy_seq, "step_every": pstep, "gen": 1, "split_done": true,
 		})
 		enemy_seq += 1
+		break   # 쌍둥이는 딱 하나(부모 잔존 + 쌍둥이 = 예전과 같은 2몸)
+	# 갈라지는 순간 파랑 링 버스트 = "지금 둘이 됐다"
+	impacts.append({"pos": _enemy_pos(pcol, prow), "life": 0.24, "max": 0.24, "color": C_E_SPLIT, "radius": CELL * 0.42})
 
 func _set_callout(text: String) -> void:
 	callout_text = text
@@ -2465,6 +2485,24 @@ func _draw_board(fnt: Font) -> void:
 			draw_rect(Rect2(rx + bpad, ry + bpad, CELL - bpad * 2.0, CELL - bpad * 2.0),
 					_color_of(board[r][c]))
 
+	# 분열선: gen0 분열체가 이 경계를 넘는 순간 갈라진다. 파랑 점선 = '균열 예정선' — 화면의 유일한
+	#   파랑이라 분열체(같은 파랑)와 짝지어 읽힌다(글자 아닌 색으로 소속을 말함, [[hud-signal-by-color-not-text]]).
+	#   보드 위 미분열 분열체(gen0·!split_done)가 있을 때만 뜬다 = 위협과 함께 등장/퇴장(무관 스테이지엔 안 보임).
+	var has_pre_split: bool = false
+	for e in enemies:
+		if e["etype"] == "split" and int(e.get("gen", 0)) == 0 and not bool(e.get("split_done", false)):
+			has_pre_split = true
+			break
+	if has_pre_split:
+		var fy: float = float(BOARD_Y + SPLIT_ROW * CELL)   # row (SPLIT_ROW-1)↔SPLIT_ROW 경계 = 넘으면 분열
+		var fpulse: float = 0.5 + 0.5 * sin(anim_t * 4.0)
+		var fcol: Color = Color(C_E_SPLIT.r, C_E_SPLIT.g, C_E_SPLIT.b, 0.32 + 0.30 * fpulse)
+		var f_right: float = float(BOARD_X + COLS * CELL)
+		var fx: float = float(BOARD_X)
+		while fx < f_right:
+			draw_line(Vector2(fx, fy), Vector2(minf(fx + 14.0, f_right), fy), fcol, 3.0)
+			fx += 23.0   # dash 14 + gap 9
+
 	# 충전 연출: 원래 색 → 방금 놓은 조각 색으로 물듦(색 통일) → 흰색으로 달아오르며 부풂 → 터짐
 	for ci2 in charging:
 		var cc: Vector2i = ci2 as Vector2i
@@ -2657,18 +2695,24 @@ func _draw_board(fnt: Font) -> void:
 					draw_circle(sp, CELL * 0.14, C_E_RIM, false, C_E_RIM_W - 0.5)
 				rad = CELL * 0.24
 			"split":
-				# gen0 = 분열 직전: 좌우로 부푼 쌍둥이 blob + 가운데 갈라지는 금(=곧 둘이 된다).
-				# gen1 = 이미 갈라진 자식: 흉터 하나 있는 단일 blob(다시 안 쪼개짐 = 정직한 tell).
-				var gen: int = int(e.get("gen", 0))
-				if gen == 0:
+				# 분열 전(gen0·!split_done): 좌우 쌍둥이 blob + 세로 균열. 분열선(SPLIT_ROW)에 가까울수록
+				#   금이 벌어지고 부르르 떤다 = "곧 둘이 된다"를 몸이 말한다(글자 tell 없이).
+				# 분열 후(gen1 or split_done): 흉터 하나 있는 단일 blob(다시 안 쪼개짐 = 정직한 tell).
+				var pre_split: bool = int(e.get("gen", 0)) == 0 and not bool(e.get("split_done", false))
+				if pre_split:
+					var ct: float = clampf(vr / float(SPLIT_ROW), 0.0, 1.0)   # 0=스폰(잠잠)→1=분열 직전(활짝)
 					var lobe: float = CELL * 0.22
-					var dx: float = CELL * 0.15
-					draw_circle(Vector2(cx - dx, cy), lobe, C_E_SPLIT)
-					draw_circle(Vector2(cx + dx, cy), lobe, C_E_SPLIT)
-					draw_circle(Vector2(cx - dx, cy), lobe, C_E_RIM, false, C_E_RIM_W)
-					draw_circle(Vector2(cx + dx, cy), lobe, C_E_RIM, false, C_E_RIM_W)
-					# 가운데 세로 균열(어두운 금) — "여기가 갈라진다"
-					draw_line(Vector2(cx, cy - lobe * 0.8), Vector2(cx, cy + lobe * 0.8), C_E_RIM, 2.5)
+					var dx: float = lerpf(CELL * 0.06, CELL * 0.20, ct)      # 벌어짐: 거의 붙음 → 활짝
+					var shiv: float = sin(anim_t * 22.0) * CELL * 0.045 * (ct * ct * ct)   # 막판에만 티나는 떨림
+					var lc: Vector2 = Vector2(cx - dx + shiv, cy)
+					var rc: Vector2 = Vector2(cx + dx + shiv, cy)
+					draw_circle(lc, lobe, C_E_SPLIT)
+					draw_circle(rc, lobe, C_E_SPLIT)
+					draw_circle(lc, lobe, C_E_RIM, false, C_E_RIM_W)
+					draw_circle(rc, lobe, C_E_RIM, false, C_E_RIM_W)
+					# 가운데 세로 균열(어두운 금) — 가까울수록 굵어진다(1.5→4.0px)
+					var crack_w: float = lerpf(1.5, 4.0, ct)
+					draw_line(Vector2(cx + shiv, cy - lobe * 0.85), Vector2(cx + shiv, cy + lobe * 0.85), C_E_RIM, crack_w)
 					rad = lobe + dx
 				else:
 					var cr: float = CELL * 0.24
