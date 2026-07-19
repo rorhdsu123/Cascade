@@ -1,74 +1,90 @@
 extends SceneTree
-# 리팩터 회귀 하네스 — 시드 고정 byte-identical A/B.
-#   봇(_best_move/_score)은 randi를 안 쓰고 게임만 쓴다 → seed() 고정 시 전 과정 결정적.
-#   randi 호출 순서·횟수가 보존되면 아래 per-game 서명이 리팩터 전/후 완전 동일.
-#   실행: PROBE_SEED=20260718 REGRESS_N=20 godot --headless --path . --script tools/regress.gd
-#   비교: 리팩터 전 출력을 골든으로 저장 → 매 단계 후 diff. 첫 diff = randi 순서 깨짐 or 동작 변화.
-#   골든: tools/regress.golden.txt (seed=20260718 N=20, C58 시점). 재생성/대조:
-#     PROBE_SEED=20260718 REGRESS_N=20 godot --headless --path . --script tools/regress.gd 2>/dev/null \
-#       | grep -E "^(──|s[0-9])" | diff tools/regress.golden.txt -
-#   ⚠의도적 동작 변경(기전 개편) 후엔 골든을 다시 떠서 커밋한다 — 안 그러면 의도된 차이가 노이즈로 섞임.
+# 무한모드 UI/점수 검증. 두 갈래:
+#   ① 로직(점수) = 헤드리스로 봇 실플레이(창 OS 이벤트 간섭 없음 = 안정): godot --headless --script ...
+#   ② 렌더(HUD·팝업) = 창 모드 + 상태 직접 세팅 후 스샷(전 판 구동은 창 OS 이벤트로 flaky): godot --script ...
+# [[godot-pixel-verify-needs-window]] 렌더는 창 필수. 로직은 헤드리스 OK.
 
-func _init() -> void:
-	var sd: String = OS.get_environment("PROBE_SEED")
-	seed(int(sd) if sd != "" else 20260718)
-	var N: int = int(OS.get_environment("REGRESS_N")) if OS.get_environment("REGRESS_N") != "" else 20
+const DIR: String = "/private/tmp/claude-501/-Users-im-yujin-Desktop-Cascade-endless/d9711f36-7ab4-476a-9118-046b10970466/scratchpad/"
 
-	var S: GDScript = load("res://Main.gd")
-	var g: Node = S.new()
+func _initialize() -> void:
+	_run.call_deferred()
+
+func _headless() -> bool:
+	return DisplayServer.get_name() == "headless"
+
+func _shot(name: String) -> void:
+	if _headless():
+		return
+	await process_frame
+	await RenderingServer.frame_post_draw
+	root.get_texture().get_image().save_png(DIR + name)
+
+func _run() -> void:
+	var g: Node = load("res://Main.tscn").instantiate()
 	root.add_child(g)
-	g.dda_enabled = false
-	g.seed_game(int(sd) if sd != "" else 20260718)   # 게임 스트림 시드(코스메틱 전역 RNG와 분리)
-	print("── REGRESS (seed=%s N=%d) ──" % [sd if sd != "" else "20260718", N])
-	for pass_i in range(2):
-		g.surge_enabled = (pass_i == 1)
-		for si in range(g.STAGES.size()):
-			for t in range(N):
-				var r: Dictionary = _play(g, si)
-				print("s%d u%d #%02d: W%d sp%d k%d lk%d pl%d cl%d dc%d ds%d" % [
-					si, 1 if g.surge_enabled else 0, t,
-					1 if r["win"] else 0, r["spawned"], r["killed"], r["leaked"],
-					r["places"], r["clears"],
-					1 if r["dead_core"] else 0, 1 if r["dead_stuck"] else 0,
-				])
-	quit()
+	await process_frame
 
-func _play(g: Node, si: int) -> Dictionary:
-	g._start_stage(si)
-	var places: int = 0
-	var clears: int = 0
+	# ── ① 로직: 봇 실플레이로 점수 형성 확인(헤드리스에서 신뢰) ──
+	g.call("_start_endless")
+	await process_frame
 	var guard: int = 0
-	while not g.game_over and not g.game_clear and guard < 3000:
+	while not g.get("game_over") and guard < 600:
 		guard += 1
 		var s: int = 0
-		while g.resolving and s < 400:
-			g._process(0.05)
+		while g.get("resolving") and s < 400:
+			g.call("_process", 0.05)
 			s += 1
-		if g.game_over or g.game_clear:
+		if g.get("game_over"):
 			break
 		var mv: Dictionary = _best_move(g)
 		if mv.is_empty():
 			break
-		g.sel = mv["slot"]
-		g.hover_col = mv["col"]
-		g.hover_row = mv["row"]
-		var before: int = g.combo
-		g._place_piece()
-		places += 1
-		if g.resolving or g.combo > before:
-			clears += 1
-	var s2: int = 0
-	while g.resolving and s2 < 400:
-		g._process(0.05)
-		s2 += 1
-	return {
-		"win": g.game_clear, "leaked": g.leaked, "spawned": g.spawned, "killed": g.killed,
-		"places": places, "clears": clears,
-		"dead_core": g.game_over and not g.stuck,
-		"dead_stuck": g.game_over and g.stuck,
-	}
+		g.set("sel", mv["slot"])
+		g.set("hover_col", mv["col"])
+		g.set("hover_row", mv["row"])
+		g.call("_place_piece")
+	var s3: int = 0
+	while g.get("resolving") and s3 < 400:
+		g.call("_process", 0.05)
+		s3 += 1
+	print("PLAY: score=%d depth=%d killed=%d best=%d new_best=%s over=%s stuck=%s" % [
+		g.get("endless_score"), g.get("place_count"), g.get("killed"), g.get("endless_best"),
+		str(g.get("endless_new_best")), str(g.get("game_over")), str(g.get("stuck"))])
 
-# ───────── 그리디 봇 (surge_probe.gd에서 복제, g의 public 표면만 읽음) ─────────
+	# ── ② 렌더: 상태 직접 세팅 후 스샷(창 모드에서만 저장) ──
+	# 2a) 메뉴(허브) + Classic 버튼의 '최고' 후크
+	g.set("mode", "menu")
+	g.set("endless_best", 12340)
+	g.call("queue_redraw")
+	await _shot("ui_select.png")
+
+	# 2b) 인게임 HUD — 최고 갱신(금색) 상태
+	g.call("_start_endless")
+	await process_frame
+	g.set("endless_best", 8000)
+	g.set("endless_score", 15230)
+	g.set("endless_beat_best", true)   # score>best → 금색 '최고 갱신!'
+	g.set("place_count", 52)
+	g.set("combo", 4)
+	g.set("mode", "play")
+	g.call("queue_redraw")
+	await _shot("ui_hud_beat.png")
+
+	# 2c) 결과 팝업 — 신기록 + 델타
+	g.set("game_over", true)
+	g.set("stuck", true)
+	g.set("stuck_t", g.call("_stuck_total"))
+	g.set("endless_score", 15230)
+	g.set("endless_best", 15230)
+	g.set("endless_prev_best", 8000)
+	g.set("endless_new_best", true)
+	g.set("mode", "play")
+	g.call("queue_redraw")
+	await _shot("ui_result_best.png")
+	print("DONE")
+	quit()
+
+# ── 그리디 봇 (regress.gd 복제) ──
 func _best_move(g: Node) -> Dictionary:
 	var best: Dictionary = {}
 	var best_score: float = -1e9
@@ -108,7 +124,6 @@ func _score(g: Node, cells: Array, slot: int) -> float:
 	for ci in cells:
 		var cv: Vector2i = ci as Vector2i
 		occ[cv.y][cv.x] = true
-
 	var full_rows: Array = []
 	var full_cols: Array = []
 	for r in range(g.ROWS):
@@ -127,11 +142,8 @@ func _score(g: Node, cells: Array, slot: int) -> float:
 				break
 		if fcx:
 			full_cols.append(c)
-
 	var lines: int = full_rows.size() + full_cols.size()
-	var score: float = 0.0
-	score += 500.0 * float(lines)
-
+	var score: float = 500.0 * float(lines)
 	var after: Array = []
 	for r2 in range(g.ROWS):
 		var row2: Array = []
@@ -156,7 +168,6 @@ func _score(g: Node, cells: Array, slot: int) -> float:
 					free += 1
 		if free < 12:
 			score -= 300.0
-
 	if lines > 0:
 		var lanes: int = maxi(1, g.combo + 1)
 		var hit: int = 0
@@ -171,11 +182,6 @@ func _score(g: Node, cells: Array, slot: int) -> float:
 			if in_band:
 				hit += 1
 		score += 120.0 * float(hit)
-		for e in g.enemies:
-			for fc3 in full_cols:
-				if int(e["col"]) == int(fc3):
-					score += 8.0 * float(e["row"])
-
 	var filled: int = 0
 	var holes: int = 0
 	for r in range(g.ROWS):
@@ -197,18 +203,6 @@ func _score(g: Node, cells: Array, slot: int) -> float:
 	var fill_frac: float = float(filled) / float(g.ROWS * g.COLS)
 	score -= 60.0 * fill_frac * fill_frac * float(g.ROWS * g.COLS) / 10.0
 	score -= 70.0 * float(holes)
-
-	var touch: int = 0
-	for ci2 in cells:
-		var cv2: Vector2i = ci2 as Vector2i
-		for d in [Vector2i(1, 0), Vector2i(-1, 0), Vector2i(0, 1), Vector2i(0, -1)]:
-			var nx: int = cv2.x + d.x
-			var ny: int = cv2.y + d.y
-			if nx < 0 or nx >= g.COLS or ny < 0 or ny >= g.ROWS:
-				touch += 1
-			elif g.board[ny][nx] != "":
-				touch += 1
-	score += 4.0 * float(touch)
 	return score
 
 func _fits_anywhere(g: Node, occ: Array, offsets: Array) -> bool:

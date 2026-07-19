@@ -4,6 +4,15 @@ extends RefCounted
 # StageMode가 스테이지 dict로 전부 override한다.
 # ctx = Main._director_ctx()가 만드는 Dictionary 스냅샷(런타임 카운터). 감독은 config+결정 로직만.
 
+# game_rng 기반 Fisher-Yates — Array.shuffle()(전역 RNG)과 동일 소비 패턴(i=size-1..1, randi%(i+1), swap).
+# 게임 스트림을 코스메틱에서 분리하려면 shuffle도 game_rng로 돌려야 한다(rng_probe.gd로 동치 실측).
+static func rng_shuffle(arr: Array, rng: RandomNumberGenerator) -> void:
+	for i in range(arr.size() - 1, 0, -1):
+		var j: int = rng.randi() % (i + 1)
+		var tmp = arr[i]
+		arr[i] = arr[j]
+		arr[j] = tmp
+
 # ── 설정 접근자 (값 그대로 pass-through) ──
 func core_hp_max() -> int:
 	return 1

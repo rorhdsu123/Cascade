@@ -1,82 +1,96 @@
 extends SceneTree
 
-# 무한모드 램프 검증용 헤드리스 봇 (일회성 — 검증 후 삭제).
-# 목적 ①: 죽는 깊이(place_count) 분포 = 코지 플래토/조르기/종말이 실제로 그 순서로 오는가.
-# 목적 ②: ★표현 밴드 — 봇 실력 사다리(약/중/강)의 죽는 깊이가 '벌어지는가'.
-#   벌어지면 무한이 산다(실력이 점수를 만든다). 뭉치면 모두 같은 벽 = 사실상 유한 모드.
-# 점수 모델(#1 결정): 스타일 점수 = Σ(폭발 처치수 × 그때 콤보). 리더보드 정렬 기준.
+# featured 결정적 트랙 검증(헤드리스 봇, 일회성).
+# 목적 ① ★결정성 증명: 같은 시드를 서로 다른 봇(약≠강)으로 플레이 → 보드·처치수가 갈려도
+#     piece[i]/spawn[d] 시퀀스(track_log)가 byte-identical인가. = "전원 동일 판"의 코어 계약.
+# 목적 ② 난이도 밴드: featured가 프리 무한과 비슷한 사망 프로필인가(즉사 남발·자명함 배제).
+#     fit 필터를 껐으니 막힘사 비중이 프리보다 오를 것(C53 ⑤ 의도) — 얼마나 오르는지 실측.
+# 실행: godot --headless --path . --script tools/featured_probe.gd
 
-const TRIALS: int = 300
+const SEEDS: Array = [20260719, 20260720, 20260721, 424242, 7]
+const TRIALS: int = 200
 const GUARD: int = 3000
-var ENDLESS: GDScript = load("res://modes/endless_mode.gd")
-
-# CORE_HP 스윕: 거점사 75% 창을 찾는다(닳는 마진 유지하며 막힘→거점 뒤집힘 지점).
-const HP_SWEEP: Array = [14]   # 확정값 확인
-const SKILLS: Array = [0, 1, 2]
-const SKILL_NAME: Array = ["약", "중", "강"]
 
 func _init() -> void:
 	var S: GDScript = load("res://Main.gd")
 	var g: Node = S.new()
 	root.add_child(g)   # _ready
 
-	print("\n########  무한모드 CORE_HP 스윕  (DDA off · %d판/셀)  ########" % TRIALS)
-	print("과녁: 중 실력 기준 거점사 ≈75%%. + 판 길이(세션/광고 카덴스) + 밴드 유지 확인.")
-	print("HP | 실력 | 죽는깊이 |  중앙 | 스타일 | 콤보 | 거점% (거점/막힘)")
-	print("---+------+----------+-------+--------+------+-------------------")
-	for hp in HP_SWEEP:
-		var mean_by_skill: Array = []
-		for skill in SKILLS:
-			var m: Dictionary = _run(g, skill, hp)
-			mean_by_skill.append(m["depth_mean"])
-		var band: float = 0.0 if mean_by_skill[0] <= 0.0 else mean_by_skill[mean_by_skill.size() - 1] / mean_by_skill[0]
-		print("   |      |          |       |        |      |  밴드(강÷약)=%.2f×" % band)
-		print("---+------+----------+-------+--------+------+-------------------")
+	print("\n########  featured 결정적 트랙 검증  ########")
+
+	# ── ① 결정성: 같은 시드 · 다른 봇 → track_log 동일 ──
+	print("\n[①] 결정성 증명 — 같은 시드를 약봇 vs 강봇으로 (track_log byte-identical?)")
+	print("seed      | 약:깊이 | 강:깊이 | 공통 log | 첫 불일치 | 판정")
+	print("----------+---------+---------+----------+-----------+------")
+	var all_ok: bool = true
+	for sd in SEEDS:
+		var a: Dictionary = _play(g, 0, int(sd), true)   # 약봇, 기록 on
+		var b: Dictionary = _play(g, 2, int(sd), true)   # 강봇, 기록 on
+		var la: Array = a["log"]
+		var lb: Array = b["log"]
+		var n: int = mini(la.size(), lb.size())
+		var mismatch: int = -1
+		for i in range(n):
+			if str(la[i]) != str(lb[i]):
+				mismatch = i
+				break
+		var ok: bool = (mismatch == -1) and n > 0
+		all_ok = all_ok and ok
+		print("%9d | %7d | %7d | %8d | %9s | %s" % [
+			int(sd), a["depth"], b["depth"], n,
+			("-" if mismatch == -1 else str(mismatch)),
+			("✅ 동일" if ok else "❌ 갈림")])
+	print("→ 결정성: %s" % ("✅ 전 시드 byte-identical (전원 동일 판 성립)" if all_ok else "❌ 시드별 desync 발생"))
+
+	# ── ② 난이도 밴드 (기록 off, N판/시드 평균) ──
+	print("\n[②] 난이도 프로필 — DDA off · %d판/시드/실력" % TRIALS)
+	print("실력 | 죽는깊이 |  중앙 | 스타일 | 콤보 | 거점% | 막힘% | 밴드축")
+	print("-----+----------+-------+--------+------+-------+-------+-------")
+	var skill_name: Array = ["약", "중", "강"]
+	var mean_by_skill: Array = []
+	for skill in [0, 1, 2]:
+		var depths: Array = []
+		var style_sum: float = 0.0
+		var combo_sum: int = 0
+		var dc: int = 0
+		var ds: int = 0
+		for t in range(TRIALS):
+			var seed: int = 900000 + t   # 시드 다양화(트랙 여러 개 평균)
+			var r: Dictionary = _play(g, skill, seed, false)
+			depths.append(r["depth"])
+			style_sum += r["style"]
+			combo_sum += r["maxcombo"]
+			if r["dead_core"]:
+				dc += 1
+			if r["dead_stuck"]:
+				ds += 1
+		depths.sort()
+		var nn: float = float(TRIALS)
+		var mean: float = 0.0
+		for d in depths:
+			mean += float(d)
+		mean /= nn
+		mean_by_skill.append(mean)
+		print("  %s  |  %6.1f  | %5d | %6.0f | %4.1f | %4.1f%% | %4.1f%% |" % [
+			skill_name[skill], mean, int(depths[int(nn * 0.5)]),
+			style_sum / nn, float(combo_sum) / nn,
+			100.0 * float(dc) / nn, 100.0 * float(ds) / nn])
+	var band: float = 0.0 if mean_by_skill[0] <= 0.0 else mean_by_skill[2] / mean_by_skill[0]
+	print("→ 표현 밴드(강÷약) = %.2f×  (1.4× 위면 실력이 깊이를 벌린다)" % band)
 	quit()
 
-func _run(g: Node, skill: int, hp: int) -> Dictionary:
-	var depths: Array = []
-	var style_sum: float = 0.0
-	var maxcombo_sum: int = 0
-	var dead_core: int = 0
-	var dead_stuck: int = 0
-	for t in range(TRIALS):
-		g.seed_game(1000 + t)   # 게임 스트림 시드(셀 간 같은 시드 = 공정 비교; 코스메틱 분리)
-		var r: Dictionary = _play(g, skill, hp)
-		depths.append(r["depth"])
-		style_sum += r["style"]
-		maxcombo_sum += r["maxcombo"]
-		if r["dead_core"]:
-			dead_core += 1
-		if r["dead_stuck"]:
-			dead_stuck += 1
-	depths.sort()
-	var n: float = float(TRIALS)
-	var mean: float = 0.0
-	for d in depths:
-		mean += float(d)
-	mean /= n
-	var core_pct: float = 100.0 * float(dead_core) / n
-	print("%2d |  %s  |  %6.1f  | %5d | %6.0f | %4.1f | %4.1f%% (%3d/%3d)" % [
-		hp, SKILL_NAME[skill], mean, int(depths[int(n * 0.5)]),
-		style_sum / n, float(maxcombo_sum) / n, core_pct, dead_core, dead_stuck])
-	return {"depth_mean": mean}
+func _play(g: Node, skill: int, seed: int, record: bool) -> Dictionary:
+	g.track_record = record
+	g._start_featured(seed)   # 실제 진입 경로(FeaturedMode + 인덱스-주소 조각/스폰)
+	g.dda_enabled = false
+	return _drive(g, skill, GUARD)
 
-func _play(g: Node, skill: int, core_hp: int) -> Dictionary:
-	var dir: Object = ENDLESS.new()
-	dir.CORE_HP = core_hp
-	g.director = dir
-	g.mode = "play"
-	g.stage_idx = 0
-	g.surge_enabled = true
-	g.floor_enabled = true
-	g.dda_enabled = false   # 리더보드 공정성
-	g._init_game()
-
+# 이미 시작된 게임을 봇으로 끝까지 구동(스윕 재사용). 시작/시드 세팅은 호출자 몫.
+func _drive(g: Node, skill: int, guard_max: int) -> Dictionary:
 	var maxcombo: int = 0
 	var style: float = 0.0
 	var guard: int = 0
-	while not g.game_over and not g.game_clear and guard < GUARD:
+	while not g.game_over and not g.game_clear and guard < guard_max:
 		guard += 1
 		var s: int = 0
 		while g.resolving and s < 400:
@@ -94,20 +108,19 @@ func _play(g: Node, skill: int, core_hp: int) -> Dictionary:
 		g._place_piece()
 		if g.combo > maxcombo:
 			maxcombo = g.combo
-		# 폭발 소화 후 스타일 점수: 이 배치가 잡은 적 × 그때 콤보
 		if g.resolving:
 			var s2: int = 0
 			while g.resolving and s2 < 400:
 				g._process(0.05)
 				s2 += 1
 			style += float(g.killed - kbefore) * float(g.combo)
-	# 잔여 resolve 소화
 	var s3: int = 0
 	while g.resolving and s3 < 400:
 		g._process(0.05)
 		s3 += 1
 	return {
-		"depth": g.place_count, "style": style, "maxcombo": maxcombo, "killed": g.killed,
+		"depth": g.place_count, "style": style, "maxcombo": maxcombo,
+		"log": g.track_log.duplicate(),
 		"dead_core": g.game_over and not g.stuck,
 		"dead_stuck": g.game_over and g.stuck,
 	}
@@ -174,7 +187,6 @@ func _score(g: Node, cells: Array, slot: int, skill: int) -> float:
 	var lines: int = full_rows.size() + full_cols.size()
 	var score: float = 500.0 * float(lines)
 
-	# 생존(전 실력 공통): 남은 트레이 조각이 놓일 곳 사라지면 치명
 	var after: Array = []
 	for r2 in range(g.ROWS):
 		var row2: Array = []
@@ -201,9 +213,8 @@ func _score(g: Node, cells: Array, slot: int, skill: int) -> float:
 			score -= 300.0
 
 	if skill == 0:
-		return score   # 약: 줄완성+자기막힘회피만 (정돈·조준 없음)
+		return score
 
-	# 중·강 공통: 보드 정돈(채움 억제 + 고립 구멍 페널티 + 밀집)
 	var filled: int = 0
 	var holes: int = 0
 	for r in range(g.ROWS):
@@ -236,29 +247,6 @@ func _score(g: Node, cells: Array, slot: int, skill: int) -> float:
 			elif g.board[ny][nx] != "":
 				touch += 1
 	score += 4.0 * float(touch)
-
-	if skill == 1:
-		return score   # 중: 정돈까지, 적 레인 조준 없음
-
-	# 강: 완성 줄이 실제로 적을 잡는가(밀집 레인 선호) + 거점 가까운 적 우선
-	if lines > 0:
-		var lanes: int = maxi(1, g.combo + 1)
-		var hit: int = 0
-		for e in g.enemies:
-			var in_band: bool = false
-			for fc2 in full_cols:
-				if absi(int(e["col"]) - int(fc2)) < lanes:
-					in_band = true
-			for fr2 in full_rows:
-				if absi(int(e["row"]) - int(fr2)) < lanes:
-					in_band = true
-			if in_band:
-				hit += 1
-		score += 120.0 * float(hit)
-		for e in g.enemies:
-			for fc3 in full_cols:
-				if int(e["col"]) == int(fc3):
-					score += 8.0 * float(e["row"])
 	return score
 
 func _fits_anywhere(g: Node, occ: Array, offsets: Array) -> bool:
