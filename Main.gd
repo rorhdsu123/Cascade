@@ -512,6 +512,9 @@ func _start_endless() -> void:
 
 # 오늘의 featured 결정적 트랙 — 전원 동일 판(오늘의 시드), 무한 HUD/점수/부활 공유.
 #   프리 무한과 다른 점: 조각·스폰이 배치 인덱스만의 함수(보드 무반응) + 밀도 하한 off + 재추첨 off.
+# ⚠C60 보류: 첫 사람 플테서 '억울한 막힘사'(못 놓을 조각) 발견 → 프리 무한 먼저 제대로, 데일리는 후순위.
+#   엔진(검증됨)은 미래 기반으로 보존, 플레이어 진입만 제거. 재개 시 = fit-필터 on 재설계(값싼 죽음 방지 복원,
+#   'byte-동일' 포기하고 '같은 도전'으로) 또는 트레이에 항상 작은 조각 보장. 현재는 tools/featured_* probe로만 도달.
 func _start_featured(seed: int) -> void:
 	endless = true              # 무한 HUD·점수·결과·부활 경로 공유(enemy_total==-1 등)
 	featured = true
@@ -1678,8 +1681,7 @@ func _input(event: InputEvent) -> void:
 				_start_stage(_current_stage())
 			elif sk.pressed and (sk.keycode == KEY_E or sk.keycode == KEY_0):
 				_start_endless()                       # E 또는 0 = 무한 모드
-			elif sk.pressed and sk.keycode == KEY_F:
-				_start_featured(_today_seed())         # F = 오늘의 featured 결정적 트랙
+				# ⚠'오늘의 판'(featured) 진입은 C60에서 보류 — 플레이어 노출 제거. 엔진은 tools/probe로만 도달.
 			elif sk.pressed and sk.keycode >= KEY_1 and sk.keycode < KEY_1 + STAGES.size():
 				var pick: int = sk.keycode - KEY_1
 				if _is_unlocked(pick):
