@@ -8,3 +8,6 @@
 # Godot export output
 export/
 build/
+
+# 병렬 작업 worktree(트렁크 안에 두되 git은 무시 — 스테이지/무한 트랙, C63)
+worktrees/
