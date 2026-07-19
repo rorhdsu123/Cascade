@@ -4,6 +4,10 @@ extends SceneTree
 #   randi 호출 순서·횟수가 보존되면 아래 per-game 서명이 리팩터 전/후 완전 동일.
 #   실행: PROBE_SEED=20260718 REGRESS_N=20 godot --headless --path . --script tools/regress.gd
 #   비교: 리팩터 전 출력을 골든으로 저장 → 매 단계 후 diff. 첫 diff = randi 순서 깨짐 or 동작 변화.
+#   골든: tools/regress.golden.txt (seed=20260718 N=20, C58 시점). 재생성/대조:
+#     PROBE_SEED=20260718 REGRESS_N=20 godot --headless --path . --script tools/regress.gd 2>/dev/null \
+#       | grep -E "^(──|s[0-9])" | diff tools/regress.golden.txt -
+#   ⚠의도적 동작 변경(기전 개편) 후엔 골든을 다시 떠서 커밋한다 — 안 그러면 의도된 차이가 노이즈로 섞임.
 
 func _init() -> void:
 	var sd: String = OS.get_environment("PROBE_SEED")
