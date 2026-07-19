@@ -52,8 +52,8 @@ func _run() -> void:
 		str(g.get("endless_new_best")), str(g.get("game_over")), str(g.get("stuck"))])
 
 	# ── ② 렌더: 상태 직접 세팅 후 스샷(창 모드에서만 저장) ──
-	# 2a) 셀렉트 + '최고' 후크
-	g.set("mode", "select")
+	# 2a) 메뉴(허브) + Classic 버튼의 '최고' 후크
+	g.set("mode", "menu")
 	g.set("endless_best", 12340)
 	g.call("queue_redraw")
 	await _shot("ui_select.png")

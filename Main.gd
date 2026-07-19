@@ -267,8 +267,8 @@ const PIECE_W: Dictionary = {
 }
 
 # ===== 스테이지 상태 =====
-# mode: "select"=레벨 선택 화면, "play"=한 스테이지 플레이 중 (스테이지는 서로 독립 = 보드·거점 초기화)
-var mode: String = "select"
+# mode: "menu"=메인 허브(Adventure/Classic), "select"=스테이지 선택, "play"=플레이 중(스테이지는 독립=보드·거점 초기화)
+var mode: String = "menu"
 var stage_idx: int = 0
 var st: Dictionary = {}          # 현재 스테이지 정의(STAGES[stage_idx])
 const GameMode = preload("res://modes/game_mode.gd")
@@ -287,7 +287,9 @@ var endless_beat_best: bool = false # 판 중에 이미 최고를 넘었나(HUD 
 # 점수 계수(C58, 손맛 튜닝). 처치×콤보가 지배(주 지표), 줄 기본점은 '막힘사도 무보상은 아니게' 하는 하위 항.
 const ENDLESS_CLEAR_BASE: int = 50   # 줄 클리어당 기본점(처치 없어도 클리어는 항상 보상)
 const ENDLESS_KILL_MULT: int = 100   # 처치×콤보 배수(숫자 두툼하게 = 큰 수 쾌감)
-var _endless_hover: bool = false   # 셀렉트 화면 무한 버튼 호버
+var _adv_hover: bool = false       # 메뉴: Adventure(스테이지) 버튼 호버
+var _classic_hover: bool = false   # 메뉴: Classic(무한) 버튼 호버
+var _back_hover: bool = false      # select: 뒤로가기(메뉴) 버튼 호버
 # featured 결정적 트랙(오늘의 시드) — 무한의 변주. piece/spawn이 배치 인덱스만의 순수 함수라
 #   같은 시드면 어떤 플레이 순서든 byte-identical 판(전원 동일 판 = 리더보드 공정성, C53 ⑤·C56 ⑧).
 var featured: bool = false         # featured 결정적 트랙 진행 중(무한 HUD/점수 공유, endless=true도 함께 셋)
@@ -443,7 +445,7 @@ func _ready() -> void:
 	var sf := SystemFont.new()
 	sf.font_names = PackedStringArray(["Apple SD Gothic Neo", "AppleGothic", "Noto Sans CJK KR", "Arial"])
 	_font = sf
-	mode = "select"
+	mode = "menu"
 
 # 로컬 베스트 영속(user://). 플랫폼 리더보드는 소프트런치 셸에서(C50 ③), 지금은 로컬만.
 const ENDLESS_SAVE: String = "user://endless.save"
@@ -486,6 +488,10 @@ func _all_cleared() -> bool:
 		if not bool(cleared.get(i, false)):
 			return false
 	return true
+
+# 홈 복귀 대상: 무한/featured는 메뉴(허브)에서 시작했으니 메뉴로, 스테이지는 목록(select)으로.
+func _home_mode() -> String:
+	return "menu" if endless else "select"
 
 # 스테이지 시작 — 독립 레벨이라 보드·거점·적을 전부 초기화하고 st만 갈아끼운다
 func _start_stage(idx: int) -> void:
@@ -1657,18 +1663,39 @@ func _return_held() -> void:
 	drag_slot = -1
 
 func _input(event: InputEvent) -> void:
+	# ── 메인 메뉴(허브): Adventure(스테이지) / Classic(무한) ──
+	if mode == "menu":
+		if event is InputEventMouseMotion:
+			var mmp: Vector2 = (event as InputEventMouseMotion).position
+			_adv_hover = MENU_ADV_BTN.has_point(mmp)
+			_classic_hover = MENU_CLASSIC_BTN.has_point(mmp)
+		elif event is InputEventMouseButton:
+			var mb: InputEventMouseButton = event as InputEventMouseButton
+			if mb.pressed and mb.button_index == MOUSE_BUTTON_LEFT:
+				if MENU_ADV_BTN.has_point(mb.position):
+					mode = "select"                # 스테이지 목록으로
+				elif MENU_CLASSIC_BTN.has_point(mb.position):
+					_start_endless()               # 무한 모드 바로 시작
+		elif event is InputEventKey:
+			var mk: InputEventKey = event as InputEventKey
+			if mk.pressed and (mk.keycode == KEY_SPACE or mk.keycode == KEY_ENTER):
+				mode = "select"                    # 기본 = Adventure
+			elif mk.pressed and (mk.keycode == KEY_E or mk.keycode == KEY_0):
+				_start_endless()                   # E/0 = Classic(무한)
+		return
+
 	# ── 레벨 선택 화면 ──
 	if mode == "select":
 		if event is InputEventMouseMotion:
 			var mp: Vector2 = (event as InputEventMouseMotion).position
 			hover_stage = _stage_at(mp)
 			_play_hover = PLAY_BTN.has_point(mp)
-			_endless_hover = ENDLESS_BTN.has_point(mp)
+			_back_hover = BACK_BTN.has_point(mp)
 		elif event is InputEventMouseButton:
 			var sm: InputEventMouseButton = event as InputEventMouseButton
 			if sm.pressed and sm.button_index == MOUSE_BUTTON_LEFT:
-				if ENDLESS_BTN.has_point(sm.position):
-					_start_endless()
+				if BACK_BTN.has_point(sm.position):
+					mode = "menu"                       # 허브로 복귀(Classic은 메뉴에)
 				elif PLAY_BTN.has_point(sm.position):
 					_start_stage(_current_stage())      # 하단 큰 버튼 = 지금 도전할 스테이지
 				else:
@@ -1679,8 +1706,8 @@ func _input(event: InputEvent) -> void:
 			var sk: InputEventKey = event as InputEventKey
 			if sk.pressed and (sk.keycode == KEY_SPACE or sk.keycode == KEY_ENTER):
 				_start_stage(_current_stage())
-			elif sk.pressed and (sk.keycode == KEY_E or sk.keycode == KEY_0):
-				_start_endless()                       # E 또는 0 = 무한 모드
+			elif sk.pressed and sk.keycode == KEY_ESCAPE:
+				mode = "menu"                          # 뒤로 = 허브
 				# ⚠'오늘의 판'(featured) 진입은 C60에서 보류 — 플레이어 노출 제거. 엔진은 tools/probe로만 도달.
 			elif sk.pressed and sk.keycode >= KEY_1 and sk.keycode < KEY_1 + STAGES.size():
 				var pick: int = sk.keycode - KEY_1
@@ -1714,7 +1741,7 @@ func _input(event: InputEvent) -> void:
 				elif (lay["retry"] as Rect2).has_point(mbe.position):
 					_result_advance()
 				elif (lay["home"] as Rect2).has_point(mbe.position):
-					mode = "select"
+					mode = _home_mode()
 		elif event is InputEventKey:
 			var ke: InputEventKey = event as InputEventKey
 			# SPACE = 주 동작. 부활 가능하면 '광고 이어하기', 아니면 재도전/다음.
@@ -1724,13 +1751,13 @@ func _input(event: InputEvent) -> void:
 				else:
 					_result_advance()
 			elif ke.pressed and ke.keycode == KEY_ESCAPE:
-				mode = "select"
+				mode = _home_mode()
 		return
 
 	if event is InputEventKey:
 		var pk: InputEventKey = event as InputEventKey
 		if pk.pressed and pk.keycode == KEY_ESCAPE:
-			mode = "select"      # 플레이 중 포기 → 선택 화면
+			mode = _home_mode()  # 플레이 중 포기 → 무한은 허브, 스테이지는 목록으로
 			return
 
 	# resolve 재생 중에는 배치/선택 입력 정지 (연출 끝나면 자동 복귀)
@@ -1787,7 +1814,7 @@ func _input(event: InputEvent) -> void:
 
 # ===== 프레임 =====
 func _process(delta: float) -> void:
-	if mode == "select":
+	if mode == "menu" or mode == "select":
 		queue_redraw()
 		return
 	# 히트스톱: 게임 타이머 전부 정지, 그림만(시간감소라 항상 해제 → 데드락 없음)
@@ -1935,6 +1962,10 @@ func _process(delta: float) -> void:
 # ===== 그리기 =====
 func _draw() -> void:
 	var fnt: Font = _font if _font != null else ThemeDB.fallback_font
+
+	if mode == "menu":
+		_draw_menu(fnt)
+		return
 
 	if mode == "select":
 		_draw_select(fnt)
@@ -2375,7 +2406,13 @@ const SEL_Y0: float = 232.0
 const SEL_H: float = 70.0     # 6스테이지가 PLAY_BTN(y=742) 위에 다 들어오게 76→70 (C54)
 const SEL_GAP: float = 10.0   # 6번째 타일 하단 = 232 + 5·80 + 70 = 702 < 742
 const PLAY_BTN: Rect2 = Rect2(150.0, 742.0, 500.0, 126.0)
-const ENDLESS_BTN: Rect2 = Rect2(150.0, 884.0, 500.0, 62.0)   # 무한 진입(캠페인 버튼 아래, 듀얼코어 C50)
+
+# ===== 메인 메뉴(허브) 화면 =====
+# 앱을 켜면 처음 만나는 두 갈래: Adventure(=스테이지 모드) / Classic(=무한 모드).
+#   레퍼런스(Block Blast)의 홈 = 위 로고, 아래 큰 버튼 두 개. select(스테이지 목록)는 Adventure 안쪽.
+const MENU_ADV_BTN: Rect2 = Rect2(150.0, 600.0, 500.0, 116.0)     # 오렌지 = 스테이지(모험)
+const MENU_CLASSIC_BTN: Rect2 = Rect2(150.0, 740.0, 500.0, 116.0) # 블루 = 무한(∞)
+const BACK_BTN: Rect2 = Rect2(24.0, 24.0, 132.0, 54.0)           # select → 메뉴 복귀
 
 func _stage_rect(i: int) -> Rect2:
 	return Rect2(SEL_X, SEL_Y0 + float(i) * (SEL_H + SEL_GAP), SEL_W, SEL_H)
@@ -2386,6 +2423,85 @@ func _stage_at(pos: Vector2) -> int:
 		if _stage_rect(i).has_point(pos) and _is_unlocked(i):
 			return i
 	return -1
+
+# ── 메인 메뉴(허브): 위 로고, 아래 두 갈래 버튼 ──
+func _draw_menu(fnt: Font) -> void:
+	draw_rect(Rect2(-20, -20, 840, 1040), C_BG)
+
+	# 로고: 게임명 + 태그라인(레퍼런스의 상단 로고 자리)
+	var title: String = "CASCADE"
+	var tfs: int = 84
+	var tw: float = fnt.get_string_size(title, HORIZONTAL_ALIGNMENT_LEFT, -1, tfs).x
+	_draw_text_outlined(fnt, Vector2(400.0 - tw * 0.5, 300.0), title, tfs, C_GOLD)
+	var tag: String = "PACKING DEFENSE"
+	var tgfs: int = 22
+	var tgw: float = fnt.get_string_size(tag, HORIZONTAL_ALIGNMENT_LEFT, -1, tgfs).x
+	_draw_text_outlined(fnt, Vector2(400.0 - tgw * 0.5, 340.0), tag, tgfs, Color(0.55, 0.72, 0.95))
+
+	_draw_menu_button(fnt, MENU_ADV_BTN, _adv_hover,
+			Color(0.98, 0.62, 0.16), Color(0.86, 0.48, 0.10), Color(0.55, 0.30, 0.05),
+			"스테이지", "차근차근 깨는 모험", "adv")
+	_draw_menu_button(fnt, MENU_CLASSIC_BTN, _classic_hover,
+			Color(0.42, 0.68, 0.92), Color(0.30, 0.56, 0.82), Color(0.10, 0.26, 0.44),
+			"무한", "끝없이 도전 · 최고점", "classic")
+
+	var hint: String = "SPACE = 스테이지 · E = 무한"
+	var hw: float = fnt.get_string_size(hint, HORIZONTAL_ALIGNMENT_LEFT, -1, 17).x
+	_draw_text_outlined(fnt, Vector2(400.0 - hw * 0.5, 910.0), hint, 17, Color(0.5, 0.52, 0.62))
+
+# 메뉴 버튼 한 개(입체 그림자 → 본체 → 상단 하이라이트 → 테두리 + 좌측 아이콘 + 라벨)
+func _draw_menu_button(fnt: Font, r: Rect2, hot: bool, base: Color, base_dim: Color, shadow: Color,
+		big: String, sub: String, kind: String) -> void:
+	draw_rect(Rect2(r.position.x, r.position.y + 8.0, r.size.x, r.size.y), shadow)
+	draw_rect(r, base if hot else base_dim)
+	draw_rect(Rect2(r.position.x, r.position.y, r.size.x, r.size.y * 0.32), Color(1.0, 1.0, 1.0, 0.16))
+	draw_rect(r, shadow, false, 4.0)
+
+	# 좌측 아이콘 원판 + 심볼
+	var ic: Vector2 = Vector2(r.position.x + 70.0, r.position.y + r.size.y * 0.5)
+	draw_circle(ic, 34.0, Color(1.0, 1.0, 1.0, 0.20))
+	if kind == "classic":
+		_draw_infinity(ic, 30.0, Color.WHITE)
+	else:
+		_draw_flag(ic, 30.0, Color.WHITE)
+
+	# 라벨: 큰 제목 + 소제목. 무한은 우측에 최고점 후크.
+	var lx: float = r.position.x + 128.0
+	_draw_text_outlined(fnt, Vector2(lx, r.position.y + 54.0), big, 40, Color.WHITE, Color(shadow.r, shadow.g, shadow.b, 0.95))
+	_draw_text_outlined(fnt, Vector2(lx, r.position.y + 88.0), sub, 18, Color(0.96, 0.98, 1.0, 0.9),
+			Color(shadow.r, shadow.g, shadow.b, 0.95))
+	if kind == "classic" and endless_best > 0:
+		var bst: String = "최고 %s" % _comma(endless_best)
+		var bfs: int = 22
+		var bw: float = fnt.get_string_size(bst, HORIZONTAL_ALIGNMENT_LEFT, -1, bfs).x
+		_draw_text_outlined(fnt, Vector2(r.position.x + r.size.x - bw - 24.0, r.position.y + r.size.y * 0.5 + 8.0),
+				bst, bfs, C_GOLD, Color(shadow.r, shadow.g, shadow.b, 0.95))
+
+# ∞ 심볼(두 원 윤곽) — 무한 모드 표식
+func _draw_infinity(c: Vector2, s: float, col: Color) -> void:
+	draw_arc(Vector2(c.x - s * 0.44, c.y), s * 0.40, 0.0, TAU, 20, col, 4.0)
+	draw_arc(Vector2(c.x + s * 0.44, c.y), s * 0.40, 0.0, TAU, 20, col, 4.0)
+
+# 깃발 심볼(폴 + 삼각기) — 스테이지(모험) 표식
+func _draw_flag(c: Vector2, s: float, col: Color) -> void:
+	draw_line(Vector2(c.x - s * 0.34, c.y - s * 0.5), Vector2(c.x - s * 0.34, c.y + s * 0.5), col, 4.0)
+	draw_colored_polygon(PackedVector2Array([
+		Vector2(c.x - s * 0.34, c.y - s * 0.5),
+		Vector2(c.x + s * 0.5, c.y - s * 0.22),
+		Vector2(c.x - s * 0.34, c.y + s * 0.06),
+	]), col)
+
+# select → 메뉴 복귀 버튼(좌상단 화살표 + 라벨)
+func _draw_back_button(fnt: Font) -> void:
+	var r: Rect2 = BACK_BTN
+	draw_rect(r, Color(0.20, 0.21, 0.30) if _back_hover else Color(0.15, 0.16, 0.24))
+	draw_rect(r, Color(0.45, 0.47, 0.60), false, 2.0)
+	var ax: float = r.position.x + 26.0
+	var ay: float = r.position.y + r.size.y * 0.5
+	draw_colored_polygon(PackedVector2Array([
+		Vector2(ax + 7.0, ay - 9.0), Vector2(ax - 7.0, ay), Vector2(ax + 7.0, ay + 9.0),
+	]), Color.WHITE)
+	_draw_text_outlined(fnt, Vector2(r.position.x + 46.0, ay + 7.0), "메뉴", 20, Color.WHITE)
 
 func _draw_select(fnt: Font) -> void:
 	draw_rect(Rect2(-20, -20, 840, 1040), C_BG)
@@ -2443,37 +2559,11 @@ func _draw_select(fnt: Font) -> void:
 			_draw_text_outlined(fnt, Vector2(r.position.x + SEL_W - cw - 16.0, r.position.y + 46.0), ck, 16, Color(0.4, 0.9, 0.58))
 
 	_draw_play_button(fnt, cur)
-	_draw_endless_button(fnt)
+	_draw_back_button(fnt)
 
 	var hint: String = "SPACE 또는 버튼 클릭"
 	var hw: float = fnt.get_string_size(hint, HORIZONTAL_ALIGNMENT_LEFT, -1, 17).x
 	_draw_text_outlined(fnt, Vector2(400.0 - hw * 0.5, 724.0), hint, 17, Color(0.5, 0.52, 0.62))
-
-# 무한 진입 버튼 — 캠페인 초록과 대비되는 인디고(표현·경쟁 기둥). 베스트가 있으면 후크로 표시.
-func _draw_endless_button(fnt: Font) -> void:
-	var r: Rect2 = ENDLESS_BTN
-	var hot: bool = _endless_hover
-	draw_rect(Rect2(r.position.x, r.position.y + 6.0, r.size.x, r.size.y), Color(0.14, 0.10, 0.24))
-	var base: Color = Color(0.44, 0.36, 0.72) if hot else Color(0.36, 0.29, 0.62)
-	draw_rect(r, base)
-	draw_rect(Rect2(r.position.x, r.position.y, r.size.x, r.size.y * 0.34), Color(1.0, 1.0, 1.0, 0.14))
-	draw_rect(r, Color(0.20, 0.15, 0.38), false, 3.0)
-	var big: String = "무한 모드"
-	var bfs: int = 30
-	var bw: float = fnt.get_string_size(big, HORIZONTAL_ALIGNMENT_LEFT, -1, bfs).x
-	var cx: float = r.position.x + r.size.x * 0.5
-	if endless_best > 0:
-		# 왼쪽에 라벨, 오른쪽에 최고 점수(후크)
-		_draw_text_outlined(fnt, Vector2(r.position.x + 24.0, r.position.y + 40.0), big, bfs, Color.WHITE,
-				Color(0.14, 0.10, 0.24, 0.95))
-		var bst: String = "최고 %s" % _comma(endless_best)
-		var sfs: int = 20
-		var sw: float = fnt.get_string_size(bst, HORIZONTAL_ALIGNMENT_LEFT, -1, sfs).x
-		_draw_text_outlined(fnt, Vector2(r.position.x + r.size.x - sw - 24.0, r.position.y + 39.0), bst, sfs, C_GOLD,
-				Color(0.14, 0.10, 0.24, 0.95))
-	else:
-		_draw_text_outlined(fnt, Vector2(cx - bw * 0.5, r.position.y + 40.0), big, bfs, Color.WHITE,
-				Color(0.14, 0.10, 0.24, 0.95))
 
 # 천 단위 콤마 (점수 가독성)
 func _comma(n: int) -> String:
