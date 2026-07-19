@@ -33,6 +33,11 @@ func enemy_step(_etype: String) -> int:
 func allows_dda() -> bool:
 	return false
 
+# 결정적 트랙? true면 코어가 인덱스-주소 조각·스폰(보드 무반응·재추첨 없음)을 쓴다 = '전원 동일 판'.
+#   featured만 true. 조각/스폰 draw가 (시드,인덱스)만의 함수라 어떤 플레이 순서든 byte-identical.
+func deterministic_track() -> bool:
+	return false
+
 # ── 점수(scored 모드만) ──
 # 코어는 "내가 무한인가?"(모드 이름)가 아니라 "감독이 점수 모드인가?"(능력)로 HUD·결과를 분기한다.
 #   새 모드는 이 셋만 구현하면 코어의 렌더/점수 경로를 안 건드리고 꽂힌다([[gamemode-director-seam]]).

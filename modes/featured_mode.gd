@@ -11,3 +11,7 @@ func plan_floor_spawn(_ctx: Dictionary) -> Array:
 # 재도전 = 같은 오늘의 판(데일리 = 원하는 만큼 시도). 점수는 EndlessMode 상속.
 func retry_kind() -> String:
 	return "same_seed"
+
+# 결정적 트랙 = featured의 본질(전원 동일 판). 코어가 조각·스폰을 인덱스-주소 rng로 뽑게 한다.
+func deterministic_track() -> bool:
+	return true

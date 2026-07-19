@@ -308,7 +308,9 @@ const FeaturedMode = preload("res://modes/featured_mode.gd")
 var director: GameMode = null    # 감독(스폰·난이도·종료 결정). _start_stage에서 st와 함께 세팅
 
 # 무한모드(감독=EndlessMode) — 캠페인 스테이지와 형제. C52 설계·C56 game_rng 분리.
-var endless: bool = false          # 무한모드 진행 중(HUD·결과·재도전이 분기)
+# ⚠관측 전용 마커(프로브·디버그가 get()으로 읽음). 코어는 이걸로 분기하지 말 것 — 점수·HUD·결과·
+#   재도전·홈복귀는 전부 director.scores()/retry_kind()로 묻는다(C62). `if endless:`를 다시 넣으면 갈라짐.
+var endless: bool = false          # (관측용) 무한/featured 진행 중
 var endless_score: int = 0         # 이번 런 점수 = Σ(줄×기본점 + 처치×콤보×배수), C52+C58
 var endless_best: int = 0          # 로컬 베스트(user:// 영속)
 var endless_prev_best: int = 0     # 런 시작 시점의 베스트(결과 팝업 델타 표시용)
@@ -321,7 +323,9 @@ var _classic_hover: bool = false   # 메뉴: Classic(무한) 버튼 호버
 var _back_hover: bool = false      # select: 뒤로가기(메뉴) 버튼 호버
 # featured 결정적 트랙(오늘의 시드) — 무한의 변주. piece/spawn이 배치 인덱스만의 순수 함수라
 #   같은 시드면 어떤 플레이 순서든 byte-identical 판(전원 동일 판 = 리더보드 공정성, C53 ⑤·C56 ⑧).
-var featured: bool = false         # featured 결정적 트랙 진행 중(무한 HUD/점수 공유, endless=true도 함께 셋)
+# ⚠관측 전용 마커. 코어는 이걸로 분기하지 말 것 — 조각·스폰의 결정적 트랙 여부는 director.deterministic_track()
+#   으로 묻는다(C62). `if featured:`를 다시 넣으면 갈라짐. 트랙 인프라(_track_piece/_track_rng/game_seed)는 코어 소유.
+var featured: bool = false         # (관측용) featured 결정적 트랙 진행 중
 var piece_idx: int = 0             # featured: 지금까지 뽑은 트랙 조각 수(= 조각 시퀀스 인덱스)
 var track_record: bool = false     # featured 시퀀스 기록(사후 점수 검증·결정성 probe용, 평소 off)
 var track_log: Array = []          # [["P", idx, type, color] | ["S", depth, col, etype], ...]
@@ -877,7 +881,7 @@ func _dda_score() -> float:
 
 # 후보 N개를 굴린 뒤, 플레이어 상태에 따라 '잘 맞는 것' ↔ '까다로운 것'을 고른다
 func _make_piece() -> Dictionary:
-	if featured:                     # 결정적 트랙: 인덱스-주소 조각(보드 무반응, 재추첨 없음)
+	if director.deterministic_track():   # 결정적 트랙: 인덱스-주소 조각(보드 무반응, 재추첨 없음)
 		return _track_piece()
 	if not dda_enabled or not director.allows_dda():   # 감독이 DDA 불허(무한·featured)면 게이팅, C52 ⑦·C61
 		return _random_piece()
@@ -909,7 +913,7 @@ func _tray_any_placeable() -> bool:
 # ⚠공정성: '받자마자 셋 다 못 놓는' 즉사(실측 막힘사망의 11~27%)는 플레이어 실수가 아니라 딜 사고.
 #   최소 하나는 놓을 수 있는 트레이가 나올 때까지 다시 굴린다(막힘은 이제 '스스로 몰린 결과'로만).
 func _refill_tray() -> void:
-	if featured:
+	if director.deterministic_track():
 		# 결정적 트랙은 재추첨 금지(보드-반응 = 결정성 파괴). 못 놓는 트레이도 그대로 → 막힘사(부활 가능).
 		for i in range(3):
 			tray[i] = _make_piece()
@@ -1485,7 +1489,7 @@ func advance_step() -> void:
 	#   ⚠감독의 randi 순서는 원본과 정확히 일치(floor=열→타입 / throttle=타입→(swarm:count→shuffle | col)).
 	#   floor·swarm·surge의 설계 의도(밀도 손잡이, desync, 비단조)는 StageMode 주석 참조.
 	var sctx: Dictionary = _director_ctx()   # 누수 반영된 현재 상태(enemy_count)
-	if featured:
+	if director.deterministic_track():
 		# 결정적 트랙: 이 스텝의 모든 스폰 draw를 (시드, 깊이) 고유 rng가 소유 → spawn[d]가 인덱스만의 함수.
 		#   floor 훅은 FeaturedMode에서 off(enemy_count 반응 = 결정성 파괴하는 유일한 스폰 경로).
 		sctx["rng"] = _track_rng(place_count, _TRACK_SPAWN_CH)
