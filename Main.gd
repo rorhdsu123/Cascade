@@ -314,9 +314,8 @@ var endless_best: int = 0          # 로컬 베스트(user:// 영속)
 var endless_prev_best: int = 0     # 런 시작 시점의 베스트(결과 팝업 델타 표시용)
 var endless_new_best: bool = false # 이번 런이 신기록인가(결과 팝업 배지)
 var endless_beat_best: bool = false # 판 중에 이미 최고를 넘었나(HUD 실시간 갱신 신호)
-# 점수 계수(C58, 손맛 튜닝). 처치×콤보가 지배(주 지표), 줄 기본점은 '막힘사도 무보상은 아니게' 하는 하위 항.
-const ENDLESS_CLEAR_BASE: int = 50   # 줄 클리어당 기본점(처치 없어도 클리어는 항상 보상)
-const ENDLESS_KILL_MULT: int = 100   # 처치×콤보 배수(숫자 두툼하게 = 큰 수 쾌감)
+# 점수 계수(C58 손맛)는 감독 소유로 이관(C61 seam): EndlessMode.CLEAR_BASE/KILL_MULT.
+#   코어는 director.clear_score()/kill_score()로 묻는다 — 모드 이름 대신 능력.
 var _adv_hover: bool = false       # 메뉴: Adventure(스테이지) 버튼 호버
 var _classic_hover: bool = false   # 메뉴: Classic(무한) 버튼 호버
 var _back_hover: bool = false      # select: 뒤로가기(메뉴) 버튼 호버
@@ -522,9 +521,9 @@ func _all_cleared() -> bool:
 			return false
 	return true
 
-# 홈 복귀 대상: 무한/featured는 메뉴(허브)에서 시작했으니 메뉴로, 스테이지는 목록(select)으로.
+# 홈 복귀 대상: 점수 모드(무한·featured)는 메뉴 허브에서 시작 → 메뉴로, 스테이지는 목록(select)으로.
 func _home_mode() -> String:
-	return "menu" if endless else "select"
+	return "menu" if (director != null and director.scores()) else "select"
 
 # 스테이지 시작 — 독립 레벨이라 보드·거점·적을 전부 초기화하고 st만 갈아끼운다
 func _start_stage(idx: int) -> void:
@@ -880,7 +879,7 @@ func _dda_score() -> float:
 func _make_piece() -> Dictionary:
 	if featured:                     # 결정적 트랙: 인덱스-주소 조각(보드 무반응, 재추첨 없음)
 		return _track_piece()
-	if not dda_enabled or endless:   # 무한은 DDA off(랭크 공정성, C52 ⑦) — 플래그 무관하게 게이팅
+	if not dda_enabled or not director.allows_dda():   # 감독이 DDA 불허(무한·featured)면 게이팅, C52 ⑦·C61
 		return _random_piece()
 	var d: float = _dda_score()
 	var first: Dictionary = _random_piece()
@@ -1262,8 +1261,7 @@ func _burst_lines() -> void:
 	if clear_done:
 		return
 	clear_done = true
-	if endless:
-		_add_endless_score(flash_lines * ENDLESS_CLEAR_BASE)   # 클리어당 기본점(막힘사도 무보상은 아니게), C58
+	_add_endless_score(director.clear_score(flash_lines))   # 점수는 감독 소유(scored 모드만 >0). 클리어당 기본점=막힘사도 무보상 아니게, C58
 	for ci in clear_cells:
 		var cc: Vector2i = ci as Vector2i
 		board[cc.y][cc.x] = ""
@@ -1320,8 +1318,7 @@ func _apply_hit(h: Dictionary) -> void:
 		var is_primary: bool = not (etype == "split" and int(e.get("gen", 0)) == 1)
 		if is_primary:
 			killed += 1
-		if endless:
-			_add_endless_score(combo * ENDLESS_KILL_MULT)   # 처치×콤보(주 지표) = Σ(폭발 처치수×콤보)×배수, C52. 쌍둥이도 팝하면 보상(잡는 게 이득 = 분열 재설계와 결)
+		_add_endless_score(director.kill_score(combo))   # 처치×콤보(주 지표), 감독 소유. 쌍둥이도 팝하면 보상(잡는 게 이득 = 분열 재설계와 결), C52·C61
 		kill_pulse = 0.35   # ④ 킬 → 헤드라인 펄스
 		hitstop = maxf(hitstop, 0.045)   # 처치 순간 멈칫(손맛)
 	else:
@@ -2265,10 +2262,12 @@ func _revive() -> void:
 
 # 재도전 = 실패면 같은 스테이지, 클리어면 다음(마지막이면 홈)
 func _result_advance() -> void:
-	if featured:
-		_start_featured(game_seed) # featured: 재도전 = 같은 오늘의 판 다시(데일리 = 원하는 만큼 시도, C53 ③ⓑ)
-	elif endless:
-		_start_endless()          # 무한: 재도전 = 새 런
+	# 재도전 종류는 감독이 선언(모드 이름 대신 능력, C61 seam).
+	var kind: String = director.retry_kind()
+	if kind == "same_seed":
+		_start_featured(game_seed) # featured: 같은 오늘의 판 다시(데일리 = 원하는 만큼 시도, C53 ③ⓑ)
+	elif kind == "new_run":
+		_start_endless()          # 무한: 새 런
 	elif game_clear:
 		if stage_idx + 1 < STAGES.size():
 			_start_stage(stage_idx + 1)
@@ -2332,7 +2331,7 @@ func _draw_result(fnt: Font) -> void:
 	var cx: float = p.position.x + p.size.x * 0.5
 
 	# 무한: 런 종료 시점에 베스트 확정(부활로 이어가면 다음 팝업서 재갱신). 신기록이면 배지.
-	if endless and endless_score > endless_best:
+	if director.scores() and endless_score > endless_best:
 		endless_best = endless_score
 		endless_new_best = true
 		_save_endless_best()
@@ -2342,8 +2341,8 @@ func _draw_result(fnt: Font) -> void:
 	#    같은 크기면 패널을 끝까지 밀어낸다. 글자 수가 아니라 패널이 크기를 정하게 한다.
 	var msg: String
 	var msg_col: Color
-	if endless:
-		msg = "%s점" % _comma(endless_score)   # 무한: 점수가 헤드라인(리더보드 지표)
+	if director.scores():
+		msg = "%s점" % _comma(endless_score)   # 점수 모드: 점수가 헤드라인(리더보드 지표)
 		msg_col = C_GOLD
 	elif game_clear:
 		msg = "스테이지 클리어!"
@@ -2360,7 +2359,7 @@ func _draw_result(fnt: Font) -> void:
 	_draw_text_outlined(fnt, Vector2(cx - mw * 0.5, p.position.y + 84.0), msg, mfs, msg_col)
 
 	# ② 사유 — 판정을 받쳐주는 한 줄. 작게 둔다(헤드라인과 안 싸우게).
-	if endless:
+	if director.scores():
 		var cause: String = "놓을 곳이 없다" if stuck else "거점 파괴"
 		var er: String = "깊이 %d · %s" % [place_count, cause]
 		var erw: float = fnt.get_string_size(er, HORIZONTAL_ALIGNMENT_LEFT, -1, 20).x
@@ -2375,8 +2374,8 @@ func _draw_result(fnt: Font) -> void:
 		_draw_text_outlined(fnt, Vector2(cx - rw2 * 0.5, p.position.y + 124.0), res, 20,
 				Color(0.45, 0.9, 0.6) if leaked == 0 else Color(0.85, 0.7, 0.5))
 
-	# ── 버튼 바로 위: 무한=최고 기록(신기록 배지), 캠페인=못 처치하고 남긴 적/처치.
-	if endless:
+	# ── 버튼 바로 위: 점수 모드=최고 기록(신기록 배지), 캠페인=못 처치하고 남긴 적/처치.
+	if director.scores():
 		# 캡션 = 신기록이면 델타를 접어 넣음(획득감), 아니면 '최고'. 델타 별도 줄은 이어하기 버튼과 충돌.
 		var ecap: String
 		if endless_new_best:
@@ -2754,8 +2753,8 @@ func _draw_hud(fnt: Font) -> void:
 	var goal_r: Rect2 = Rect2(start_x, box_y, gw, box_h)
 	var adv_r: Rect2 = Rect2(start_x + gw + gap, box_y, aw, box_h)
 
-	if endless:
-		# 무한: GOAL 카드 = 점수(리더보드 지표). 최고 넘으면 카드·제목·숫자가 금색으로(실시간 갱신 신호).
+	if director.scores():
+		# 점수 모드: GOAL 카드 = 점수(리더보드 지표). 최고 넘으면 카드·제목·숫자가 금색으로(실시간 갱신 신호).
 		#   깊이·최고는 좌상단, 콤보는 우상단.
 		var beat: bool = endless_beat_best
 		_draw_card(goal_r, C_GOLD if beat else Color(0.5, 0.42, 0.78))

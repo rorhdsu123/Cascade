@@ -24,6 +24,19 @@ const SURGE_PERIOD_FAR: int = 22 # 서지 간격(D1 근처, 넓음)
 const SURGE_PERIOD_NEAR: int = 9 # 서지 간격(D2 이후, 좁음)
 const SURGE_LEN: int = 5         # 서지 창 길이(place_count 스텝)
 
+# ── 점수(C58 손맛 계수; 처치×콤보가 지배, 줄 기본점은 하위 항) ──
+const CLEAR_BASE: int = 50   # 줄 클리어당 기본점(처치 없어도 클리어는 항상 보상)
+const KILL_MULT: int = 100   # 처치×콤보 배수(숫자 두툼하게 = 큰 수 쾌감)
+
+func scores() -> bool:
+	return true
+
+func clear_score(lines: int) -> int:
+	return lines * CLEAR_BASE
+
+func kill_score(combo: int) -> int:
+	return combo * KILL_MULT
+
 # ── 설정 접근자 ──
 func core_hp_max() -> int:
 	return CORE_HP

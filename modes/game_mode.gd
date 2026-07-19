@@ -29,6 +29,27 @@ func enemy_hp(_etype: String, _spawn_index: int) -> int:
 func enemy_step(_etype: String) -> int:
 	return 1
 
+# DDA(동적 난이도) 허용? 기본 = false(무한꼴: 랭크 공정성). StageMode만 true(캠페인 구제).
+func allows_dda() -> bool:
+	return false
+
+# ── 점수(scored 모드만) ──
+# 코어는 "내가 무한인가?"(모드 이름)가 아니라 "감독이 점수 모드인가?"(능력)로 HUD·결과를 분기한다.
+#   새 모드는 이 셋만 구현하면 코어의 렌더/점수 경로를 안 건드리고 꽂힌다([[gamemode-director-seam]]).
+func scores() -> bool:
+	return false   # 기본 = 무점수(스테이지꼴). 점수 모드(무한)가 override.
+
+func clear_score(_lines: int) -> int:
+	return 0   # 줄 클리어 점수 없음
+
+func kill_score(_combo: int) -> int:
+	return 0   # 처치 점수 없음
+
+# 결과 팝업 '재도전'의 종류 — 코어가 모드 이름 대신 이 값으로 분기.
+#   "new_run"(연속·무한꼴) / "stage"(스테이지 진행) / "same_seed"(오늘의 판 재도전).
+func retry_kind() -> String:
+	return "new_run"
+
 # ── 결정 메서드 (ctx 인자) ──
 func is_cleared(_ctx: Dictionary) -> bool:
 	return false   # 승리 없음(연속)

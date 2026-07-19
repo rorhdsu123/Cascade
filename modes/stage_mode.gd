@@ -36,6 +36,13 @@ func enemy_step(etype: String) -> int:
 	var base_step: int = int(st["step_every"])
 	return maxi(1, base_step - 1) if etype == "fast" else base_step
 
+# 재도전 = 같은/다음 스테이지(코어가 game_clear로 분기). scores()/*_score는 base 상속(무점수).
+func retry_kind() -> String:
+	return "stage"
+
+func allows_dda() -> bool:
+	return true   # 캠페인만 DDA 구제(무한·featured는 base 상속 false)
+
 # ── 결정 메서드 ──
 func is_cleared(ctx: Dictionary) -> bool:
 	return int(ctx["killed"]) + int(ctx["leaked"]) >= int(st["total"])

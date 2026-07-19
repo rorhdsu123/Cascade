@@ -7,3 +7,7 @@ extends "res://modes/endless_mode.gd"
 # [[gamemode-director-seam]] 형제 슬롯 — EndlessMode를 오염 없이 상속만.
 func plan_floor_spawn(_ctx: Dictionary) -> Array:
 	return []
+
+# 재도전 = 같은 오늘의 판(데일리 = 원하는 만큼 시도). 점수는 EndlessMode 상속.
+func retry_kind() -> String:
+	return "same_seed"
