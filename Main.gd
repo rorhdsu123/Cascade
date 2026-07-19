@@ -274,6 +274,7 @@ var st: Dictionary = {}          # 현재 스테이지 정의(STAGES[stage_idx])
 const GameMode = preload("res://modes/game_mode.gd")
 const StageMode = preload("res://modes/stage_mode.gd")
 const EndlessMode = preload("res://modes/endless_mode.gd")
+const FeaturedMode = preload("res://modes/featured_mode.gd")
 var director: GameMode = null    # 감독(스폰·난이도·종료 결정). _start_stage에서 st와 함께 세팅
 
 # 무한모드(감독=EndlessMode) — 캠페인 스테이지와 형제. C52 설계·C56 game_rng 분리.
@@ -287,6 +288,12 @@ var endless_beat_best: bool = false # 판 중에 이미 최고를 넘었나(HUD 
 const ENDLESS_CLEAR_BASE: int = 50   # 줄 클리어당 기본점(처치 없어도 클리어는 항상 보상)
 const ENDLESS_KILL_MULT: int = 100   # 처치×콤보 배수(숫자 두툼하게 = 큰 수 쾌감)
 var _endless_hover: bool = false   # 셀렉트 화면 무한 버튼 호버
+# featured 결정적 트랙(오늘의 시드) — 무한의 변주. piece/spawn이 배치 인덱스만의 순수 함수라
+#   같은 시드면 어떤 플레이 순서든 byte-identical 판(전원 동일 판 = 리더보드 공정성, C53 ⑤·C56 ⑧).
+var featured: bool = false         # featured 결정적 트랙 진행 중(무한 HUD/점수 공유, endless=true도 함께 셋)
+var piece_idx: int = 0             # featured: 지금까지 뽑은 트랙 조각 수(= 조각 시퀀스 인덱스)
+var track_record: bool = false     # featured 시퀀스 기록(사후 점수 검증·결정성 probe용, 평소 off)
+var track_log: Array = []          # [["P", idx, type, color] | ["S", depth, col, etype], ...]
 var cleared: Dictionary = {}     # 스테이지 인덱스 → 클리어 여부 (세션 한정, 저장 없음)
 var hover_stage: int = -1
 var _play_hover: bool = false    # 하단 시작 버튼 호버
@@ -400,10 +407,33 @@ var _font: Font = null
 # ⚠회귀(tools/regress.gd)는 이 스트림만 시드 고정. Godot 전역 seed(x)와 RandomNumberGenerator.seed=x는
 #   동일 PCG 수열(tools/rng_probe.gd로 실측), shuffle은 rng_shuffle로 동일 소비 패턴 재현.
 var game_rng: RandomNumberGenerator = RandomNumberGenerator.new()
+var game_seed: int = 0   # 현재 게임 시드(featured 트랙 index-addressed rng의 기반)
 
 # 게임 스트림 시드 고정(데일리 시드/회귀/sim). 코스메틱 전역 RNG는 건드리지 않는다.
 func seed_game(s: int) -> void:
+	game_seed = s
 	game_rng.seed = s
+
+# ── featured 결정적 트랙: 인덱스-주소 RNG ──
+# 각 (인덱스, 채널)이 고유 시드의 fresh RNG를 받는다 → 한 채널의 가변 draw 수(swarm count·shuffle 등)가
+#   다른 인덱스를 흔들지 못한다. 프리 무한의 보드-적응형 필터·밀도 하한(floor)은 featured에서 전부 끈다
+#   = piece[i]/spawn[d]가 보드·처치수 무반응. (부작용 = 가끔 꽉 찬 보드에 큰 조각 → 막힘사가 '실력 실패'로
+#    되살아남: [[failure-face-skill-dependent]] 패킹 숙련축 + 부활 정합. C53 ⑤ 의도.)
+const _TRACK_PIECE_CH: int = 1   # 조각 티어·모양·색(하나의 rng에서 순차 소비)
+const _TRACK_SPAWN_CH: int = 3   # 스폰 열·타입·swarm(한 스텝의 모든 draw를 이 rng가 소유)
+
+func _track_rng(idx: int, channel: int) -> RandomNumberGenerator:
+	var g := RandomNumberGenerator.new()
+	g.seed = _mix3(game_seed, idx, channel)
+	return g
+
+# 결정적 64-bit 정수 믹스(FNV-1a 변형). 플랫폼 무관 재현 위해 builtin hash() 대신 명시 상수.
+func _mix3(a: int, b: int, c: int) -> int:
+	var h: int = a ^ 0x2545F4914F6CDD1D
+	h = (h ^ b) * 1099511628211
+	h = (h ^ c) * 1099511628211
+	h = h ^ (h >> 29)
+	return h
 
 func _ready() -> void:
 	randomize()          # 코스메틱 전역 RNG
@@ -460,6 +490,7 @@ func _all_cleared() -> bool:
 # 스테이지 시작 — 독립 레벨이라 보드·거점·적을 전부 초기화하고 st만 갈아끼운다
 func _start_stage(idx: int) -> void:
 	endless = false             # DDA/surge/floor 플래그는 A/B 노브(regress·sim 소유) — 여기서 건드리지 않음
+	featured = false            # ⚠featured에서 캠페인 복귀 시 트랙 경로 해제(안 그러면 조각/스폰이 트랙에 물림)
 	stage_idx = clampi(idx, 0, STAGES.size() - 1)
 	st = STAGES[stage_idx]
 	director = StageMode.new(st)
@@ -469,6 +500,7 @@ func _start_stage(idx: int) -> void:
 # 무한모드 시작 — 스테이지 dict 없이 EndlessMode가 깊이로 스케줄. DDA off(리더보드 공정성, C52 ⑦).
 func _start_endless() -> void:
 	endless = true
+	featured = false            # 프리 무한 = 보드-적응형 조각(_random_piece) + game_rng.randomize 랜덤 시드
 	stage_idx = -1              # 스테이지 아님(fail_streak 키만 분리; DDA는 어차피 off)
 	st = {}                     # pool 없음 → _random_piece 적응형 티어 경로(무한 기본)
 	director = EndlessMode.new()
@@ -477,6 +509,26 @@ func _start_endless() -> void:
 	mode = "play"
 	endless_new_best = false
 	_init_game()
+
+# 오늘의 featured 결정적 트랙 — 전원 동일 판(오늘의 시드), 무한 HUD/점수/부활 공유.
+#   프리 무한과 다른 점: 조각·스폰이 배치 인덱스만의 함수(보드 무반응) + 밀도 하한 off + 재추첨 off.
+func _start_featured(seed: int) -> void:
+	endless = true              # 무한 HUD·점수·결과·부활 경로 공유(enemy_total==-1 등)
+	featured = true
+	stage_idx = -1
+	st = {}
+	seed_game(seed)             # 게임 스트림 시드 = 오늘의 시드(전원 동일 판)
+	piece_idx = 0
+	track_log = []
+	director = FeaturedMode.new()   # EndlessMode 램프 + floor 훅 off
+	mode = "play"
+	endless_new_best = false
+	_init_game()
+
+# 오늘의 featured 시드 = 달력 날짜(YYYYMMDD). 그날 플레이어 전원이 동일 판을 받는다(Wordle 모델).
+func _today_seed() -> int:
+	var d: Dictionary = Time.get_date_dict_from_system()
+	return int(d["year"]) * 10000 + int(d["month"]) * 100 + int(d["day"])
 
 func _init_game() -> void:
 	board = []
@@ -652,15 +704,45 @@ func _tier_pool(tier: int) -> Array:
 			return SMALL_POOL
 
 func _weighted_pick(pool: Array) -> String:
+	return _weighted_pick_rng(pool, game_rng)
+
+func _weighted_pick_rng(pool: Array, rng: RandomNumberGenerator) -> String:
 	var total: int = 0
 	for t in pool:
 		total += int(PIECE_W[t])
-	var r: int = game_rng.randi() % total
+	var r: int = rng.randi() % total
 	for t in pool:
 		r -= int(PIECE_W[t])
 		if r < 0:
 			return t
 	return pool[pool.size() - 1]
+
+# featured 조각 티어 분포(보드 무반응 = 고정 트랙). tools/featured_sweep로 확정.
+#   BIG=R33(3×3) / MID=테트로미노·직사각·I5 / SMALL=1~3칸+O.
+#   ★스윕 결과(中봇): p_big가 조금만 커도 막힘사가 폭증(보드를 못 봐서 꽉 찬 판에 큰 조각을 못 피함).
+#     0.00/0.42/0.58 = 거점사 74.5% 지배 · 막힘 25.5% · 깊이중앙 140.
+#     → 거점사 지배(C52 ⑥ 공유 코어 문법·부활 수익 보존) 유지하되, 막힘 25%로 프리(~1%)보다 25배 =
+#       fit 필터 없앤 만큼 '패킹이 진짜 시험'(C53 ⑤ 의도). R33은 보드-맹목이면 즉사라 아예 뺌(p_big=0).
+#   ⚠fit 필터·재추첨 없음: 자리 없는 조각도 그대로 배급(막힘사=실력 실패, 부활 가능 — C53 ⑤).
+var TRACK_P_BIG: float = 0.00
+var TRACK_P_MID: float = 0.42    # SMALL = 1 - BIG - MID = 0.58
+
+# featured 트랙 조각 = 인덱스만의 함수(보드 여유·fit 필터·재추첨 전부 없음).
+func _track_piece() -> Dictionary:
+	var i: int = piece_idx
+	piece_idx += 1
+	var rg: RandomNumberGenerator = _track_rng(i, _TRACK_PIECE_CH)
+	var rf: float = rg.randf()
+	var tier: int = 0                      # 0=SMALL, 1=MID, 2=BIG
+	if rf < TRACK_P_BIG:
+		tier = 2
+	elif rf < TRACK_P_BIG + TRACK_P_MID:
+		tier = 1
+	var ty: String = _weighted_pick_rng(_tier_pool(tier), rg)
+	var c: String = COLORS[rg.randi() % COLORS.size()]
+	if track_record:
+		track_log.append(["P", i, ty, c])
+	return {"type": ty, "color": c, "offsets": (PIECES[ty] as Array).duplicate()}
 
 # 이 조각을 지금 보드에 놓으면 줄이 완성되는 자리가 있나
 func _would_clear(cells: Array) -> bool:
@@ -754,6 +836,8 @@ func _dda_score() -> float:
 
 # 후보 N개를 굴린 뒤, 플레이어 상태에 따라 '잘 맞는 것' ↔ '까다로운 것'을 고른다
 func _make_piece() -> Dictionary:
+	if featured:                     # 결정적 트랙: 인덱스-주소 조각(보드 무반응, 재추첨 없음)
+		return _track_piece()
 	if not dda_enabled or endless:   # 무한은 DDA off(랭크 공정성, C52 ⑦) — 플래그 무관하게 게이팅
 		return _random_piece()
 	var d: float = _dda_score()
@@ -784,6 +868,12 @@ func _tray_any_placeable() -> bool:
 # ⚠공정성: '받자마자 셋 다 못 놓는' 즉사(실측 막힘사망의 11~27%)는 플레이어 실수가 아니라 딜 사고.
 #   최소 하나는 놓을 수 있는 트레이가 나올 때까지 다시 굴린다(막힘은 이제 '스스로 몰린 결과'로만).
 func _refill_tray() -> void:
+	if featured:
+		# 결정적 트랙은 재추첨 금지(보드-반응 = 결정성 파괴). 못 놓는 트레이도 그대로 → 막힘사(부활 가능).
+		for i in range(3):
+			tray[i] = _make_piece()
+		sel = 0
+		return
 	for _attempt in range(24):
 		for i in range(3):
 			tray[i] = _make_piece()
@@ -1335,10 +1425,16 @@ func advance_step() -> void:
 	#   ⚠감독의 randi 순서는 원본과 정확히 일치(floor=열→타입 / throttle=타입→(swarm:count→shuffle | col)).
 	#   floor·swarm·surge의 설계 의도(밀도 손잡이, desync, 비단조)는 StageMode 주석 참조.
 	var sctx: Dictionary = _director_ctx()   # 누수 반영된 현재 상태(enemy_count)
+	if featured:
+		# 결정적 트랙: 이 스텝의 모든 스폰 draw를 (시드, 깊이) 고유 rng가 소유 → spawn[d]가 인덱스만의 함수.
+		#   floor 훅은 FeaturedMode에서 off(enemy_count 반응 = 결정성 파괴하는 유일한 스폰 경로).
+		sctx["rng"] = _track_rng(place_count, _TRACK_SPAWN_CH)
 	for spec in director.plan_floor_spawn(sctx):
 		_spawn_one(spec["col"], spec["etype"], spec["step_override"])
 	sctx["spawned"] = spawned                # floor 스폰이 올린 spawned를 스로틀이 읽도록
 	for spec in director.plan_throttled_spawn(sctx):
+		if track_record:
+			track_log.append(["S", place_count, int(spec["col"]), spec["etype"]])
 		_spawn_one(spec["col"], spec["etype"], spec["step_override"])
 
 # _pick_etype는 StageMode.pick_etype로 이동(감독이 스폰 결정을 소유).
@@ -1582,6 +1678,8 @@ func _input(event: InputEvent) -> void:
 				_start_stage(_current_stage())
 			elif sk.pressed and (sk.keycode == KEY_E or sk.keycode == KEY_0):
 				_start_endless()                       # E 또는 0 = 무한 모드
+			elif sk.pressed and sk.keycode == KEY_F:
+				_start_featured(_today_seed())         # F = 오늘의 featured 결정적 트랙
 			elif sk.pressed and sk.keycode >= KEY_1 and sk.keycode < KEY_1 + STAGES.size():
 				var pick: int = sk.keycode - KEY_1
 				if _is_unlocked(pick):
@@ -2049,7 +2147,9 @@ func _revive() -> void:
 
 # 재도전 = 실패면 같은 스테이지, 클리어면 다음(마지막이면 홈)
 func _result_advance() -> void:
-	if endless:
+	if featured:
+		_start_featured(game_seed) # featured: 재도전 = 같은 오늘의 판 다시(데일리 = 원하는 만큼 시도, C53 ③ⓑ)
+	elif endless:
 		_start_endless()          # 무한: 재도전 = 새 런
 	elif game_clear:
 		if stage_idx + 1 < STAGES.size():
