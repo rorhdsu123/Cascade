@@ -23,7 +23,7 @@ func enemy_total() -> int:
 func hud_step_every() -> int:
 	return 1
 
-func enemy_hp(_etype: String, _spawn_index: int) -> int:
+func enemy_hp(_etype: String, _spawn_index: int, _ctx: Dictionary = {}) -> int:
 	return 1
 
 func enemy_step(_etype: String) -> int:

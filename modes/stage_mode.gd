@@ -20,7 +20,7 @@ func enemy_total() -> int:
 func hud_step_every() -> int:
 	return int(st["step_every"])
 
-func enemy_hp(etype: String, spawn_index: int) -> int:
+func enemy_hp(etype: String, spawn_index: int, _ctx: Dictionary = {}) -> int:
 	var base: int = roundi(float(st["base_hp"]) + float(spawn_index) * float(st["hp_ramp"]))
 	var hp: int = base
 	match etype:

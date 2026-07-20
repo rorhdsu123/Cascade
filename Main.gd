@@ -1496,7 +1496,8 @@ func advance_step() -> void:
 # 적 1마리 스폰 (타입별 HP 배율 적용). step_override>0이면 전진 주기를 강제(무리 desync용)
 func _spawn_one(col: int, etype: String, step_override: int = 0) -> void:
 	# HP·전진주기는 감독(StageMode)이 소유. spawned = 이 스폰의 인덱스(HP 램프에 사용).
-	var hp: int = director.enemy_hp(etype, spawned)
+	#   ctx = run-state(점수·best) — 무한모드 PB 너머 HP 발화가 스폰 시점 점수로 읽는다(다른 모드는 무시).
+	var hp: int = director.enemy_hp(etype, spawned, _director_ctx())
 	var step_every: int = step_override if step_override > 0 else director.enemy_step(etype)
 	enemies.append({"col": col, "row": 0, "vis_row": 0.0, "hp": hp, "maxhp": hp, "etype": etype, "id": enemy_seq, "step_every": step_every})
 	enemy_seq += 1
@@ -1553,6 +1554,7 @@ func _director_ctx() -> Dictionary:
 		"core_hp": core_hp, "combo": combo, "drought": drought,
 		"enemy_count": enemies.size(), "free_cells": _free_cells(),
 		"fail_streak": int(fail_streak.get(stage_idx, 0)),
+		"score": endless_score, "best": endless_best,   # PB 너머 발화 램프(감독이 소유). best>0일 때만 발화.
 		"surge_enabled": surge_enabled, "floor_enabled": floor_enabled,
 		"cols": COLS, "enemy_types": ENEMY_TYPES,
 		"rng": game_rng,   # 감독 스폰 결정은 게임 스트림에서(코스메틱 분리)
