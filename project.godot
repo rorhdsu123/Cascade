@@ -1,5 +1,10 @@
-; Cascade — 폴리오미노 팩킹 × 복리 연쇄 디펜스 (프로토 v1)
-; Godot 4.6
+; Engine configuration file.
+; It's best edited using the editor UI and not directly,
+; since the parameters that go here are not all obvious.
+;
+; Format:
+;   [section] ; section goes between []
+;   param=value ; assign values to parameters
 
 config_version=5
 
@@ -14,7 +19,8 @@ config/features=PackedStringArray("4.6", "GL Compatibility")
 window/size/viewport_width=800
 window/size/viewport_height=1000
 window/stretch/mode="canvas_items"
-window/stretch/aspect="keep"
+window/stretch/aspect="expand"
+window/handheld/orientation="portrait"
 
 [rendering]
 

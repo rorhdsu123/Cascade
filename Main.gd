@@ -4,9 +4,15 @@ extends Node2D
 const COLS: int = 8
 const ROWS: int = 8             # 8×8 (Block Blast와 동일). 줄=8칸이라 조각 유입 대비 수지가 조여짐
 const CELL: int = 64            # 셀 크기(픽셀) → 보드 512×512 (6×6 시절 516과 거의 동일 면적)
-const BOARD_X: int = 144        # (800 - COLS*CELL)/2
-const BOARD_Y: int = 150        # 보드 상단 y (보드 150~662)
-const BOT_Y: int = 700          # 하단 패널 상단 (거점 띠 670~696 아래, 트레이 700~1000)
+const BOARD_X: int = 144        # (800 - COLS*CELL)/2. 폭 800은 세로 고정(portrait+expand)이라 상수 유지.
+# 세로 레이아웃은 런타임 파생(_relayout). 아래는 800×1000 기준 기본값 — 실기기선 뷰포트 높이로 덮어씀.
+var board_y: int = 150          # 보드 상단 y (기본 150~662). 거점 띠·트레이가 전부 이 값에서 파생됨.
+var bot_y: int = 700            # 하단 패널 상단 (거점 띠 아래, 트레이 시작)
+var vh: float = 1000.0          # 현재 뷰포트 높이(리사이즈마다 갱신). 폭은 VW_BASE 고정.
+const VW_BASE: float = 800.0    # 논리 폭(portrait+expand에서 항상 800)
+const HUD_H: float = 144.0      # 상단 HUD 띠 높이(상단 고정)
+const TRAY_PANEL_H: float = 300.0  # 하단 트레이 패널 높이(하단 고정) = 원본 1000-700
+const CORE_BLOCK_H: float = 550.0  # 보드(512)+거점 띠 여백 = board_y부터 tray까지 확보할 세로
 
 # 적 타입 (basic/fast/tank/swarm/split)
 # ⚠split은 반드시 배열 끝 — pick_etype iteration 순서가 회귀 시드에 물려 있다(끝+weight0 = 무영향).
@@ -189,7 +195,8 @@ const SNAPBACK_DUR: float = 0.14     # 못 놓는 자리에서 뗐을 때 트레
 const PREVIEW_MIX: float = 0.33      # 착지 미리보기 = 셀 배경 위에 조각색을 이 비율로 (원본 픽셀 샘플링값)
 
 # 입력 방식 토글 버튼 — PC 테스트 전용. 모바일 빌드의 기본은 드래그앤드롭.
-const MODE_BTN := Rect2(596.0, 900.0, 184.0, 46.0)
+# 트레이 패널 안(bot_y 아래 200px)에 얹히므로 _relayout에서 bot_y 기준으로 재배치.
+var mode_btn := Rect2(596.0, 900.0, 184.0, 46.0)
 
 # 설정 기어 — 플레이 중 우상단. 콤보 표시(우상단 y=26)와는 콤보를 왼쪽으로 밀어 비켜준다.
 const SETTINGS_GEAR := Rect2(748.0, 30.0, 44.0, 44.0)
@@ -496,7 +503,27 @@ func _ready() -> void:
 	var sf := SystemFont.new()
 	sf.font_names = PackedStringArray(["Apple SD Gothic Neo", "AppleGothic", "Noto Sans CJK KR", "Arial"])
 	_font = sf
+	_relayout()
+	get_viewport().size_changed.connect(_relayout)
 	mode = "menu"
+
+# 세로 레이아웃을 현재 뷰포트 높이에서 파생한다. portrait+expand라 폭은 800 고정, 높이만 실기기 비율로 늘어난다.
+# 앵커: HUD=상단 고정 · 트레이+거점=하단 고정 · 보드=그 사이 중앙(엄지 닿는 트레이를 맨 아래로).
+# 800×1000(데스크톱 기본)에선 board_y=150·bot_y=700로 원본과 픽셀-동일하게 떨어진다.
+# ⚠세이프에어리어(노치) 인셋은 실기기 배관에서 DisplayServer.get_display_safe_area()로 채운다 — 지금은 0.
+func _relayout() -> void:
+	vh = get_viewport_rect().size.y
+	bot_y = int(vh - TRAY_PANEL_H)                 # 트레이 패널을 화면 맨 아래에 고정
+	# 보드+거점 블록(550)을 HUD 아래와 트레이 위 사이에 중앙 배치. 짧은 창에선 트레이와 안 겹치게 클램프.
+	var centered: int = int(HUD_H) + int(max(6.0, (float(bot_y) - HUD_H - CORE_BLOCK_H) * 0.5))
+	board_y = min(centered, bot_y - int(CORE_BLOCK_H))
+	mode_btn = Rect2(596.0, float(bot_y) + 200.0, 184.0, 46.0)  # 트레이 안, bot_y 기준
+	queue_redraw()
+
+# 메뉴·레벨선택은 1000 기준 고정 좌표로 authoring됨 — 뷰포트가 더 크면 이만큼 내려 세로 중앙에 둔다.
+# 그리기는 draw_set_transform, 입력은 좌표에서 이 값을 빼 히트테스트한다(둘이 항상 같은 오프셋).
+func _ui_dy() -> float:
+	return (vh - 1000.0) * 0.5
 
 # 로컬 베스트 영속(user://). 플랫폼 리더보드는 소프트런치 셸에서(C50 ③), 지금은 로컬만.
 const ENDLESS_SAVE: String = "user://endless.save"
@@ -975,7 +1002,7 @@ func _tray_slot_rect(i: int) -> Rect2:
 	var total_w: float = float(3 * TRAY_SLOT_W + 2 * TRAY_SLOT_GAP)
 	var start_x: float = (800.0 - total_w) * 0.5
 	var sx: float = start_x + float(i) * float(TRAY_SLOT_W + TRAY_SLOT_GAP)
-	return Rect2(sx, float(BOT_Y) + 15.0, float(TRAY_SLOT_W), float(TRAY_SLOT_H))
+	return Rect2(sx, float(bot_y) + 15.0, float(TRAY_SLOT_W), float(TRAY_SLOT_H))
 
 # ===== 유틸 =====
 func _color_of(key: String) -> Color:
@@ -1000,7 +1027,7 @@ func _ghost_cells() -> Array:
 	return out
 
 func _cell_center(col: int, row: int) -> Vector2:
-	return Vector2(BOARD_X + col * CELL + CELL * 0.5, BOARD_Y + row * CELL + CELL * 0.5)
+	return Vector2(BOARD_X + col * CELL + CELL * 0.5, board_y + row * CELL + CELL * 0.5)
 
 # 적 몸통의 중심 = 셀 중심. E_BODY_DY는 0이다.
 # C41은 상시 HP 게이지가 셀 위쪽을 차지하니 몸통을 아래로(=10) 내려 게이지가 머리를
@@ -1039,7 +1066,7 @@ func _drag_origin_px() -> Vector2:
 func _sync_hover_from_drag() -> void:
 	var tl: Vector2 = _drag_origin_px()
 	hover_col = roundi((tl.x - float(BOARD_X)) / float(CELL))
-	hover_row = roundi((tl.y - float(BOARD_Y)) / float(CELL))
+	hover_row = roundi((tl.y - float(board_y)) / float(CELL))
 
 
 func _add_floater(pos: Vector2, text: String, color: Color, life: float, size: int = 22, pop: bool = false) -> void:
@@ -1325,7 +1352,7 @@ func _burst_lines() -> void:
 
 # 전멸(화면 전체 청소) 클라이맥스 — 보드 중앙에서 퍼지는 큰 충격파 + 히트스톱(셰이크·전체화면 섬광 없음)
 func _fire_climax() -> void:
-	var ctr: Vector2 = Vector2(BOARD_X + COLS * CELL * 0.5, BOARD_Y + ROWS * CELL * 0.5)
+	var ctr: Vector2 = Vector2(BOARD_X + COLS * CELL * 0.5, board_y + ROWS * CELL * 0.5)
 	hitstop = maxf(hitstop, 0.12)
 	impacts.append({"pos": ctr, "life": 1.0, "max": 1.0, "color": Color(1.0, 0.97, 0.65), "radius": CELL * 1.6, "star": true})
 	impacts.append({"pos": ctr, "life": 0.85, "max": 0.85, "color": Color(1.0, 0.82, 0.32), "radius": CELL * 2.8, "star": false})
@@ -1383,18 +1410,18 @@ func _apply_hit(h: Dictionary) -> void:
 func _rocket_pos(rocket: Dictionary, prog: float) -> Vector2:
 	if rocket["dir"] == "col":
 		var rx: float = BOARD_X + int(rocket["idx"]) * CELL + CELL * 0.5
-		var b_bot: float = BOARD_Y + ROWS * CELL
-		return Vector2(rx, b_bot + (BOARD_Y - b_bot) * prog)   # 아래→위
-	var ry: float = BOARD_Y + int(rocket["idx"]) * CELL + CELL * 0.5
+		var b_bot: float = board_y + ROWS * CELL
+		return Vector2(rx, b_bot + (board_y - b_bot) * prog)   # 아래→위
+	var ry: float = board_y + int(rocket["idx"]) * CELL + CELL * 0.5
 	return Vector2(BOARD_X + (COLS * CELL) * prog, ry)         # 좌→우
 
 # 발사 지점 머즐 플래시 (밝은 섬광)
 func _spawn_muzzle(dir: String, idx: int) -> void:
 	var pos: Vector2
 	if dir == "col":
-		pos = Vector2(BOARD_X + idx * CELL + CELL * 0.5, BOARD_Y + ROWS * CELL)   # 아래 끝
+		pos = Vector2(BOARD_X + idx * CELL + CELL * 0.5, board_y + ROWS * CELL)   # 아래 끝
 	else:
-		pos = Vector2(BOARD_X, BOARD_Y + idx * CELL + CELL * 0.5)                 # 좌 끝
+		pos = Vector2(BOARD_X, board_y + idx * CELL + CELL * 0.5)                 # 좌 끝
 	impacts.append({"pos": pos, "life": 0.16, "max": 0.16, "color": Color(1.0, 0.95, 0.6), "radius": CELL * 0.34, "star": false})
 
 # 적 타입 → 이펙트용 선명한 색 (어두운 배경/마룬 가시성 보정)
@@ -1445,7 +1472,7 @@ func _spawn_death(etype: String, ep: Vector2) -> void:
 func _reveal_leaks() -> void:
 	for col in pending_leaks:
 		core_hits.append({"col": col, "life": 0.5})
-		_add_floater(Vector2(BOARD_X + int(col) * CELL + CELL * 0.5, BOARD_Y + ROWS * CELL + 16.0),
+		_add_floater(Vector2(BOARD_X + int(col) * CELL + CELL * 0.5, board_y + ROWS * CELL + 16.0),
 				"-1", Color(1.0, 0.25, 0.25), 0.9, 40)
 	if pending_leaks.size() > 0:
 		red_flash = RED_FLASH_DUR
@@ -1662,7 +1689,7 @@ func _begin_core_death() -> void:
 func _core_burst() -> void:
 	red_flash = RED_FLASH_DUR
 	shake_timer = SHAKE_DUR * 2.0
-	var sy: float = float(BOARD_Y + ROWS * CELL) + 4.0
+	var sy: float = float(board_y + ROWS * CELL) + 4.0
 	var sw: float = float(COLS * CELL)
 	for _n in range(30):
 		var px: float = float(BOARD_X) + randf() * sw
@@ -1788,17 +1815,20 @@ func _return_held() -> void:
 
 func _input(event: InputEvent) -> void:
 	# ── 메인 메뉴(허브): Adventure(스테이지) / Classic(무한) ──
+	# 세로 중앙 오프셋(_ui_dy)만큼 화면을 내려 그리므로, 입력 좌표는 그만큼 되돌려 히트테스트한다.
 	if mode == "menu":
+		var mdy: Vector2 = Vector2(0.0, _ui_dy())
 		if event is InputEventMouseMotion:
-			var mmp: Vector2 = (event as InputEventMouseMotion).position
+			var mmp: Vector2 = (event as InputEventMouseMotion).position - mdy
 			_adv_hover = MENU_ADV_BTN.has_point(mmp)
 			_classic_hover = MENU_CLASSIC_BTN.has_point(mmp)
 		elif event is InputEventMouseButton:
 			var mb: InputEventMouseButton = event as InputEventMouseButton
 			if mb.pressed and mb.button_index == MOUSE_BUTTON_LEFT:
-				if MENU_ADV_BTN.has_point(mb.position):
+				var mbp: Vector2 = mb.position - mdy
+				if MENU_ADV_BTN.has_point(mbp):
 					mode = "select"                # 스테이지 목록으로
-				elif MENU_CLASSIC_BTN.has_point(mb.position):
+				elif MENU_CLASSIC_BTN.has_point(mbp):
 					_start_endless()               # 무한 모드 바로 시작
 		elif event is InputEventKey:
 			var mk: InputEventKey = event as InputEventKey
@@ -1810,20 +1840,22 @@ func _input(event: InputEvent) -> void:
 
 	# ── 레벨 선택 화면 ──
 	if mode == "select":
+		var sdy: Vector2 = Vector2(0.0, _ui_dy())
 		if event is InputEventMouseMotion:
-			var mp: Vector2 = (event as InputEventMouseMotion).position
+			var mp: Vector2 = (event as InputEventMouseMotion).position - sdy
 			hover_stage = _stage_at(mp)
 			_play_hover = PLAY_BTN.has_point(mp)
 			_back_hover = BACK_BTN.has_point(mp)
 		elif event is InputEventMouseButton:
 			var sm: InputEventMouseButton = event as InputEventMouseButton
 			if sm.pressed and sm.button_index == MOUSE_BUTTON_LEFT:
-				if BACK_BTN.has_point(sm.position):
+				var smp: Vector2 = sm.position - sdy
+				if BACK_BTN.has_point(smp):
 					mode = "menu"                       # 허브로 복귀(Classic은 메뉴에)
-				elif PLAY_BTN.has_point(sm.position):
+				elif PLAY_BTN.has_point(smp):
 					_start_stage(_current_stage())      # 하단 큰 버튼 = 지금 도전할 스테이지
 				else:
-					var hit: int = _stage_at(sm.position)   # 이미 깬 스테이지 재도전(잠긴 건 -1)
+					var hit: int = _stage_at(smp)   # 이미 깬 스테이지 재도전(잠긴 건 -1)
 					if hit >= 0:
 						_start_stage(hit)
 		elif event is InputEventKey:
@@ -1932,7 +1964,7 @@ func _input(event: InputEvent) -> void:
 			return
 
 		# 입력 방식 토글 버튼 (PC 테스트 편의용)
-		if mbe.pressed and MODE_BTN.has_point(mbe.position):
+		if mbe.pressed and mode_btn.has_point(mbe.position):
 			click_mode = not click_mode
 			_return_held()   # 모드가 바뀌면 들고 있던 조각은 트레이로 돌려놓는다
 			return
@@ -2121,18 +2153,25 @@ func _draw() -> void:
 	var fnt: Font = _font if _font != null else ThemeDB.fallback_font
 
 	if mode == "menu":
+		# 배경은 전체를 덮고, 콘텐츠만 세로 중앙으로 내린다(입력도 같은 오프셋으로 되돌림).
+		draw_rect(Rect2(-20, -20, VW_BASE + 40.0, vh + 40.0), C_BG)
+		draw_set_transform(Vector2(0.0, _ui_dy()))
 		_draw_menu(fnt)
+		draw_set_transform(Vector2.ZERO)
 		return
 
 	if mode == "select":
+		draw_rect(Rect2(-20, -20, VW_BASE + 40.0, vh + 40.0), C_BG)
+		draw_set_transform(Vector2(0.0, _ui_dy()))
 		_draw_select(fnt)
+		draw_set_transform(Vector2.ZERO)
 		return
 
 	if shake_timer > 0.0:
 		var mag: float = SHAKE_AMP * (shake_timer / SHAKE_DUR)
 		draw_set_transform(Vector2(randf_range(-mag, mag), randf_range(-mag, mag)))
 
-	draw_rect(Rect2(-20, -20, 840, 1040), C_BG)
+	draw_rect(Rect2(-20, -20, VW_BASE + 40.0, vh + 40.0), C_BG)
 
 	_draw_hud(fnt)
 	_draw_board(fnt)
@@ -2215,14 +2254,14 @@ func _draw() -> void:
 
 	if red_flash > 0.0:
 		var ra: float = (red_flash / RED_FLASH_DUR) * 0.5
-		draw_rect(Rect2(-20, -20, 840, 1040), Color(0.9, 0.05, 0.05, ra))
+		draw_rect(Rect2(-20, -20, VW_BASE + 40.0, vh + 40.0), Color(0.9, 0.05, 0.05, ra))
 
 	if flash_timer > 0.0:
 		var t: float = flash_timer / FLASH_DUR
 		# 콤보↑ = 더 밝고 뜨거운 섬광(흰색→따뜻한 주황)
 		var fint: float = 0.14 + 0.05 * float(mini(flash_combo, 6))
 		var fcol: Color = Color(1.0, 1.0, 1.0).lerp(Color(1.0, 0.68, 0.28), clampf(float(flash_combo - 2) / 5.0, 0.0, 1.0))
-		draw_rect(Rect2(0, 0, 800, 1000), Color(fcol.r, fcol.g, fcol.b, t * fint))
+		draw_rect(Rect2(0, 0, VW_BASE, vh), Color(fcol.r, fcol.g, fcol.b, t * fint))
 		if flash_combo >= 2:
 			var cs: String = "COMBO x%d" % flash_combo
 			var cbase: int = 44 + mini(flash_combo, 8) * 8
@@ -2287,8 +2326,10 @@ func _draw() -> void:
 #   ※막힘도 부활한다 — 실패 경로 하나만 부활 가능하면 나머지 실패는 그냥 샌다(C48 플테 정정).
 func _result_layout() -> Dictionary:
 	var revivable: bool = game_over and not revive_used
+	# 뷰포트가 1000보다 크면(실기기 세로) 팝업을 세로 중앙으로 내린다.
+	var dy: float = (vh - 1000.0) * 0.5
 	if revivable:
-		var p: Rect2 = Rect2(170.0, 234.0, 460.0, 500.0)
+		var p: Rect2 = Rect2(170.0, 234.0 + dy, 460.0, 500.0)
 		return {
 			"revivable": true,
 			"panel": p,
@@ -2296,13 +2337,13 @@ func _result_layout() -> Dictionary:
 			"retry": Rect2(275.0, p.position.y + 372.0, 250.0, 52.0),  # 부: 재도전
 			"home": Rect2(300.0, p.position.y + 446.0, 200.0, 34.0),   # 고스트: 홈
 		}
-	var p2: Rect2 = Rect2(170.0, 264.0, 460.0, 430.0)
+	var p2: Rect2 = Rect2(170.0, 264.0 + dy, 460.0, 430.0)
 	return {
 		"revivable": false,
 		"panel": p2,
 		"cont": Rect2(),
-		"retry": Rect2(240.0, 526.0, 320.0, 88.0),   # 주: 재도전
-		"home": Rect2(300.0, 630.0, 200.0, 40.0),
+		"retry": Rect2(240.0, 526.0 + dy, 320.0, 88.0),   # 주: 재도전
+		"home": Rect2(300.0, 630.0 + dy, 200.0, 40.0),
 	}
 
 # 광고 부활 — 세컨드 윈드. 실패 원인에 맞춰 하단 3줄만 손대 판을 살 만하게 하되 나머지는
@@ -2359,7 +2400,8 @@ func _result_advance() -> void:
 # 좌표는 한 곳(_settings_layout)에서만 정의 — 그리기(_draw_settings)와 입력(_settings_click)이 공유(C31 원칙).
 #   행 = 라벨(왼쪽) + 컨트롤(오른쪽), 전 행 동일 정렬. 800×1000 캔버스에 480폭 패널(좌우 160 여백).
 func _settings_layout() -> Dictionary:
-	var p: Rect2 = Rect2(160.0, 270.0, 480.0, 410.0)
+	# 뷰포트가 1000보다 크면(실기기 세로) 모달을 세로 중앙으로 내린다 — 나머지 좌표는 py에서 파생됨.
+	var p: Rect2 = Rect2(160.0, 270.0 + (vh - 1000.0) * 0.5, 480.0, 410.0)
 	var px: float = p.position.x
 	var py: float = p.position.y
 	var pw: float = p.size.x
@@ -2438,7 +2480,7 @@ func _draw_settings(fnt: Font) -> void:
 	var lay: Dictionary = _settings_layout()
 	var p: Rect2 = lay["panel"]
 	# 스크림 — 뒤 판을 눌러 모달임을 알린다(결과팝업과 동일 톤)
-	draw_rect(Rect2(-20, -20, 840, 1040), Color(0.0, 0.0, 0.0, 0.68))
+	draw_rect(Rect2(-20, -20, VW_BASE + 40.0, vh + 40.0), Color(0.0, 0.0, 0.0, 0.68))
 	# 패널(다크) — 그림자 + 본체 + 상단 강조바 + 테두리
 	var accent: Color = Color(0.55, 0.58, 0.72)
 	draw_rect(Rect2(p.position.x + 6.0, p.position.y + 10.0, p.size.x, p.size.y), Color(0.0, 0.0, 0.0, 0.45))
@@ -2515,7 +2557,7 @@ func _fail_headline() -> String:
 
 func _draw_result(fnt: Font) -> void:
 	# 스크림 — 팝업 뒤의 보드를 '멈춘 배경'으로 눌러둔다(모달 표시)
-	draw_rect(Rect2(-20, -20, 840, 1040), Color(0.0, 0.0, 0.0, 0.68))
+	draw_rect(Rect2(-20, -20, VW_BASE + 40.0, vh + 40.0), Color(0.0, 0.0, 0.0, 0.68))
 
 	var lay: Dictionary = _result_layout()
 	var p: Rect2 = lay["panel"]
@@ -2708,7 +2750,7 @@ func _stage_at(pos: Vector2) -> int:
 
 # ── 메인 메뉴(허브): 위 로고, 아래 두 갈래 버튼 ──
 func _draw_menu(fnt: Font) -> void:
-	draw_rect(Rect2(-20, -20, 840, 1040), C_BG)
+	# 배경은 _draw()가 이미 그렸다(오프셋 밖). 여기선 콘텐츠만.
 
 	# 로고: 게임명 + 태그라인(레퍼런스의 상단 로고 자리)
 	var title: String = "CASCADE"
@@ -2786,7 +2828,7 @@ func _draw_back_button(fnt: Font) -> void:
 	_draw_text_outlined(fnt, Vector2(r.position.x + 46.0, ay + 7.0), "홈", 20, Color.WHITE)
 
 func _draw_select(fnt: Font) -> void:
-	draw_rect(Rect2(-20, -20, 840, 1040), C_BG)
+	# 배경은 _draw()가 이미 그렸다(오프셋 밖). 여기선 콘텐츠만.
 
 	var title: String = "CASCADE"
 	var tw: float = fnt.get_string_size(title, HORIZONTAL_ALIGNMENT_LEFT, -1, 60).x
@@ -3029,7 +3071,7 @@ func _draw_heart(center: Vector2, s: float, col: Color) -> void:
 	]), col)
 
 func _draw_board(fnt: Font) -> void:
-	draw_rect(Rect2(BOARD_X - 2, BOARD_Y - 2, COLS * CELL + 4, ROWS * CELL + 4), C_BORD, false)
+	draw_rect(Rect2(BOARD_X - 2, board_y - 2, COLS * CELL + 4, ROWS * CELL + 4), C_BORD, false)
 	# 충전 중인 셀. 그리드 위에 따로 그린다(부푼 블록이 옆 셀 배경에 잘리지 않게).
 	var charging: Dictionary = {}
 	var chg: float = 0.0
@@ -3041,7 +3083,7 @@ func _draw_board(fnt: Font) -> void:
 	for r in range(ROWS):
 		for c in range(COLS):
 			var rx: float = BOARD_X + c * CELL
-			var ry: float = BOARD_Y + r * CELL
+			var ry: float = board_y + r * CELL
 			draw_rect(Rect2(rx, ry, CELL, CELL), C_CELL)
 			draw_rect(Rect2(rx, ry, CELL, CELL), C_GRID, false)
 			if board[r][c] == "" or charging.has(Vector2i(c, r)):
@@ -3062,7 +3104,7 @@ func _draw_board(fnt: Font) -> void:
 			has_pre_split = true
 			break
 	if has_pre_split:
-		var fy: float = float(BOARD_Y + SPLIT_ROW * CELL)   # row (SPLIT_ROW-1)↔SPLIT_ROW 경계 = 넘으면 분열
+		var fy: float = float(board_y + SPLIT_ROW * CELL)   # row (SPLIT_ROW-1)↔SPLIT_ROW 경계 = 넘으면 분열
 		var fpulse: float = 0.5 + 0.5 * sin(anim_t * 4.0)
 		var fcol: Color = Color(C_E_SPLIT.r, C_E_SPLIT.g, C_E_SPLIT.b, 0.32 + 0.30 * fpulse)
 		var f_right: float = float(BOARD_X + COLS * CELL)
@@ -3075,7 +3117,7 @@ func _draw_board(fnt: Font) -> void:
 	for ci2 in charging:
 		var cc: Vector2i = ci2 as Vector2i
 		var cx0: float = BOARD_X + cc.x * CELL
-		var cy0: float = BOARD_Y + cc.y * CELL
+		var cy0: float = board_y + cc.y * CELL
 		var bcol: Color = _color_of(board[cc.y][cc.x]).lerp(clear_tint, clampf(chg / CHARGE_TINT, 0.0, 1.0))
 		var hot: float = clampf((chg - CHARGE_TINT) / (1.0 - CHARGE_TINT), 0.0, 1.0)
 		bcol = bcol.lerp(Color(1.0, 1.0, 1.0), hot * 0.75)
@@ -3093,9 +3135,9 @@ func _draw_board(fnt: Font) -> void:
 		var ocol: Color = clear_tint.lerp(Color.WHITE, 0.5)
 		ocol.a = oa
 		for orow in clear_rows:
-			draw_rect(Rect2(BOARD_X, BOARD_Y + int(orow) * CELL, COLS * CELL, CELL), ocol, false, 3.0)
+			draw_rect(Rect2(BOARD_X, board_y + int(orow) * CELL, COLS * CELL, CELL), ocol, false, 3.0)
 		for ocol_i in clear_cols:
-			draw_rect(Rect2(BOARD_X + int(ocol_i) * CELL, BOARD_Y, CELL, ROWS * CELL), ocol, false, 3.0)
+			draw_rect(Rect2(BOARD_X + int(ocol_i) * CELL, board_y, CELL, ROWS * CELL), ocol, false, 3.0)
 
 	# 로켓 (라인 질주: 굵고 밝은 머리 + 길고 강한 발광 꼬리). 세로줄=아래→위, 가로줄=좌→우.
 	for rocket in rockets:
@@ -3172,7 +3214,7 @@ func _draw_board(fnt: Font) -> void:
 				if gset.has(pv):
 					continue   # 조각이 놓일 칸은 아래 고스트가 진하게 그린다
 				var prx: float = BOARD_X + pv.x * CELL
-				var pry: float = BOARD_Y + pv.y * CELL
+				var pry: float = board_y + pv.y * CELL
 				# 조각 색으로 '완전히' 통일 — 부분 혼합(0.75)은 파랑→노랑 사이 올리브를 거쳐 탁해진다.
 				# 실제 폭발의 색 통일 종착점과 같은 색이라, 프리뷰가 그대로 예고편이 된다.
 				var tint: Color = pcol.lerp(Color.WHITE, 0.10 + 0.22 * pulse)
@@ -3188,7 +3230,7 @@ func _draw_board(fnt: Font) -> void:
 			for gi2 in ghost:
 				var gc: Vector2i = gi2 as Vector2i
 				var rx: float = BOARD_X + gc.x * CELL
-				var ry: float = BOARD_Y + gc.y * CELL
+				var ry: float = board_y + gc.y * CELL
 				var grect: Rect2 = Rect2(rx + bpad, ry + bpad, CELL - bpad * 2.0, CELL - bpad * 2.0)
 				draw_rect(grect, shcol)
 				# 줄이 터질 자리면 프리뷰 줄과 같은 세기로 맥동 = "이 한 수가 줄을 완성한다"
@@ -3220,7 +3262,7 @@ func _draw_board(fnt: Font) -> void:
 		var vr: float = e.get("vis_row", float(er))
 		var cx: float = BOARD_X + ec * CELL + CELL * 0.5 + jit.x
 		# 몸통은 셀 중심보다 E_BODY_DY 아래 — 위쪽은 HP 게이지 자리다(_enemy_pos와 같은 셈).
-		var cy: float = BOARD_Y + vr * CELL + CELL * 0.5 + E_BODY_DY + jit.y
+		var cy: float = board_y + vr * CELL + CELL * 0.5 + E_BODY_DY + jit.y
 		var ratio: float = clampf(float(e["hp"]) / float(e["maxhp"]), 0.0, 1.0)
 		var etype: String = e["etype"]
 		# 몸통은 셀을 꽉 채운다 — 게이지가 상시로 없으니 자리를 양보할 이유가 없다(C41 복원).
@@ -3315,7 +3357,7 @@ func _draw_board(fnt: Font) -> void:
 		# 적끼리 포개진다). 몸통 머리를 조금 덮는 건 '유닛 위 체력바'의 흔한 문법이다.
 		if e["hp"] < e["maxhp"]:
 			var bx: float = cx - bar_w * 0.5
-			var by: float = float(BOARD_Y) + vr * float(CELL) + 2.0 + jit.y
+			var by: float = float(board_y) + vr * float(CELL) + 2.0 + jit.y
 			# 채움은 어두운 초록. 배경은 거의 검정 → 채움이 있든 없든 대비가 선다.
 			draw_rect(Rect2(bx, by, bar_w, bar_h), Color(0.07, 0.07, 0.09, 0.95))
 			draw_rect(Rect2(bx, by, bar_w * ratio, bar_h), Color(0.20, 0.72, 0.30))
@@ -3334,7 +3376,7 @@ func _draw_board(fnt: Font) -> void:
 			if fa <= 0.0:
 				continue
 			var frect: Rect2 = Rect2(
-					BOARD_X + cell.x * CELL + bpad, BOARD_Y + cell.y * CELL + bpad,
+					BOARD_X + cell.x * CELL + bpad, board_y + cell.y * CELL + bpad,
 					CELL - bpad * 2.0, CELL - bpad * 2.0)
 			# 셀 배경에서 제 색으로 밝아진다 — 원본의 '어둡게 나타나 밝아짐' (실측 페이드 50ms)
 			draw_rect(frect, C_CELL.lerp(_color_of(stuck_fill[cell]), fa))
@@ -3346,7 +3388,7 @@ func _draw_core(fnt: Font) -> void:
 	# (여기서 그리면 하단 패널에 덮여 '무너짐'이 안 보인다). 그 자리는 빈 채로 남는다.
 	if _core_strip_offset() > 0.0:
 		return
-	var sy: float = BOARD_Y + ROWS * CELL + 4.0
+	var sy: float = board_y + ROWS * CELL + 4.0
 	var sw: float = COLS * CELL
 	var core_max: int = director.core_hp_max()
 	var ratio: float = clampf(float(core_hp) / float(core_max), 0.0, 1.0)
@@ -3441,7 +3483,7 @@ func _draw_collapse() -> void:
 	# ① 거점 띠 — 보드보다 먼저 떨어져 나간다 (무너지는 순서가 곧 인과다)
 	var sf: float = _core_strip_offset()
 	if sf > 0.0 and sf <= 400.0:
-		var sy: float = float(BOARD_Y + ROWS * CELL) + 4.0 + sf
+		var sy: float = float(board_y + ROWS * CELL) + 4.0 + sf
 		draw_rect(Rect2(float(BOARD_X), sy, sw, 32.0), Color(0.20, 0.05, 0.06))
 		draw_rect(Rect2(float(BOARD_X), sy, sw, 32.0), Color(1.0, 0.35, 0.30, 0.7), false, 2.0)
 
@@ -3452,14 +3494,14 @@ func _draw_collapse() -> void:
 			if board[r][c] == "":
 				continue
 			var fall: float = _core_fall_offset(c)
-			if fall <= 0.0 or fall > 1000.0:
+			if fall <= 0.0 or fall > vh:
 				continue
 			draw_rect(Rect2(
-					BOARD_X + c * CELL + bpad, BOARD_Y + r * CELL + bpad + fall,
+					BOARD_X + c * CELL + bpad, board_y + r * CELL + bpad + fall,
 					CELL - bpad * 2.0, CELL - bpad * 2.0), _color_of(board[r][c]))
 
 func _draw_bottom(fnt: Font) -> void:
-	draw_rect(Rect2(0, BOT_Y, 800, 1000 - BOT_Y), C_HUD)
+	draw_rect(Rect2(0, bot_y, VW_BASE, vh - float(bot_y)), C_HUD)
 
 	# 3슬롯 트레이
 	for i in range(3):
@@ -3514,19 +3556,19 @@ func _draw_bottom(fnt: Font) -> void:
 					dash, HORIZONTAL_ALIGNMENT_LEFT, -1, 22, Color(0.3, 0.3, 0.4))
 
 	# 입력 방식 토글 (PC 테스트용) — 눌러서 드래그/클릭 전환
-	draw_rect(MODE_BTN, Color(0.20, 0.20, 0.31))
-	draw_rect(MODE_BTN, Color(0.45, 0.45, 0.6, 0.85), false, 2.0)
+	draw_rect(mode_btn, Color(0.20, 0.20, 0.31))
+	draw_rect(mode_btn, Color(0.45, 0.45, 0.6, 0.85), false, 2.0)
 	var mtxt: String = "CLICK MODE" if click_mode else "DRAG MODE"
 	var mw: float = fnt.get_string_size(mtxt, HORIZONTAL_ALIGNMENT_LEFT, -1, 18).x
-	draw_string(fnt, Vector2(MODE_BTN.get_center().x - mw * 0.5, MODE_BTN.position.y + 21.0),
+	draw_string(fnt, Vector2(mode_btn.get_center().x - mw * 0.5, mode_btn.position.y + 21.0),
 			mtxt, HORIZONTAL_ALIGNMENT_LEFT, -1, 18, Color(0.88, 0.88, 0.95))
 	var sub: String = "tap to switch"
 	var sw: float = fnt.get_string_size(sub, HORIZONTAL_ALIGNMENT_LEFT, -1, 13).x
-	draw_string(fnt, Vector2(MODE_BTN.get_center().x - sw * 0.5, MODE_BTN.position.y + 38.0),
+	draw_string(fnt, Vector2(mode_btn.get_center().x - sw * 0.5, mode_btn.position.y + 38.0),
 			sub, HORIZONTAL_ALIGNMENT_LEFT, -1, 13, Color(0.5, 0.5, 0.62))
 
 	# 조작 안내
-	var inst_y: float = float(BOT_Y) + float(TRAY_SLOT_H) + 30.0
+	var inst_y: float = float(bot_y) + float(TRAY_SLOT_H) + 30.0
 	var how: String = ("Click a piece, then click board to place" if click_mode
 			else "Drag a piece onto the board to place")
 	draw_string(fnt, Vector2(20.0, inst_y), how,
