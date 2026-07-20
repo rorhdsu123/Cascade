@@ -191,6 +191,9 @@ const PREVIEW_MIX: float = 0.33      # 착지 미리보기 = 셀 배경 위에 �
 # 입력 방식 토글 버튼 — PC 테스트 전용. 모바일 빌드의 기본은 드래그앤드롭.
 const MODE_BTN := Rect2(596.0, 900.0, 184.0, 46.0)
 
+# 설정 기어 — 플레이 중 우상단. 콤보 표시(우상단 y=26)와는 콤보를 왼쪽으로 밀어 비켜준다.
+const SETTINGS_GEAR := Rect2(748.0, 30.0, 44.0, 44.0)
+
 # 레전빌리티 연출
 const RED_FLASH_DUR: float = 0.35
 const SHAKE_DUR: float = 0.28
@@ -335,6 +338,19 @@ var _play_hover: bool = false    # 하단 시작 버튼 호버
 var _retry_hover: bool = false   # 결과 팝업 재도전 버튼 호버
 var _home_hover: bool = false    # 결과 팝업 홈 버튼 호버
 
+# 설정 모달 — 플레이 중 우상단 기어로 연다(게임 중 나가기/재시작 진입은 지금껏 죽은 뒤 결과팝업뿐이었다).
+#   토글(소리·배경음)은 아직 오디오 시스템이 없어 소리를 내지 않는다 — user://에 '선호'만 저장해 두고,
+#   오디오가 붙는 날 이 값을 소비한다(유저 결정: 미리 넣되 지속만). 죽은 토글이 아니라 예약된 선호다.
+var settings_open: bool = false
+var sound_on: bool = true        # SFX 선호(오디오 미구현 — 지속 저장만)
+var bgm_on: bool = false          # BGM 선호(오디오 미구현 — 지속 저장만, 레퍼런스 기본값 OFF)
+var _gear_hover: bool = false
+var _set_close_hover: bool = false
+var _set_home_hover: bool = false
+var _set_replay_hover: bool = false
+var _set_sound_hover: bool = false
+var _set_bgm_hover: bool = false
+
 # ===== 상태 =====
 var board: Array = []
 var enemies: Array = []
@@ -475,6 +491,7 @@ func _ready() -> void:
 	randomize()          # 코스메틱 전역 RNG
 	game_rng.randomize()  # 게임 스트림(프리플레이 기본; 데일리/회귀는 seed_game으로 덮어씀)
 	_load_endless_best()
+	_load_settings()
 	# 한글 렌더용 시스템 폰트(기본 fallback엔 한글 글리프 없음). ⚠배포 시엔 Noto Sans KR 등 번들 필요.
 	var sf := SystemFont.new()
 	sf.font_names = PackedStringArray(["Apple SD Gothic Neo", "AppleGothic", "Noto Sans CJK KR", "Arial"])
@@ -496,6 +513,25 @@ func _save_endless_best() -> void:
 	var f := FileAccess.open(ENDLESS_SAVE, FileAccess.WRITE)
 	if f != null:
 		f.store_32(endless_best)
+		f.close()
+
+# 설정 선호 영속(user://). 지금은 소리/배경음 두 불린뿐 — 오디오가 붙으면 여기서 읽어 소비한다.
+const SETTINGS_SAVE: String = "user://settings.save"
+
+func _load_settings() -> void:
+	if not FileAccess.file_exists(SETTINGS_SAVE):
+		return
+	var f := FileAccess.open(SETTINGS_SAVE, FileAccess.READ)
+	if f != null:
+		sound_on = f.get_8() != 0
+		bgm_on = f.get_8() != 0
+		f.close()
+
+func _save_settings() -> void:
+	var f := FileAccess.open(SETTINGS_SAVE, FileAccess.WRITE)
+	if f != null:
+		f.store_8(1 if sound_on else 0)
+		f.store_8(1 if bgm_on else 0)
 		f.close()
 
 # 점수 가산 + 판 중 최고 갱신 감지(HUD 실시간 신호). best>0일 때만 = 첫 판(best 0)은 '갱신'이 무의미.
@@ -525,9 +561,10 @@ func _all_cleared() -> bool:
 			return false
 	return true
 
-# 홈 복귀 대상: 점수 모드(무한·featured)는 메뉴 허브에서 시작 → 메뉴로, 스테이지는 목록(select)으로.
+# 홈 = 허브(Adventure/Classic 선택 화면). 스테이지·무한 모두 '홈으로'는 허브로 나간다(유저 정의: 허브가 홈).
+#   (구: 스테이지는 목록(select)이 홈이었으나 통일 — '홈'이 화면마다 다른 곳을 가리키면 헷갈린다.)
 func _home_mode() -> String:
-	return "menu" if (director != null and director.scores()) else "select"
+	return "menu"
 
 # 스테이지 시작 — 독립 레벨이라 보드·거점·적을 전부 초기화하고 st만 갈아끼운다
 func _start_stage(idx: int) -> void:
@@ -597,6 +634,7 @@ func _init_game() -> void:
 	drought = 0
 	game_over = false
 	game_clear = false
+	settings_open = false
 	_retry_hover = false
 	_home_hover = false
 	_cont_hover = false
@@ -1843,15 +1881,39 @@ func _input(event: InputEvent) -> void:
 				mode = _home_mode()
 		return
 
+	# ── 설정 모달: 열려 있으면 모달 입력만 처리(닫힐 때까지 판 입력 차단) ──
+	if settings_open:
+		var slay: Dictionary = _settings_layout()
+		if event is InputEventMouseMotion:
+			var mp2: Vector2 = (event as InputEventMouseMotion).position
+			_set_close_hover = (slay["close"] as Rect2).has_point(mp2)
+			_set_home_hover = (slay["home_btn"] as Rect2).has_point(mp2)
+			_set_replay_hover = (slay["replay_btn"] as Rect2).has_point(mp2)
+			_set_sound_hover = (slay["sound_tog"] as Rect2).has_point(mp2)
+			_set_bgm_hover = (slay["bgm_tog"] as Rect2).has_point(mp2)
+		elif event is InputEventMouseButton:
+			var sb: InputEventMouseButton = event as InputEventMouseButton
+			if sb.pressed and sb.button_index == MOUSE_BUTTON_LEFT:
+				_settings_click(sb.position, slay)
+		elif event is InputEventKey:
+			var sek: InputEventKey = event as InputEventKey
+			if sek.pressed and sek.keycode == KEY_ESCAPE:
+				settings_open = false   # ESC = 모달 닫기(홈 아님)
+		return
+
 	if event is InputEventKey:
 		var pk: InputEventKey = event as InputEventKey
 		if pk.pressed and pk.keycode == KEY_ESCAPE:
-			mode = _home_mode()  # 플레이 중 포기 → 무한은 허브, 스테이지는 목록으로
+			mode = _home_mode()  # 플레이 중 포기 → 홈(허브)으로
 			return
 
 	# resolve 재생 중에는 배치/선택 입력 정지 (연출 끝나면 자동 복귀)
 	if resolving:
 		return
+
+	# 우상단 기어 호버 (플레이 중 언제나)
+	if event is InputEventMouseMotion:
+		_gear_hover = SETTINGS_GEAR.has_point((event as InputEventMouseMotion).position)
 
 	# 들고 있는 조각은 두 모드 모두 포인터를 따라온다 — 화면 규칙(스냅=가능/부유=불가)이 같아진다.
 	if event is InputEventMouseMotion and dragging:
@@ -1861,6 +1923,12 @@ func _input(event: InputEvent) -> void:
 	if event is InputEventMouseButton:
 		var mbe: InputEventMouseButton = event as InputEventMouseButton
 		if mbe.button_index != MOUSE_BUTTON_LEFT:
+			return
+
+		# 설정 기어 → 모달 열기(들고 있던 조각은 트레이로 되돌림)
+		if mbe.pressed and SETTINGS_GEAR.has_point(mbe.position):
+			settings_open = true
+			_return_held()
 			return
 
 		# 입력 방식 토글 버튼 (PC 테스트 편의용)
@@ -2181,6 +2249,10 @@ func _draw() -> void:
 	if (game_over or game_clear) and not _death_playing():
 		_draw_result(fnt)
 
+	# 설정 모달 (플레이 중 기어로 열림) — 스크림째 최상단에 얹힌다
+	if settings_open:
+		_draw_settings(fnt)
+
 	# 클리어 축하 색종이 — 팝업 '위'에 흩날린다(최상단). 회전한 작은 직사각형.
 	for cc in confetti:
 		var cpos: Vector2 = cc["pos"]
@@ -2282,6 +2354,124 @@ func _result_advance() -> void:
 			mode = "select"
 	else:
 		_start_stage(stage_idx)
+
+# ===== 설정 모달 =====
+# 좌표는 한 곳(_settings_layout)에서만 정의 — 그리기(_draw_settings)와 입력(_settings_click)이 공유(C31 원칙).
+#   행 = 라벨(왼쪽) + 컨트롤(오른쪽), 전 행 동일 정렬. 800×1000 캔버스에 480폭 패널(좌우 160 여백).
+func _settings_layout() -> Dictionary:
+	var p: Rect2 = Rect2(160.0, 270.0, 480.0, 410.0)
+	var px: float = p.position.x
+	var py: float = p.position.y
+	var pw: float = p.size.x
+	var ctrl_r: float = px + pw - 36.0    # 컨트롤 오른쪽 정렬 기준선
+	var r1: float = py + 120.0            # 소리
+	var r2: float = py + 190.0            # 배경음
+	var r3: float = py + 288.0            # 홈
+	var r4: float = py + 356.0            # 다시하기
+	var tw: float = 66.0
+	var th: float = 32.0
+	var bw: float = 140.0
+	var bh: float = 50.0
+	return {
+		"panel": p,
+		"label_x": px + 36.0,
+		"title_y": py + 50.0,
+		"divider_y": py + 235.0,
+		"close": Rect2(px + pw - 56.0, py + 16.0, 40.0, 40.0),
+		"sound_tog": Rect2(ctrl_r - tw, r1 - th * 0.5, tw, th),
+		"bgm_tog": Rect2(ctrl_r - tw, r2 - th * 0.5, tw, th),
+		"home_btn": Rect2(ctrl_r - bw, r3 - bh * 0.5, bw, bh),
+		"replay_btn": Rect2(ctrl_r - bw, r4 - bh * 0.5, bw, bh),
+		"r1": r1, "r2": r2, "r3": r3, "r4": r4,
+	}
+
+func _settings_click(pos: Vector2, lay: Dictionary) -> void:
+	if (lay["close"] as Rect2).has_point(pos):
+		settings_open = false
+	elif (lay["sound_tog"] as Rect2).has_point(pos):
+		sound_on = not sound_on           # 지금은 소리를 안 내지만 선호를 저장(오디오 붙는 날 소비)
+		_save_settings()
+	elif (lay["bgm_tog"] as Rect2).has_point(pos):
+		bgm_on = not bgm_on
+		_save_settings()
+	elif (lay["home_btn"] as Rect2).has_point(pos):
+		settings_open = false
+		mode = _home_mode()               # 홈 = 허브(결과팝업 '홈으로'와 동일 경로)
+	elif (lay["replay_btn"] as Rect2).has_point(pos):
+		settings_open = false
+		_result_advance()                 # 재시작 = 감독이 정하는 재도전(스테이지=현 스테이지, 무한=새 런)
+	# 그 밖(패널 빈 곳·스크림)은 무시 = 모달. 잘못 눌러 튕기는 사고 방지(결과팝업과 동일 원칙).
+
+# 토글 스위치 — 초록 알약=켜짐(노브 오른쪽), 어두운 알약=꺼짐(노브 왼쪽). 색·위치 둘 다로 상태를 말한다.
+func _draw_toggle(r: Rect2, on: bool, hot: bool) -> void:
+	var mid_y: float = r.position.y + r.size.y * 0.5
+	var rad: float = r.size.y * 0.5
+	var base: Color = Color(0.28, 0.64, 0.36) if on else Color(0.19, 0.20, 0.29)
+	if hot:
+		base = base.lightened(0.10)
+	draw_rect(Rect2(r.position.x + rad, r.position.y, r.size.x - 2.0 * rad, r.size.y), base)
+	draw_circle(Vector2(r.position.x + rad, mid_y), rad, base)
+	draw_circle(Vector2(r.position.x + r.size.x - rad, mid_y), rad, base)
+	var kx: float = (r.position.x + r.size.x - rad) if on else (r.position.x + rad)
+	draw_circle(Vector2(kx, mid_y), rad - 4.0, Color(0.94, 0.94, 0.98))
+
+# 모달 안 작은 액션 버튼(홈=회색빛 유틸 / 다시하기=초록 '진행'). 결과팝업 버튼 언어 계승.
+func _draw_mini_button(fnt: Font, r: Rect2, label: String, hot: bool, accent: Color, ink: Color) -> void:
+	draw_rect(Rect2(r.position.x, r.position.y + 5.0, r.size.x, r.size.y), accent.darkened(0.5))
+	var base: Color = accent.lightened(0.12) if hot else accent
+	draw_rect(r, base)
+	draw_rect(Rect2(r.position.x, r.position.y, r.size.x, r.size.y * 0.32), Color(1.0, 1.0, 1.0, 0.14))
+	draw_rect(r, accent.darkened(0.35), false, 3.0)
+	var lw: float = fnt.get_string_size(label, HORIZONTAL_ALIGNMENT_LEFT, -1, 24).x
+	_draw_text_outlined(fnt, Vector2(r.position.x + r.size.x * 0.5 - lw * 0.5, r.position.y + r.size.y * 0.5 + 9.0), label, 24, ink)
+
+# 기어 아이콘 — 이(teeth) 8개 + 링 + 중심점. 작은 크기라 형태로만 '설정'을 말한다.
+func _draw_gear_icon(c: Vector2, rad: float, col: Color) -> void:
+	for i in range(8):
+		var a: float = TAU * float(i) / 8.0
+		var d: Vector2 = Vector2(cos(a), sin(a))
+		draw_line(c + d * (rad * 0.66), c + d * (rad * 1.02), col, 5.0)
+	draw_arc(c, rad * 0.66, 0.0, TAU, 28, col, 6.0)
+	draw_circle(c, rad * 0.26, col)
+
+func _draw_settings(fnt: Font) -> void:
+	var lay: Dictionary = _settings_layout()
+	var p: Rect2 = lay["panel"]
+	# 스크림 — 뒤 판을 눌러 모달임을 알린다(결과팝업과 동일 톤)
+	draw_rect(Rect2(-20, -20, 840, 1040), Color(0.0, 0.0, 0.0, 0.68))
+	# 패널(다크) — 그림자 + 본체 + 상단 강조바 + 테두리
+	var accent: Color = Color(0.55, 0.58, 0.72)
+	draw_rect(Rect2(p.position.x + 6.0, p.position.y + 10.0, p.size.x, p.size.y), Color(0.0, 0.0, 0.0, 0.45))
+	draw_rect(p, Color(0.11, 0.11, 0.18))
+	draw_rect(Rect2(p.position.x, p.position.y, p.size.x, 8.0), accent)
+	draw_rect(p, accent, false, 3.0)
+	var cx: float = p.position.x + p.size.x * 0.5
+	var lx: float = lay["label_x"]
+
+	# 제목 + X 닫기
+	var title: String = "설정"
+	var tw: float = fnt.get_string_size(title, HORIZONTAL_ALIGNMENT_LEFT, -1, 34).x
+	_draw_text_outlined(fnt, Vector2(cx - tw * 0.5, lay["title_y"]), title, 34, Color(0.92, 0.92, 0.98))
+	var cb: Rect2 = lay["close"]
+	var cc: Vector2 = cb.position + cb.size * 0.5
+	var xcol: Color = Color.WHITE if _set_close_hover else Color(0.65, 0.67, 0.78)
+	draw_line(cc + Vector2(-9, -9), cc + Vector2(9, 9), xcol, 4.0)
+	draw_line(cc + Vector2(9, -9), cc + Vector2(-9, 9), xcol, 4.0)
+
+	# 토글 행: 소리 · 배경음
+	_draw_text_outlined(fnt, Vector2(lx, float(lay["r1"]) + 9.0), "소리", 26, Color(0.86, 0.87, 0.95))
+	_draw_toggle(lay["sound_tog"], sound_on, _set_sound_hover)
+	_draw_text_outlined(fnt, Vector2(lx, float(lay["r2"]) + 9.0), "배경음", 26, Color(0.86, 0.87, 0.95))
+	_draw_toggle(lay["bgm_tog"], bgm_on, _set_bgm_hover)
+
+	# 구분선
+	draw_line(Vector2(lx, lay["divider_y"]), Vector2(p.position.x + p.size.x - 36.0, lay["divider_y"]), Color(1.0, 1.0, 1.0, 0.10), 2.0)
+
+	# 액션 행: 홈(메뉴로) · 다시하기(재시작)
+	_draw_text_outlined(fnt, Vector2(lx, float(lay["r3"]) + 9.0), "홈", 26, Color(0.86, 0.87, 0.95))
+	_draw_mini_button(fnt, lay["home_btn"], "홈으로", _set_home_hover, Color(0.30, 0.33, 0.44), Color(0.92, 0.93, 1.0))
+	_draw_text_outlined(fnt, Vector2(lx, float(lay["r4"]) + 9.0), "다시하기", 26, Color(0.86, 0.87, 0.95))
+	_draw_mini_button(fnt, lay["replay_btn"], "재시작", _set_replay_hover, Color(0.34, 0.72, 0.26), Color(0.98, 1.0, 0.94))
 
 # 재생 삼각형(▶) — '광고 영상을 본다'는 뜻. 오른쪽을 향한 정삼각형.
 func _draw_play_icon(c: Vector2, r: float, col: Color) -> void:
@@ -2489,8 +2679,9 @@ func _draw_result(fnt: Font) -> void:
 
 	# 키 힌트는 없다(C39). SPACE=주 동작(부활 가능하면 이어하기)·ESC=홈은 그대로 받는다.
 
-# ===== 홈(스테이지) 화면 =====
+# ===== 스테이지 선택 화면 (Adventure) — 홈(허브) 아래 한 단계 =====
 # Toon Blast식: 위쪽은 진행 상황(스테이지 목록·잠금), 시선의 착지점은 하단의 큰 시작 버튼.
+# 좌상단 화살표('홈')로 허브 복귀. (구: 이 화면을 '홈(스테이지)'이라 불렀으나 홈=허브로 통일)
 const SEL_X: float = 140.0
 const SEL_W: float = 520.0
 const SEL_Y0: float = 206.0   # 8스테이지 수용 위해 상향(C57). 소제목 y=166 아래 40px 여백
@@ -2592,7 +2783,7 @@ func _draw_back_button(fnt: Font) -> void:
 	draw_colored_polygon(PackedVector2Array([
 		Vector2(ax + 7.0, ay - 9.0), Vector2(ax - 7.0, ay), Vector2(ax + 7.0, ay + 9.0),
 	]), Color.WHITE)
-	_draw_text_outlined(fnt, Vector2(r.position.x + 46.0, ay + 7.0), "메뉴", 20, Color.WHITE)
+	_draw_text_outlined(fnt, Vector2(r.position.x + 46.0, ay + 7.0), "홈", 20, Color.WHITE)
 
 func _draw_select(fnt: Font) -> void:
 	draw_rect(Rect2(-20, -20, 840, 1040), C_BG)
@@ -2740,7 +2931,7 @@ func _draw_hud(fnt: Font) -> void:
 		var streak: String = "콤보 x%d" % combo
 		var stw: float = fnt.get_string_size(streak, HORIZONTAL_ALIGNMENT_LEFT, -1, 22).x
 		var scol: Color = Color(1.0, 0.45, 0.3) if risky else C_GOLD
-		_draw_text_outlined(fnt, Vector2(788.0 - stw, 26.0), streak, 22, scol)
+		_draw_text_outlined(fnt, Vector2(736.0 - stw, 26.0), streak, 22, scol)   # 736: 우상단 기어에 자리를 비켜줌
 
 	var step_every: int = director.hud_step_every()
 	var remain: int = step_every - (place_count % step_every)
@@ -2818,6 +3009,11 @@ func _draw_hud(fnt: Font) -> void:
 	# 처치 진행바는 제거했다 — 빨강/초록 가로 막대라 거점 HP 바(진짜 체력)와 색 언어가 겹쳐
 	# 'HP가 바닥났다'로 오독됐다. 목표 카드의 '남은 적' 숫자만으로 진행도는 충분히 읽힌다.
 	# 이로써 빨강은 거점 HP 전용이 된다.
+
+	# 우상단 설정 기어 — 활성 플레이 중에만(결과/설정 모달은 자체 스크림이 이 위를 덮는다).
+	if not game_over and not game_clear:
+		var gc: Vector2 = SETTINGS_GEAR.position + SETTINGS_GEAR.size * 0.5
+		_draw_gear_icon(gc, 16.0, Color(0.9, 0.92, 1.0) if _gear_hover else Color(0.55, 0.58, 0.72))
 
 # 하트 — HP 게이지가 체력임을 글자 없이 말하는 기호. 원 둘 + 아래로 뾰족한 삼각형.
 # s = 하트의 폭(=높이). center는 하트의 시각적 중심.
