@@ -322,7 +322,9 @@ var endless_beat_best: bool = false # 판 중에 이미 최고를 넘었나(HUD 
 #   코어는 director.clear_score()/kill_score()로 묻는다 — 모드 이름 대신 능력.
 var _adv_hover: bool = false       # 메뉴: Adventure(스테이지) 버튼 호버
 var _classic_hover: bool = false   # 메뉴: Classic(무한) 버튼 호버
-var _back_hover: bool = false      # select: 뒤로가기(메뉴) 버튼 호버
+var _lb_hover: bool = false        # 메뉴: 리더보드(우상단 트로피) 버튼 호버
+var _lb_play_hover: bool = false   # 리더보드 화면: 하단 '무한 도전' CTA 호버
+var _back_hover: bool = false      # select/리더보드: 뒤로가기(메뉴) 버튼 호버
 # featured 결정적 트랙(오늘의 시드) — 무한의 변주. piece/spawn이 배치 인덱스만의 순수 함수라
 #   같은 시드면 어떤 플레이 순서든 byte-identical 판(전원 동일 판 = 리더보드 공정성, C53 ⑤·C56 ⑧).
 # ⚠관측 전용 마커. 코어는 이걸로 분기하지 말 것 — 조각·스폰의 결정적 트랙 여부는 director.deterministic_track()
@@ -1740,6 +1742,7 @@ func _input(event: InputEvent) -> void:
 			var mmp: Vector2 = (event as InputEventMouseMotion).position
 			_adv_hover = MENU_ADV_BTN.has_point(mmp)
 			_classic_hover = MENU_CLASSIC_BTN.has_point(mmp)
+			_lb_hover = MENU_LB_BTN.has_point(mmp)
 		elif event is InputEventMouseButton:
 			var mb: InputEventMouseButton = event as InputEventMouseButton
 			if mb.pressed and mb.button_index == MOUSE_BUTTON_LEFT:
@@ -1747,12 +1750,37 @@ func _input(event: InputEvent) -> void:
 					mode = "select"                # 스테이지 목록으로
 				elif MENU_CLASSIC_BTN.has_point(mb.position):
 					_start_endless()               # 무한 모드 바로 시작
+				elif MENU_LB_BTN.has_point(mb.position):
+					mode = "leaderboard"           # 우상단 트로피 → 리더보드 peek
 		elif event is InputEventKey:
 			var mk: InputEventKey = event as InputEventKey
 			if mk.pressed and (mk.keycode == KEY_SPACE or mk.keycode == KEY_ENTER):
 				mode = "select"                    # 기본 = Adventure
 			elif mk.pressed and (mk.keycode == KEY_E or mk.keycode == KEY_0):
 				_start_endless()                   # E/0 = Classic(무한)
+			elif mk.pressed and mk.keycode == KEY_L:
+				mode = "leaderboard"               # L = 리더보드
+		return
+
+	# ── 리더보드 화면(peek): 뒤로=메뉴, 하단 CTA=무한 도전 ──
+	if mode == "leaderboard":
+		if event is InputEventMouseMotion:
+			var lp: Vector2 = (event as InputEventMouseMotion).position
+			_back_hover = BACK_BTN.has_point(lp)
+			_lb_play_hover = LB_PLAY_BTN.has_point(lp)
+		elif event is InputEventMouseButton:
+			var lmb: InputEventMouseButton = event as InputEventMouseButton
+			if lmb.pressed and lmb.button_index == MOUSE_BUTTON_LEFT:
+				if BACK_BTN.has_point(lmb.position):
+					mode = "menu"
+				elif LB_PLAY_BTN.has_point(lmb.position):
+					_start_endless()
+		elif event is InputEventKey:
+			var lk: InputEventKey = event as InputEventKey
+			if lk.pressed and lk.keycode == KEY_ESCAPE:
+				mode = "menu"
+			elif lk.pressed and (lk.keycode == KEY_SPACE or lk.keycode == KEY_E):
+				_start_endless()
 		return
 
 	# ── 레벨 선택 화면 ──
@@ -1888,7 +1916,7 @@ func _input(event: InputEvent) -> void:
 
 # ===== 프레임 =====
 func _process(delta: float) -> void:
-	if mode == "menu" or mode == "select":
+	if mode == "menu" or mode == "select" or mode == "leaderboard":
 		queue_redraw()
 		return
 	# 히트스톱: 게임 타이머 전부 정지, 그림만(시간감소라 항상 해제 → 데드락 없음)
@@ -2043,6 +2071,10 @@ func _draw() -> void:
 
 	if mode == "select":
 		_draw_select(fnt)
+		return
+
+	if mode == "leaderboard":
+		_draw_leaderboard(fnt)
 		return
 
 	if shake_timer > 0.0:
@@ -2324,9 +2356,16 @@ func _draw_result(fnt: Font) -> void:
 
 	# 무한: 런 종료 시점에 베스트 확정(부활로 이어가면 다음 팝업서 재갱신). 신기록이면 배지.
 	# 제출은 서비스로만 — 로컬 영속 + (모바일 때) 플랫폼 통지. best 캐시 미러 갱신.
-	if director.scores() and endless_score > endless_best:
-		endless_new_best = _leaderboard.submit(endless_score)
-		endless_best = _leaderboard.best()
+	#   부활 안 쓴 판(revive_used==false)이면 '무부활 최고점'(개인기록)도 함께 갱신 — 이건
+	#   메인 베스트를 못 넘어도 오를 수 있어(광고로 안 산 점수) 별도 가드로 본다.
+	if director.scores():
+		var can_main: bool = endless_score > endless_best
+		var can_clean: bool = not revive_used and endless_score > _leaderboard.clean_best()
+		if can_main or can_clean:
+			var nb: bool = _leaderboard.submit(endless_score, revive_used)
+			if can_main:
+				endless_new_best = nb
+				endless_best = _leaderboard.best()
 
 	# ① 헤드라인. 혼자만 크다.
 	#    폭에 맞춰 줄인다 — "아쉬워요!"는 5자라 64px가 넉넉하지만 "스테이지 클리어!"는 8자라
@@ -2488,7 +2527,9 @@ const PLAY_BTN: Rect2 = Rect2(150.0, 742.0, 500.0, 126.0)
 #   레퍼런스(Block Blast)의 홈 = 위 로고, 아래 큰 버튼 두 개. select(스테이지 목록)는 Adventure 안쪽.
 const MENU_ADV_BTN: Rect2 = Rect2(150.0, 600.0, 500.0, 116.0)     # 오렌지 = 스테이지(모험)
 const MENU_CLASSIC_BTN: Rect2 = Rect2(150.0, 740.0, 500.0, 116.0) # 블루 = 무한(∞)
-const BACK_BTN: Rect2 = Rect2(24.0, 24.0, 132.0, 54.0)           # select → 메뉴 복귀
+const MENU_LB_BTN: Rect2 = Rect2(560.0, 40.0, 216.0, 60.0)       # 우상단 트로피 = 리더보드(opt-in 천장, 모드 아님)
+const BACK_BTN: Rect2 = Rect2(24.0, 24.0, 132.0, 54.0)           # select/리더보드 → 메뉴 복귀
+const LB_PLAY_BTN: Rect2 = Rect2(150.0, 786.0, 500.0, 76.0)       # 리더보드 → 무한 도전(peek를 플레이로)
 
 func _stage_rect(i: int) -> Rect2:
 	return Rect2(SEL_X, SEL_Y0 + float(i) * (SEL_H + SEL_GAP), SEL_W, SEL_H)
@@ -2520,6 +2561,16 @@ func _draw_menu(fnt: Font) -> void:
 	_draw_menu_button(fnt, MENU_CLASSIC_BTN, _classic_hover,
 			Color(0.42, 0.68, 0.92), Color(0.30, 0.56, 0.82), Color(0.10, 0.26, 0.44),
 			"무한", "끝없이 도전 · 최고점", "classic")
+
+	# 우상단 리더보드 진입(모드 아닌 peek — opt-in 경쟁 천장). 트로피 + "리더보드".
+	var lb: Rect2 = MENU_LB_BTN
+	draw_rect(Rect2(lb.position.x, lb.position.y + 5.0, lb.size.x, lb.size.y), Color(0.30, 0.24, 0.05))
+	draw_rect(lb, Color(0.24, 0.22, 0.14) if _lb_hover else Color(0.18, 0.17, 0.11))
+	draw_rect(lb, C_GOLD if _lb_hover else Color(0.55, 0.48, 0.2), false, 2.0)
+	var lb_mid: float = lb.position.y + lb.size.y * 0.5
+	_draw_trophy(Vector2(lb.position.x + 34.0, lb_mid), 26.0, C_GOLD)
+	_draw_text_outlined(fnt, Vector2(lb.position.x + 58.0, lb_mid + 7.0), "리더보드", 22,
+			Color.WHITE if _lb_hover else Color(0.9, 0.88, 0.78))
 
 	var hint: String = "SPACE = 스테이지 · E = 무한"
 	var hw: float = fnt.get_string_size(hint, HORIZONTAL_ALIGNMENT_LEFT, -1, 17).x
@@ -2566,6 +2617,149 @@ func _draw_flag(c: Vector2, s: float, col: Color) -> void:
 		Vector2(c.x + s * 0.5, c.y - s * 0.22),
 		Vector2(c.x - s * 0.34, c.y + s * 0.06),
 	]), col)
+
+# 트로피 심볼(컵 + 손잡이 + 받침) — 리더보드 표식. c=중심, s=대략 높이 반경
+func _draw_trophy(c: Vector2, s: float, col: Color) -> void:
+	# 컵 볼(위 넓고 아래 좁은 사다리꼴)
+	draw_colored_polygon(PackedVector2Array([
+		Vector2(c.x - s * 0.45, c.y - s * 0.6),
+		Vector2(c.x + s * 0.45, c.y - s * 0.6),
+		Vector2(c.x + s * 0.28, c.y + s * 0.05),
+		Vector2(c.x - s * 0.28, c.y + s * 0.05),
+	]), col)
+	# 양쪽 손잡이(반원 윤곽)
+	draw_arc(Vector2(c.x - s * 0.45, c.y - s * 0.42), s * 0.26, PI * 0.5, PI * 1.5, 10, col, 3.0)
+	draw_arc(Vector2(c.x + s * 0.45, c.y - s * 0.42), s * 0.26, -PI * 0.5, PI * 0.5, 10, col, 3.0)
+	# 기둥 + 받침
+	draw_rect(Rect2(c.x - s * 0.09, c.y + s * 0.05, s * 0.18, s * 0.32), col)
+	draw_rect(Rect2(c.x - s * 0.34, c.y + s * 0.37, s * 0.68, s * 0.16), col)
+
+# ===== 리더보드 화면 =====
+# 기획(endless-leaderboard-design): 친구 우선 + 글로벌은 퍼센타일로만, 부활 점수 인정(무표식),
+#   무부활 최고점은 개인기록 배지로 살짝. 데이터는 전부 LeaderboardService에서만 읽는다
+#   (지금 로컬 미리보기 → 모바일 배관 때 플랫폼 실값으로 승격).
+func _draw_leaderboard(fnt: Font) -> void:
+	draw_rect(Rect2(-20, -20, 840, 1040), C_BG)
+
+	var best: int = _leaderboard.best()
+	var clean: int = _leaderboard.clean_best()
+	var pct: int = _leaderboard.percentile()
+	var fr: Dictionary = _leaderboard.friend_rank()
+	var rows: Array = _leaderboard.board()
+
+	# ── 타이틀(트로피 + "리더보드") ──
+	var ttl: String = "리더보드"
+	var ttl_fs: int = 40
+	var ttl_w: float = fnt.get_string_size(ttl, HORIZONTAL_ALIGNMENT_LEFT, -1, ttl_fs).x
+	var grp_w: float = 44.0 + ttl_w
+	var grp_l: float = 400.0 - grp_w * 0.5
+	_draw_trophy(Vector2(grp_l + 18.0, 82.0), 26.0, C_GOLD)
+	_draw_text_outlined(fnt, Vector2(grp_l + 44.0, 96.0), ttl, ttl_fs, C_GOLD)
+	var sub: String = "무한 · 최고점 자랑 보드"
+	var sub_w: float = fnt.get_string_size(sub, HORIZONTAL_ALIGNMENT_LEFT, -1, 16).x
+	_draw_text_outlined(fnt, Vector2(400.0 - sub_w * 0.5, 126.0), sub, 16, Color(0.62, 0.64, 0.78))
+
+	# ── 히어로: 글로벌 퍼센타일(운 편차를 뭉개는 대표 지표) ──
+	var hero: Rect2 = Rect2(40.0, 150.0, 720.0, 122.0)
+	draw_rect(Rect2(hero.position.x, hero.position.y + 6.0, hero.size.x, hero.size.y), Color(0.0, 0.0, 0.0, 0.35))
+	draw_rect(hero, Color(0.16, 0.15, 0.10))
+	draw_rect(hero, C_GOLD, false, 3.0)
+	if best <= 0:
+		# 빈 상태 — 압박 대신 초대(코지). 순위는 첫 기록부터 열린다.
+		var e1: String = "첫 기록에 도전!"
+		var e1w: float = fnt.get_string_size(e1, HORIZONTAL_ALIGNMENT_LEFT, -1, 40).x
+		_draw_text_outlined(fnt, Vector2(400.0 - e1w * 0.5, 212.0), e1, 40, C_GOLD)
+		var e2: String = "무한 모드에서 첫 점수를 남기면 순위가 열려요"
+		var e2w: float = fnt.get_string_size(e2, HORIZONTAL_ALIGNMENT_LEFT, -1, 18).x
+		_draw_text_outlined(fnt, Vector2(400.0 - e2w * 0.5, 250.0), e2, 18, Color(0.72, 0.74, 0.88))
+	else:
+		var ptxt: String = "상위 %d%%" % pct
+		var pfs: int = 56
+		var pw: float = fnt.get_string_size(ptxt, HORIZONTAL_ALIGNMENT_LEFT, -1, pfs).x
+		_draw_text_outlined(fnt, Vector2(400.0 - pw * 0.5, 216.0), ptxt, pfs, C_GOLD)
+		var ftxt: String = "친구 %d명 중 %d위" % [int(fr["total"]), int(fr["rank"])]
+		var ffw: float = fnt.get_string_size(ftxt, HORIZONTAL_ALIGNMENT_LEFT, -1, 22).x
+		_draw_text_outlined(fnt, Vector2(400.0 - ffw * 0.5, 254.0), ftxt, 22, Color(0.85, 0.86, 0.96))
+
+	# ── 내 기록: 최고(메인·부활 인정) + 무부활 최고(개인기록, 오른쪽에 살짝) ──
+	var rec: Rect2 = Rect2(40.0, 288.0, 720.0, 92.0)
+	draw_rect(rec, Color(0.13, 0.13, 0.2))
+	draw_rect(rec, Color(0.4, 0.42, 0.56), false, 2.0)
+	_draw_text_outlined(fnt, Vector2(rec.position.x + 24.0, 322.0), "내 최고", 16, Color(0.72, 0.74, 0.9))
+	var bnum: String = _comma(best) if best > 0 else "—"
+	_draw_text_outlined(fnt, Vector2(rec.position.x + 24.0, 366.0), bnum, 40, Color.WHITE)
+	if clean > 0:
+		# '광고로 안 산 점수' = 순수 실력 신호. 작고 조용하게(기획: 살짝).
+		var cl_cap: String = "부활 없이"
+		var cl_num: String = _comma(clean)
+		var cl_cap_w: float = fnt.get_string_size(cl_cap, HORIZONTAL_ALIGNMENT_LEFT, -1, 14).x
+		var cl_num_w: float = fnt.get_string_size(cl_num, HORIZONTAL_ALIGNMENT_LEFT, -1, 26).x
+		var rr: float = rec.position.x + rec.size.x - 24.0
+		_draw_text_outlined(fnt, Vector2(rr - cl_cap_w, 322.0), cl_cap, 14, Color(0.6, 0.72, 0.6))
+		_draw_text_outlined(fnt, Vector2(rr - cl_num_w, 362.0), cl_num, 26, Color(0.7, 0.9, 0.72))
+
+	# ── 친구 순위 리스트 ──
+	_draw_text_outlined(fnt, Vector2(44.0, 408.0), "친구 순위", 20, Color(0.82, 0.84, 0.95))
+	var ry: float = 424.0
+	var rh: float = 46.0
+	var rpitch: float = 52.0
+	for i in range(rows.size()):
+		var row: Dictionary = rows[i]
+		var you: bool = bool(row["you"])
+		var rank: int = i + 1
+		var rr2: Rect2 = Rect2(40.0, ry, 720.0, rh)
+		# YOU 행은 금색 하이라이트 — 리스트에서 '내 자리'를 색으로 즉시 찾게(hud-signal-by-color)
+		draw_rect(rr2, Color(0.20, 0.18, 0.08) if you else Color(0.12, 0.12, 0.18))
+		draw_rect(rr2, C_GOLD if you else Color(0.28, 0.3, 0.4), false, 3.0 if you else 1.5)
+		# 순위 원판(1~3위 메달색)
+		var mc: Color = _medal_color(rank)
+		var by: float = ry + rh * 0.5
+		draw_circle(Vector2(72.0, by), 17.0, mc)
+		var rn: String = str(rank)
+		var rnw: float = fnt.get_string_size(rn, HORIZONTAL_ALIGNMENT_LEFT, -1, 20).x
+		_draw_text_outlined(fnt, Vector2(72.0 - rnw * 0.5, by + 7.0), rn, 20, Color(0.1, 0.1, 0.14))
+		# 이름(YOU면 금색 + ★)
+		var nm: String = ("★ " + String(row["name"])) if you else String(row["name"])
+		_draw_text_outlined(fnt, Vector2(104.0, by + 7.0), nm, 22,
+				C_GOLD if you else Color.WHITE)
+		# 점수(우측 정렬)
+		var sc_i: int = int(row["score"])
+		var sc: String = _comma(sc_i) if sc_i > 0 else "—"
+		var scw: float = fnt.get_string_size(sc, HORIZONTAL_ALIGNMENT_LEFT, -1, 22).x
+		_draw_text_outlined(fnt, Vector2(740.0 - scw, by + 7.0), sc, 22,
+				C_GOLD if you else Color(0.86, 0.88, 0.98))
+		ry += rpitch
+
+	# ── 하단 CTA: 무한 도전(peek를 플레이로) ──
+	var cta: Rect2 = LB_PLAY_BTN
+	draw_rect(Rect2(cta.position.x, cta.position.y + 7.0, cta.size.x, cta.size.y), Color(0.10, 0.28, 0.14))
+	draw_rect(cta, Color(0.42, 0.82, 0.32) if _lb_play_hover else Color(0.34, 0.72, 0.26))
+	draw_rect(Rect2(cta.position.x, cta.position.y, cta.size.x, cta.size.y * 0.32), Color(1.0, 1.0, 1.0, 0.16))
+	draw_rect(cta, Color(0.16, 0.42, 0.18), false, 4.0)
+	var clab: String = "무한 도전"
+	var cfs: int = 34
+	var clw: float = fnt.get_string_size(clab, HORIZONTAL_ALIGNMENT_LEFT, -1, cfs).x
+	var cmid: float = cta.position.y + cta.size.y * 0.5
+	var cin_w: float = 26.0 + 14.0 + clw
+	var cin_l: float = cta.position.x + cta.size.x * 0.5 - cin_w * 0.5
+	_draw_play_icon(Vector2(cin_l + 13.0, cmid), 14.0, Color.WHITE)
+	_draw_text_outlined(fnt, Vector2(cin_l + 40.0, cmid + 12.0), clab, cfs, Color.WHITE, Color(0.10, 0.28, 0.14, 0.95))
+
+	# ── 정직 주석: 친구·퍼센타일은 플랫폼 연결 전 미리보기 ──
+	if not _leaderboard.has_platform():
+		var note: String = "미리보기 · 폰에 연결하면 실제 친구 순위가 표시돼요"
+		var nw: float = fnt.get_string_size(note, HORIZONTAL_ALIGNMENT_LEFT, -1, 14).x
+		_draw_text_outlined(fnt, Vector2(400.0 - nw * 0.5, 890.0), note, 14, Color(0.5, 0.52, 0.62))
+
+	_draw_back_button(fnt)
+
+# 순위 원판 색 — 1~3위 금/은/동, 그 외 어두운 회색
+func _medal_color(rank: int) -> Color:
+	match rank:
+		1: return C_GOLD
+		2: return Color(0.75, 0.76, 0.82)
+		3: return Color(0.8, 0.55, 0.35)
+		_: return Color(0.32, 0.34, 0.44)
 
 # select → 메뉴 복귀 버튼(좌상단 화살표 + 라벨)
 func _draw_back_button(fnt: Font) -> void:
