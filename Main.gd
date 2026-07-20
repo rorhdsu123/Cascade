@@ -112,20 +112,20 @@ const POOL_LEAN: Dictionary = {   # 줄-굶김: 퍼즐 축 압박 (I5 희소)
 const STAGES: Array = [
 	{
 		# 온보딩: basic만 + core_hp 넉넉 + pool RICH(I5 최다) = 퍼즐 무압박으로 '줄 완성' 코어만 가르침
-		"name": "첫 방어선", "tag": "줄을 완성해 레인을 청소한다",
+		"name": "st1_name", "tag": "st1_tag",
 		"total": 20, "core_hp": 7, "base_hp": 30, "hp_ramp": 0.0, "tank_mult": 2.5,
 		"spawn_every": 3, "step_every": 3, "onboard": 20, "floor": 4, "surge_at": 0.85,
 		"weights": {"basic": 100, "fast": 0, "tank": 0, "swarm": 0, "split": 0}, "pool": POOL_RICH,
 	},
 	{
 		# desync로 무리 절반이 base_step−1로 더 빨리 전진 → 행·열로 흩어져 한 줄론 못 쓸어냄
-		"name": "무리", "tag": "흩어져 밀려온다 — 한 줄로는 못 쓴다",
+		"name": "st2_name", "tag": "st2_tag",
 		"total": 30, "core_hp": 3, "base_hp": 32, "hp_ramp": 0.4, "tank_mult": 2.5,
 		"spawn_every": 2, "step_every": 3, "onboard": 4, "floor": 5, "surge_at": 0.82,
 		"weights": {"basic": 40, "fast": 0, "tank": 0, "swarm": 60, "split": 0}, "pool": POOL_RICH,
 	},
 	{
-		"name": "속공", "tag": "빠르다 — 시간이 없다",
+		"name": "st3_name", "tag": "st3_tag",
 		"total": 34, "core_hp": 3, "base_hp": 34, "hp_ramp": 0.5, "tank_mult": 2.5,
 		"spawn_every": 2, "step_every": 3, "onboard": 3, "floor": 5, "surge_at": 0.80,
 		"weights": {"basic": 40, "fast": 50, "tank": 0, "swarm": 10, "split": 0}, "pool": POOL_STD,
@@ -133,20 +133,20 @@ const STAGES: Array = [
 	{
 		# 퍼즐 축 고립(C54): 새 적 없이 pool LEAN(I5 희소)만으로 압박 = '손이 곧 위협'.
 		# 적은 basic/swarm(이미 배운 것)이라 난이도는 전적으로 조각 분포에서 나온다.
-		"name": "줄 굶김", "tag": "직선이 굶는다 — 손이 곧 위협",
+		"name": "st4_name", "tag": "st4_tag",
 		"total": 36, "core_hp": 3, "base_hp": 36, "hp_ramp": 0.4, "tank_mult": 2.5,
 		"spawn_every": 2, "step_every": 3, "onboard": 3, "floor": 5, "surge_at": 0.80,
 		"weights": {"basic": 55, "fast": 0, "tank": 0, "swarm": 45, "split": 0}, "pool": POOL_LEAN,
 	},
 	{
 		# tank HP를 콤보3(240) 구간에 앉힌다: base 44~50 × 4.5 = 198~227 → 콤보2(180)로는 안 뚫림.
-		"name": "장갑", "tag": "한 방으론 안 뚫린다 — 콤보를 쌓아라",
+		"name": "st5_name", "tag": "st5_tag",
 		"total": 44, "core_hp": 2, "base_hp": 44, "hp_ramp": 0.3, "tank_mult": 4.5,
 		"spawn_every": 2, "step_every": 3, "onboard": 3, "floor": 5, "surge_at": 0.80,
 		"weights": {"basic": 40, "fast": 0, "tank": 55, "swarm": 5, "split": 0}, "pool": POOL_STD,
 	},
 	{
-		"name": "총력전", "tag": "전부 온다",
+		"name": "st6_name", "tag": "st6_tag",
 		"total": 48, "core_hp": 2, "base_hp": 46, "hp_ramp": 0.4, "tank_mult": 4.2,
 		"spawn_every": 2, "step_every": 3, "onboard": 2, "floor": 6, "surge_at": 0.78,
 		"weights": {"basic": 20, "fast": 35, "tank": 25, "swarm": 20, "split": 0}, "pool": POOL_STD,
@@ -159,7 +159,7 @@ const STAGES: Array = [
 		# core_hp 3 = 새 위협을 배울 한 칸 여유(다음 스테이지에서 2로 조인다).
 		# ⚠도입은 climax보다 물러야 한다: total·base_hp를 S5/S6 최댓값에서 내리고 split 40%로 격리 —
 		#   split 55%+total52+hp48은 sim서 도입이 climax만큼 가혹(23→10 절벽). 새 기전만 변수로 세운다.
-		"name": "분열", "tag": "갈라진다 — 높이 있을 때 잡아라",
+		"name": "st7_name", "tag": "st7_tag",
 		"total": 48, "core_hp": 3, "base_hp": 44, "hp_ramp": 0.35, "tank_mult": 4.2,
 		"spawn_every": 2, "step_every": 3, "onboard": 3, "floor": 6, "surge_at": 0.80,
 		"weights": {"basic": 60, "fast": 0, "tank": 0, "swarm": 0, "split": 40}, "pool": POOL_STD,
@@ -168,7 +168,7 @@ const STAGES: Array = [
 		# act-3 클라이맥스 = 전 로스터 + 분열 + core_hp 2 (S1 '첫 방어선'과 수미상관 '최종 방어선').
 		# 분열은 방어축 레버(거점사 지배)라 청소 처리량을 굶기는 tank/fast/swarm 위에 겹쳐 얹힌다.
 		# split 25%(수확 시작점) — 100%가 아니라, 다른 위협과 섞여야 '전부 온다'가 성립.
-		"name": "최종 방어선", "tag": "전부 온다 — 그리고 갈라진다",
+		"name": "st8_name", "tag": "st8_tag",
 		"total": 56, "core_hp": 2, "base_hp": 50, "hp_ramp": 0.4, "tank_mult": 4.2,
 		"spawn_every": 2, "step_every": 3, "onboard": 2, "floor": 6, "surge_at": 0.78,
 		"weights": {"basic": 15, "fast": 25, "tank": 20, "swarm": 15, "split": 25}, "pool": POOL_STD,
@@ -459,7 +459,13 @@ var pending_core_dead: bool = false
 var enemy_seq: int = 0             # 적 고유 id 카운터
 
 # ===== 초기화 =====
+const I18N = preload("res://i18n.gd")   # UI 로컬라이제이션 테이블(en base + ko). 새 언어=로케일 추가.
 var _font: Font = null
+var _locale: String = I18N.DEFAULT_LOCALE   # 기기 언어에서 파생(_ready). 미지원이면 en. i18n.gd 참고.
+
+# UI 문자열 조회 단축 헬퍼 — 각 draw 사이트가 이걸로 현재 로케일 문자열을 얻는다.
+func _t(key: String) -> String:
+	return I18N.t(_locale, key)
 
 # 게임 결정성 전용 RNG — 조각 생성·적 스폰만 소비한다. 코스메틱(파편·셰이크·컨페티)은 전역 randf/randi로
 # 분리 유지 → 프레임레이트·연출 변화가 게임 수열을 흔들지 않는다(데일리 시드 리더보드 공정성의 전제).
@@ -499,10 +505,18 @@ func _ready() -> void:
 	game_rng.randomize()  # 게임 스트림(프리플레이 기본; 데일리/회귀는 seed_game으로 덮어씀)
 	_load_endless_best()
 	_load_settings()
-	# 한글 렌더용 시스템 폰트(기본 fallback엔 한글 글리프 없음). ⚠배포 시엔 Noto Sans KR 등 번들 필요.
+	_locale = I18N.resolve_locale(OS.get_locale_language())
+	# 번들 폰트(res://) — 시스템폰트 의존 제거. Noto Sans가 라틴/키릴/그리스를 커버(영어 우선 출시).
+	# 라틴 밖 글리프(개발용 한글, 이모지 등)는 SystemFont fallback으로만 뜬다 → 영어 실기기엔 안 나옴.
 	var sf := SystemFont.new()
 	sf.font_names = PackedStringArray(["Apple SD Gothic Neo", "AppleGothic", "Noto Sans CJK KR", "Arial"])
-	_font = sf
+	sf.allow_system_fallback = true   # 이모지(🏆 등)는 OS 이모지 폰트로 폴백
+	var noto := load("res://fonts/NotoSans-Regular.ttf") as FontFile
+	if noto != null:
+		noto.fallbacks = [sf]
+		_font = noto
+	else:
+		_font = sf   # 번들 로드 실패 시 안전망
 	_relayout()
 	get_viewport().size_changed.connect(_relayout)
 	mode = "menu"
@@ -1140,13 +1154,13 @@ func _streak_mult(streak: int) -> float:
 func _line_label(l: int) -> String:
 	match l:
 		2:
-			return "DOUBLE!"
+			return _t("ll_double")
 		3:
-			return "TRIPLE!"
+			return _t("ll_triple")
 		4:
-			return "TETRIS!"
+			return _t("ll_tetris")
 	if l >= 5:
-		return "MEGA!"
+		return _t("ll_mega")
 	return ""
 
 func _full_rows() -> Array:
@@ -1404,7 +1418,7 @@ func _apply_hit(h: Dictionary) -> void:
 		# 탱크가 버틸 때: 청록 방패링 + "BLOCK" 라벨 (역할 학습)
 		if etype == "tank":
 			impacts.append({"pos": ep, "life": 0.32, "max": 0.32, "color": C_E_FAST, "radius": CELL * 0.5})
-			_add_floater(ep + Vector2(0.0, -CELL * 0.42), "BLOCK", C_E_FAST, 0.55, 18)
+			_add_floater(ep + Vector2(0.0, -CELL * 0.42), _t("tell_block"), C_E_FAST, 0.55, 18)
 
 # 로켓 머리 위치 (prog 0=발사단 → 1=라인 끝)
 func _rocket_pos(rocket: Dictionary, prog: float) -> Vector2:
@@ -1584,13 +1598,13 @@ func _spawn_one(col: int, etype: String, step_override: int = 0) -> void:
 		seen_types[etype] = true
 		match etype:
 			"fast":
-				_set_callout("FAST — quick!")
+				_set_callout(_t("callout_fast"))
 			"tank":
-				_set_callout("TANK — big combo!")
+				_set_callout(_t("callout_tank"))
 			"swarm":
-				_set_callout("SWARM — sweep them!")
+				_set_callout(_t("callout_swarm"))
 			"split":
-				_set_callout("SPLIT — kill above the line!")   # 이제 파랑 점선이 실제로 보인다(공간 기준)
+				_set_callout(_t("callout_split"))   # 이제 파랑 점선이 실제로 보인다(공간 기준)
 
 # 분열선 도달 → 부모는 절반 HP로 남고(gen0 유지=웨이브 카운트 불변, split_done로 재분열 봉쇄),
 #   빈 인접 열 하나에 절반 HP 쌍둥이(gen1)를 뱉는다. 결정적 배치(randi 없음) = 회귀 시드 불변.
@@ -2263,7 +2277,7 @@ func _draw() -> void:
 		var fcol: Color = Color(1.0, 1.0, 1.0).lerp(Color(1.0, 0.68, 0.28), clampf(float(flash_combo - 2) / 5.0, 0.0, 1.0))
 		draw_rect(Rect2(0, 0, VW_BASE, vh), Color(fcol.r, fcol.g, fcol.b, t * fint))
 		if flash_combo >= 2:
-			var cs: String = "COMBO x%d" % flash_combo
+			var cs: String = _t("combo_flash") % flash_combo
 			var cbase: int = 44 + mini(flash_combo, 8) * 8
 			var csz: int = cbase + int(t * 14.0)
 			var cw: float = fnt.get_string_size(cs, HORIZONTAL_ALIGNMENT_LEFT, -1, csz).x
@@ -2491,7 +2505,7 @@ func _draw_settings(fnt: Font) -> void:
 	var lx: float = lay["label_x"]
 
 	# 제목 + X 닫기
-	var title: String = "설정"
+	var title: String = _t("settings")
 	var tw: float = fnt.get_string_size(title, HORIZONTAL_ALIGNMENT_LEFT, -1, 34).x
 	_draw_text_outlined(fnt, Vector2(cx - tw * 0.5, lay["title_y"]), title, 34, Color(0.92, 0.92, 0.98))
 	var cb: Rect2 = lay["close"]
@@ -2501,19 +2515,19 @@ func _draw_settings(fnt: Font) -> void:
 	draw_line(cc + Vector2(9, -9), cc + Vector2(-9, 9), xcol, 4.0)
 
 	# 토글 행: 소리 · 배경음
-	_draw_text_outlined(fnt, Vector2(lx, float(lay["r1"]) + 9.0), "소리", 26, Color(0.86, 0.87, 0.95))
+	_draw_text_outlined(fnt, Vector2(lx, float(lay["r1"]) + 9.0), _t("sound"), 26, Color(0.86, 0.87, 0.95))
 	_draw_toggle(lay["sound_tog"], sound_on, _set_sound_hover)
-	_draw_text_outlined(fnt, Vector2(lx, float(lay["r2"]) + 9.0), "배경음", 26, Color(0.86, 0.87, 0.95))
+	_draw_text_outlined(fnt, Vector2(lx, float(lay["r2"]) + 9.0), _t("music"), 26, Color(0.86, 0.87, 0.95))
 	_draw_toggle(lay["bgm_tog"], bgm_on, _set_bgm_hover)
 
 	# 구분선
 	draw_line(Vector2(lx, lay["divider_y"]), Vector2(p.position.x + p.size.x - 36.0, lay["divider_y"]), Color(1.0, 1.0, 1.0, 0.10), 2.0)
 
 	# 액션 행: 홈(메뉴로) · 다시하기(재시작)
-	_draw_text_outlined(fnt, Vector2(lx, float(lay["r3"]) + 9.0), "홈", 26, Color(0.86, 0.87, 0.95))
-	_draw_mini_button(fnt, lay["home_btn"], "홈으로", _set_home_hover, Color(0.30, 0.33, 0.44), Color(0.92, 0.93, 1.0))
-	_draw_text_outlined(fnt, Vector2(lx, float(lay["r4"]) + 9.0), "다시하기", 26, Color(0.86, 0.87, 0.95))
-	_draw_mini_button(fnt, lay["replay_btn"], "재시작", _set_replay_hover, Color(0.34, 0.72, 0.26), Color(0.98, 1.0, 0.94))
+	_draw_text_outlined(fnt, Vector2(lx, float(lay["r3"]) + 9.0), _t("home"), 26, Color(0.86, 0.87, 0.95))
+	_draw_mini_button(fnt, lay["home_btn"], _t("go_home"), _set_home_hover, Color(0.30, 0.33, 0.44), Color(0.92, 0.93, 1.0))
+	_draw_text_outlined(fnt, Vector2(lx, float(lay["r4"]) + 9.0), _t("restart_label"), 26, Color(0.86, 0.87, 0.95))
+	_draw_mini_button(fnt, lay["replay_btn"], _t("restart"), _set_replay_hover, Color(0.34, 0.72, 0.26), Color(0.98, 1.0, 0.94))
 
 # 재생 삼각형(▶) — '광고 영상을 본다'는 뜻. 오른쪽을 향한 정삼각형.
 func _draw_play_icon(c: Vector2, r: float, col: Color) -> void:
@@ -2550,10 +2564,10 @@ func _fail_headline() -> String:
 	var remaining: int = maxi(0, total - killed - leaked)
 	var ratio: float = float(remaining) / float(total)
 	if ratio <= FAIL_CLOSE:
-		return "거의 다 왔어요!"
+		return _t("fail_close")
 	if ratio <= FAIL_NEAR:
-		return "아쉬워요!"
-	return "다시 해볼까요?"
+		return _t("fail_near")
+	return _t("fail_far")
 
 func _draw_result(fnt: Font) -> void:
 	# 스크림 — 팝업 뒤의 보드를 '멈춘 배경'으로 눌러둔다(모달 표시)
@@ -2581,10 +2595,10 @@ func _draw_result(fnt: Font) -> void:
 	var msg: String
 	var msg_col: Color
 	if director.scores():
-		msg = "%s점" % _comma(endless_score)   # 점수 모드: 점수가 헤드라인(리더보드 지표)
+		msg = _t("score_headline") % _comma(endless_score)   # 점수 모드: 점수가 헤드라인(리더보드 지표)
 		msg_col = C_GOLD
 	elif game_clear:
-		msg = "스테이지 클리어!"
+		msg = _t("stage_clear")
 		msg_col = C_GOLD
 	else:
 		msg = _fail_headline()
@@ -2599,16 +2613,16 @@ func _draw_result(fnt: Font) -> void:
 
 	# ② 사유 — 판정을 받쳐주는 한 줄. 작게 둔다(헤드라인과 안 싸우게).
 	if director.scores():
-		var cause: String = "놓을 곳이 없다" if stuck else "거점 파괴"
-		var er: String = "깊이 %d · %s" % [place_count, cause]
+		var cause: String = _t("cause_stuck") if stuck else _t("cause_core")
+		var er: String = _t("depth_cause") % [place_count, cause]
 		var erw: float = fnt.get_string_size(er, HORIZONTAL_ALIGNMENT_LEFT, -1, 20).x
 		_draw_text_outlined(fnt, Vector2(cx - erw * 0.5, p.position.y + 124.0), er, 20, Color(0.8, 0.78, 1.0))
 	elif game_over:
-		var reason: String = "놓을 곳이 없다" if stuck else "거점 파괴"
+		var reason: String = _t("cause_stuck") if stuck else _t("cause_core")
 		var rw: float = fnt.get_string_size(reason, HORIZONTAL_ALIGNMENT_LEFT, -1, 20).x
 		_draw_text_outlined(fnt, Vector2(cx - rw * 0.5, p.position.y + 124.0), reason, 20, Color(1.0, 0.5, 0.5))
 	else:
-		var res: String = "완봉 — 한 마리도 놓치지 않았다" if leaked == 0 else "처치 %d · 누수 %d" % [killed, leaked]
+		var res: String = _t("shutout") if leaked == 0 else _t("kills_leaks") % [killed, leaked]
 		var rw2: float = fnt.get_string_size(res, HORIZONTAL_ALIGNMENT_LEFT, -1, 20).x
 		_draw_text_outlined(fnt, Vector2(cx - rw2 * 0.5, p.position.y + 124.0), res, 20,
 				Color(0.45, 0.9, 0.6) if leaked == 0 else Color(0.85, 0.7, 0.5))
@@ -2618,9 +2632,9 @@ func _draw_result(fnt: Font) -> void:
 		# 캡션 = 신기록이면 델타를 접어 넣음(획득감), 아니면 '최고'. 델타 별도 줄은 이어하기 버튼과 충돌.
 		var ecap: String
 		if endless_new_best:
-			ecap = "🏆 첫 기록!" if endless_prev_best <= 0 else "🏆 신기록! +%s" % _comma(endless_score - endless_prev_best)
+			ecap = _t("first_record") if endless_prev_best <= 0 else _t("new_record") % _comma(endless_score - endless_prev_best)
 		else:
-			ecap = "최고"
+			ecap = _t("best")
 		var ecap_fs: int = 20 if endless_new_best else 18
 		var ecap_col: Color = C_GOLD if endless_new_best else Color(0.72, 0.74, 0.9)
 		var ecw: float = fnt.get_string_size(ecap, HORIZONTAL_ALIGNMENT_LEFT, -1, ecap_fs).x
@@ -2633,7 +2647,7 @@ func _draw_result(fnt: Font) -> void:
 	else:
 		# 정의는 HUD 목표 카드와 동일(total - killed - leaked) → 게임 중 보던 그 숫자가 그대로.
 		var remaining: int = maxi(0, director.enemy_total() - killed - leaked)
-		var cap: String = "남은 적" if game_over else "처치"
+		var cap: String = _t("result_remaining") if game_over else _t("result_killed")
 		var cap_fs: int = 18
 		var cw: float = fnt.get_string_size(cap, HORIZONTAL_ALIGNMENT_LEFT, -1, cap_fs).x
 		_draw_text_outlined(fnt, Vector2(cx - cw * 0.5, p.position.y + 176.0), cap, cap_fs, Color(0.95, 0.85, 0.5))
@@ -2660,7 +2674,7 @@ func _draw_result(fnt: Font) -> void:
 		draw_rect(Rect2(cb.position.x, cb.position.y, cb.size.x, cb.size.y * 0.32), Color(1.0, 1.0, 1.0, 0.22))
 		draw_rect(cb, Color(0.5, 0.38, 0.1), false, 4.0)
 		# ▶ 아이콘 + "이어하기"
-		var clab: String = "이어하기"
+		var clab: String = _t("continue")
 		var cfs: int = 34
 		var clw: float = fnt.get_string_size(clab, HORIZONTAL_ALIGNMENT_LEFT, -1, cfs).x
 		var pr: float = 15.0
@@ -2677,9 +2691,9 @@ func _draw_result(fnt: Font) -> void:
 		_draw_text_outlined(fnt, Vector2(badge.position.x + badge.size.x * 0.5 - adw * 0.5, badge.position.y + 16.0), "AD", 14, Color(1.0, 0.9, 0.5))
 
 	# ── 재도전 버튼. 부활 가능하면 부차(작고 톤 다운), 아니면 주(초록 3D — 홈 시작 버튼 문법).
-	var label: String = "재도전"
+	var label: String = _t("retry")
 	if game_clear:
-		label = "다음 스테이지" if stage_idx + 1 < STAGES.size() else "홈으로"
+		label = _t("next_stage") if stage_idx + 1 < STAGES.size() else _t("go_home")
 	var r: Rect2 = lay["retry"]
 	var lfs: int = 26 if revivable else 38
 	var icon_r: float = 13.0 if revivable else 17.0
@@ -2713,7 +2727,7 @@ func _draw_result(fnt: Font) -> void:
 	if _home_hover:
 		draw_rect(h, Color(1.0, 1.0, 1.0, 0.08))
 	draw_rect(h, Color(0.5, 0.52, 0.62, 0.9 if _home_hover else 0.5), false, 2.0)
-	var hs: String = "홈으로"
+	var hs: String = _t("go_home")
 	var hfs: int = 20
 	var hw2: float = fnt.get_string_size(hs, HORIZONTAL_ALIGNMENT_LEFT, -1, hfs).x
 	_draw_text_outlined(fnt, Vector2(h.position.x + h.size.x * 0.5 - hw2 * 0.5, h.position.y + h.size.y * 0.5 + 7.0), hs, hfs,
@@ -2764,12 +2778,12 @@ func _draw_menu(fnt: Font) -> void:
 
 	_draw_menu_button(fnt, MENU_ADV_BTN, _adv_hover,
 			Color(0.98, 0.62, 0.16), Color(0.86, 0.48, 0.10), Color(0.55, 0.30, 0.05),
-			"스테이지", "차근차근 깨는 모험", "adv")
+			_t("adv_big"), _t("adv_sub"), "adv")
 	_draw_menu_button(fnt, MENU_CLASSIC_BTN, _classic_hover,
 			Color(0.42, 0.68, 0.92), Color(0.30, 0.56, 0.82), Color(0.10, 0.26, 0.44),
-			"무한", "끝없이 도전 · 최고점", "classic")
+			_t("endless_big"), _t("endless_sub"), "classic")
 
-	var hint: String = "SPACE = 스테이지 · E = 무한"
+	var hint: String = _t("menu_hint")
 	var hw: float = fnt.get_string_size(hint, HORIZONTAL_ALIGNMENT_LEFT, -1, 17).x
 	_draw_text_outlined(fnt, Vector2(400.0 - hw * 0.5, 910.0), hint, 17, Color(0.5, 0.52, 0.62))
 
@@ -2795,7 +2809,7 @@ func _draw_menu_button(fnt: Font, r: Rect2, hot: bool, base: Color, base_dim: Co
 	_draw_text_outlined(fnt, Vector2(lx, r.position.y + 88.0), sub, 18, Color(0.96, 0.98, 1.0, 0.9),
 			Color(shadow.r, shadow.g, shadow.b, 0.95))
 	if kind == "classic" and endless_best > 0:
-		var bst: String = "최고 %s" % _comma(endless_best)
+		var bst: String = _t("best_score") % _comma(endless_best)
 		var bfs: int = 22
 		var bw: float = fnt.get_string_size(bst, HORIZONTAL_ALIGNMENT_LEFT, -1, bfs).x
 		_draw_text_outlined(fnt, Vector2(r.position.x + r.size.x - bw - 24.0, r.position.y + r.size.y * 0.5 + 8.0),
@@ -2825,7 +2839,7 @@ func _draw_back_button(fnt: Font) -> void:
 	draw_colored_polygon(PackedVector2Array([
 		Vector2(ax + 7.0, ay - 9.0), Vector2(ax - 7.0, ay), Vector2(ax + 7.0, ay + 9.0),
 	]), Color.WHITE)
-	_draw_text_outlined(fnt, Vector2(r.position.x + 46.0, ay + 7.0), "홈", 20, Color.WHITE)
+	_draw_text_outlined(fnt, Vector2(r.position.x + 46.0, ay + 7.0), _t("home"), 20, Color.WHITE)
 
 func _draw_select(fnt: Font) -> void:
 	# 배경은 _draw()가 이미 그렸다(오프셋 밖). 여기선 콘텐츠만.
@@ -2837,13 +2851,13 @@ func _draw_select(fnt: Font) -> void:
 	for i in range(STAGES.size()):
 		if bool(cleared.get(i, false)):
 			done_n += 1
-	var sub: String = "클리어 %d / %d" % [done_n, STAGES.size()]
+	var sub: String = _t("cleared_count") % [done_n, STAGES.size()]
 	var sw: float = fnt.get_string_size(sub, HORIZONTAL_ALIGNMENT_LEFT, -1, 22).x
 	_draw_text_outlined(fnt, Vector2(400.0 - sw * 0.5, 166.0), sub, 22, Color(0.7, 0.72, 0.85))
 
 	# ⚠플테 전용: 전체 해금이 켜져 있으면 명시(진짜 진행과 안 헷갈리게). '0'키로 토글.
 	if dev_unlock_all:
-		_draw_text_outlined(fnt, Vector2(SEL_X, 200.0), "DEV: 전체 해금 (0)", 16, Color(1.0, 0.55, 0.3))
+		_draw_text_outlined(fnt, Vector2(SEL_X, 200.0), _t("dev_unlock"), 16, Color(1.0, 0.55, 0.3))
 
 	var cur: int = _current_stage()
 	for i in range(STAGES.size()):
@@ -2876,20 +2890,20 @@ func _draw_select(fnt: Font) -> void:
 		# 이름 + 태그. 잠김이면 내용은 숨기고 해금 조건만 (다음 목표를 명확히)
 		var nx: float = r.position.x + 64.0
 		var name_col: Color = Color.WHITE if open else Color(0.45, 0.46, 0.55)
-		_draw_text_outlined(fnt, Vector2(nx, r.position.y + 28.0), String(sd["name"]), 24, name_col)
-		var line2: String = String(sd["tag"]) if open else "%d 스테이지를 클리어하면 열림" % i
+		_draw_text_outlined(fnt, Vector2(nx, r.position.y + 28.0), _t(String(sd["name"])), 24, name_col)
+		var line2: String = _t(String(sd["tag"])) if open else _t("unlock_req") % i
 		_draw_text_outlined(fnt, Vector2(nx, r.position.y + 50.0), line2, 15,
 				Color(0.68, 0.7, 0.82) if open else Color(0.4, 0.41, 0.5))
 
 		if done:
-			var ck: String = "클리어"
+			var ck: String = _t("done_badge")
 			var cw: float = fnt.get_string_size(ck, HORIZONTAL_ALIGNMENT_LEFT, -1, 16).x
 			_draw_text_outlined(fnt, Vector2(r.position.x + SEL_W - cw - 16.0, r.position.y + 40.0), ck, 16, Color(0.4, 0.9, 0.58))
 
 	_draw_play_button(fnt, cur)
 	_draw_back_button(fnt)
 
-	var hint: String = "SPACE 또는 버튼 클릭"
+	var hint: String = _t("select_hint")
 	var hw: float = fnt.get_string_size(hint, HORIZONTAL_ALIGNMENT_LEFT, -1, 17).x
 	_draw_text_outlined(fnt, Vector2(400.0 - hw * 0.5, 724.0), hint, 17, Color(0.5, 0.52, 0.62))
 
@@ -2917,12 +2931,12 @@ func _draw_play_button(fnt: Font, cur: int) -> void:
 	draw_rect(r, Color(0.16, 0.42, 0.18), false, 4.0)
 
 	var sd: Dictionary = STAGES[cur]
-	var big: String = "스테이지 %d" % (cur + 1)
+	var big: String = _t("stage_n") % (cur + 1)
 	var bfs: int = 46
 	var bw: float = fnt.get_string_size(big, HORIZONTAL_ALIGNMENT_LEFT, -1, bfs).x
 	_draw_text_outlined(fnt, Vector2(400.0 - bw * 0.5, r.position.y + 62.0), big, bfs, Color.WHITE,
 			Color(0.10, 0.28, 0.14, 0.95))
-	var nm: String = "전부 클리어! 다시 도전" if _all_cleared() else String(sd["name"])
+	var nm: String = _t("all_cleared") if _all_cleared() else _t(String(sd["name"]))
 	var nfs: int = 22
 	var nw: float = fnt.get_string_size(nm, HORIZONTAL_ALIGNMENT_LEFT, -1, nfs).x
 	_draw_text_outlined(fnt, Vector2(400.0 - nw * 0.5, r.position.y + 98.0), nm, nfs, Color(0.92, 1.0, 0.88),
@@ -2970,7 +2984,7 @@ func _draw_hud(fnt: Font) -> void:
 	if combo >= 2:
 		# 유예 중(헛수 1회)이면 경고색으로만 — 다음 헛수에 끊긴다는 신호(텍스트는 안 붙임)
 		var risky: bool = combo_miss > 0
-		var streak: String = "콤보 x%d" % combo
+		var streak: String = _t("combo") % combo
 		var stw: float = fnt.get_string_size(streak, HORIZONTAL_ALIGNMENT_LEFT, -1, 22).x
 		var scol: Color = Color(1.0, 0.45, 0.3) if risky else C_GOLD
 		_draw_text_outlined(fnt, Vector2(736.0 - stw, 26.0), streak, 22, scol)   # 736: 우상단 기어에 자리를 비켜줌
@@ -2998,7 +3012,7 @@ func _draw_hud(fnt: Font) -> void:
 		#   깊이·최고는 좌상단, 콤보는 우상단.
 		var beat: bool = endless_beat_best
 		_draw_card(goal_r, C_GOLD if beat else Color(0.5, 0.42, 0.78))
-		var ptitle: String = "최고 갱신!" if beat else "점수"
+		var ptitle: String = _t("new_best_live") if beat else _t("score")
 		var pt_w: float = fnt.get_string_size(ptitle, HORIZONTAL_ALIGNMENT_LEFT, -1, 16).x
 		_draw_text_outlined(fnt, Vector2(goal_r.position.x + gw * 0.5 - pt_w * 0.5, box_y + 24.0), ptitle, 16,
 				C_GOLD if beat else Color(0.82, 0.78, 1.0))
@@ -3008,26 +3022,28 @@ func _draw_hud(fnt: Font) -> void:
 		var sc_col: Color = C_GOLD if beat else Color.WHITE.lerp(C_GOLD, kp)
 		_draw_text_outlined(fnt, Vector2(goal_r.position.x + gw * 0.5 - sc_w * 0.5, box_y + 70.0), sc_str, sc_fs, sc_col)
 		# 좌상단: 깊이 + 최고(목표 기준선). 최고를 넘었으면 금색으로 '넘었다'를 색으로도.
-		_draw_text_outlined(fnt, Vector2(12.0, 30.0), "깊이 %d" % place_count, 22, Color(0.72, 0.74, 0.9))
+		_draw_text_outlined(fnt, Vector2(12.0, 30.0), _t("depth") % place_count, 22, Color(0.72, 0.74, 0.9))
 		if endless_best > 0:
-			var best_lbl: String = "최고 %s" % _comma(endless_best)
+			var best_lbl: String = _t("best_score") % _comma(endless_best)
 			_draw_text_outlined(fnt, Vector2(12.0, 56.0), best_lbl, 16,
 					C_GOLD if beat else Color(0.6, 0.62, 0.78))
 	else:
 		# GOAL 카드 — 제목 "목표" + 내용 "💀 남은 적 N"(전 타입 소탕이 목표라 타입 중립 해골).
 		_draw_card(goal_r, Color(0.85, 0.7, 0.3))
-		var gt_w: float = fnt.get_string_size("목표", HORIZONTAL_ALIGNMENT_LEFT, -1, 16).x
-		_draw_text_outlined(fnt, Vector2(goal_r.position.x + gw * 0.5 - gt_w * 0.5, box_y + 24.0), "목표", 16, Color(0.95, 0.85, 0.5))
+		var goal_lbl: String = _t("goal")
+		var gt_w: float = fnt.get_string_size(goal_lbl, HORIZONTAL_ALIGNMENT_LEFT, -1, 16).x
+		_draw_text_outlined(fnt, Vector2(goal_r.position.x + gw * 0.5 - gt_w * 0.5, box_y + 24.0), goal_lbl, 16, Color(0.95, 0.85, 0.5))
 		var rem_str: String = str(remaining)
 		var rem_fs: int = 40
 		var cap_fs: int = 18
 		var icon_s: float = 34.0
-		var cap_w: float = fnt.get_string_size("남은 적", HORIZONTAL_ALIGNMENT_LEFT, -1, cap_fs).x
+		var enemies_lbl: String = _t("hud_enemies")
+		var cap_w: float = fnt.get_string_size(enemies_lbl, HORIZONTAL_ALIGNMENT_LEFT, -1, cap_fs).x
 		var rem_w: float = fnt.get_string_size(rem_str, HORIZONTAL_ALIGNMENT_LEFT, -1, rem_fs).x
 		var grp_w: float = icon_s + 8.0 + cap_w + 8.0 + rem_w
 		var grp_l: float = goal_r.position.x + gw * 0.5 - grp_w * 0.5
 		_draw_enemy_icon(Vector2(grp_l + icon_s * 0.5, box_y + 56.0), icon_s)
-		_draw_text_outlined(fnt, Vector2(grp_l + icon_s + 8.0, box_y + 62.0), "남은 적", cap_fs, Color(0.95, 0.85, 0.5))
+		_draw_text_outlined(fnt, Vector2(grp_l + icon_s + 8.0, box_y + 62.0), enemies_lbl, cap_fs, Color(0.95, 0.85, 0.5))
 		var rem_col: Color = Color.WHITE.lerp(C_GOLD, kp)
 		_draw_text_outlined(fnt, Vector2(grp_l + icon_s + 8.0 + cap_w + 8.0, box_y + 70.0), rem_str, rem_fs, rem_col)
 
@@ -3035,18 +3051,20 @@ func _draw_hud(fnt: Font) -> void:
 	var acc: Color = Color(0.85, 0.3, 0.28) if imminent else Color(0.4, 0.45, 0.6)
 	_draw_card(adv_r, acc)
 	var adv_tc: Color = Color(1.0, 0.6, 0.5) if imminent else Color(0.72, 0.74, 0.86)
-	var at_w: float = fnt.get_string_size("적 이동", HORIZONTAL_ALIGNMENT_LEFT, -1, 16).x
-	_draw_text_outlined(fnt, Vector2(adv_r.position.x + aw * 0.5 - at_w * 0.5, box_y + 24.0), "적 이동", 16, adv_tc)
+	var adv_lbl: String = _t("advance")
+	var at_w: float = fnt.get_string_size(adv_lbl, HORIZONTAL_ALIGNMENT_LEFT, -1, 16).x
+	_draw_text_outlined(fnt, Vector2(adv_r.position.x + aw * 0.5 - at_w * 0.5, box_y + 24.0), adv_lbl, 16, adv_tc)
 	# 큰 숫자 + 작은 "턴" 을 한 덩어리로 중앙 정렬
 	var n_str: String = str(remain)
 	var n_fs: int = 44
 	var u_fs: int = 18
 	var n_col: Color = Color(1.0, 0.55, 0.3) if imminent else Color(0.9, 0.9, 0.95)
 	var n_w: float = fnt.get_string_size(n_str, HORIZONTAL_ALIGNMENT_LEFT, -1, n_fs).x
-	var u_w: float = fnt.get_string_size("턴", HORIZONTAL_ALIGNMENT_LEFT, -1, u_fs).x
+	var turn_lbl: String = _t("turns")
+	var u_w: float = fnt.get_string_size(turn_lbl, HORIZONTAL_ALIGNMENT_LEFT, -1, u_fs).x
 	var grp_x: float = adv_r.position.x + aw * 0.5 - (n_w + 4.0 + u_w) * 0.5
 	_draw_text_outlined(fnt, Vector2(grp_x, box_y + 72.0), n_str, n_fs, n_col)
-	_draw_text_outlined(fnt, Vector2(grp_x + n_w + 4.0, box_y + 72.0), "턴", u_fs, Color(0.72, 0.72, 0.8))
+	_draw_text_outlined(fnt, Vector2(grp_x + n_w + 4.0, box_y + 72.0), turn_lbl, u_fs, Color(0.72, 0.72, 0.8))
 
 	# 처치 진행바는 제거했다 — 빨강/초록 가로 막대라 거점 HP 바(진짜 체력)와 색 언어가 겹쳐
 	# 'HP가 바닥났다'로 오독됐다. 목표 카드의 '남은 적' 숫자만으로 진행도는 충분히 읽힌다.
@@ -3400,7 +3418,7 @@ func _draw_core(fnt: Font) -> void:
 	draw_rect(Rect2(sx, sy, sw * ratio, strip_h * 0.4), Color(1.0, 1.0, 1.0, 0.18))
 	draw_rect(Rect2(sx, sy, sw, strip_h), Color(1.0, 1.0, 1.0, 0.55), false, 2.0)
 	# 라벨: 외곽선 흰 글자(트랙/체력 어느 색 위에서도 읽힘). 검정은 어두운 빈 구간서 안 보여 회피.
-	var lbl: String = "거점  %d / %d" % [core_hp, core_max]
+	var lbl: String = _t("core_hp") % [core_hp, core_max]
 	var lw: float = fnt.get_string_size(lbl, HORIZONTAL_ALIGNMENT_LEFT, -1, 19).x
 	_draw_text_outlined(fnt, Vector2(sx + sw * 0.5 - lw * 0.5, sy + 22.0), lbl, 19, Color.WHITE)
 
@@ -3558,22 +3576,21 @@ func _draw_bottom(fnt: Font) -> void:
 	# 입력 방식 토글 (PC 테스트용) — 눌러서 드래그/클릭 전환
 	draw_rect(mode_btn, Color(0.20, 0.20, 0.31))
 	draw_rect(mode_btn, Color(0.45, 0.45, 0.6, 0.85), false, 2.0)
-	var mtxt: String = "CLICK MODE" if click_mode else "DRAG MODE"
+	var mtxt: String = _t("mode_click") if click_mode else _t("mode_drag")
 	var mw: float = fnt.get_string_size(mtxt, HORIZONTAL_ALIGNMENT_LEFT, -1, 18).x
 	draw_string(fnt, Vector2(mode_btn.get_center().x - mw * 0.5, mode_btn.position.y + 21.0),
 			mtxt, HORIZONTAL_ALIGNMENT_LEFT, -1, 18, Color(0.88, 0.88, 0.95))
-	var sub: String = "tap to switch"
+	var sub: String = _t("mode_switch")
 	var sw: float = fnt.get_string_size(sub, HORIZONTAL_ALIGNMENT_LEFT, -1, 13).x
 	draw_string(fnt, Vector2(mode_btn.get_center().x - sw * 0.5, mode_btn.position.y + 38.0),
 			sub, HORIZONTAL_ALIGNMENT_LEFT, -1, 13, Color(0.5, 0.5, 0.62))
 
 	# 조작 안내
 	var inst_y: float = float(bot_y) + float(TRAY_SLOT_H) + 30.0
-	var how: String = ("Click a piece, then click board to place" if click_mode
-			else "Drag a piece onto the board to place")
+	var how: String = _t("how_click") if click_mode else _t("how_drag")
 	draw_string(fnt, Vector2(20.0, inst_y), how,
 			HORIZONTAL_ALIGNMENT_LEFT, -1, 19, Color(0.8, 0.8, 0.85))
-	draw_string(fnt, Vector2(20.0, inst_y + 28.0), "Fill a full row OR column -> blast!",
+	draw_string(fnt, Vector2(20.0, inst_y + 28.0), _t("rule_blast"),
 			HORIZONTAL_ALIGNMENT_LEFT, -1, 19, Color(0.55, 0.85, 0.6))
-	draw_string(fnt, Vector2(20.0, inst_y + 54.0), "Chain clears -> COMBO streak (bigger dmg)",
+	draw_string(fnt, Vector2(20.0, inst_y + 54.0), _t("rule_combo"),
 			HORIZONTAL_ALIGNMENT_LEFT, -1, 17, Color(0.85, 0.75, 0.4))
