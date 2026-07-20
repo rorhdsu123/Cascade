@@ -1427,13 +1427,16 @@ func _finish_resolve() -> void:
 func _end_turn() -> void:
 	advance_step()          # 적 이동(step_every 주기)·누수(거점 피해)·스폰
 	_reveal_leaks()         # 누수 연출은 공격 뒤에 재생 (자기 감쇠 → 데드락 없음)
-	_check_win()
+	# ⚠거점 파괴가 클리어보다 우선(모드-무관 불변식). 마지막 적이 누수로 total을 채우며 동시에
+	#   core_hp를 0으로 만들면 _check_win이 killed+leaked>=total로 clear를 켜버린다 — 죽으며 클리어는 없다.
+	#   그래서 _check_win보다 먼저 판정하고, 죽었으면 return해 clear 판정 자체를 건너뛴다.
 	if pending_core_dead:
 		game_over = true
 		pending_core_dead = false
 		_begin_core_death()
 		fail_streak[stage_idx] = int(fail_streak.get(stage_idx, 0)) + 1   # 연속 실패 → 갓 모드 근접
 		return
+	_check_win()
 	if not game_clear and not _has_valid_placement():
 		game_over = true
 		stuck = true
