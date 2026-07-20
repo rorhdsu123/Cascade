@@ -63,6 +63,10 @@ const STR: Dictionary = {
 		"continue": "Continue",
 		"retry": "Retry",
 		"next_stage": "Next Stage",
+		# 마지막 스테이지 클리어 = 완주 아님, '콘텐츠 따라잡음'(프런티어) → 무한 깔때기. 시점 약속 회피.
+		"caught_up": "All caught up!",
+		"frontier_sub": "New stages keep coming",
+		"play_endless": "Play Endless",
 		# ── 메인 메뉴(허브) ──
 		"adv_big": "Adventure",
 		"adv_sub": "Clear stages, one by one",
@@ -151,6 +155,10 @@ const STR: Dictionary = {
 		"continue": "이어하기",
 		"retry": "재도전",
 		"next_stage": "다음 스테이지",
+		# 마지막 스테이지 클리어 = 완주 아님, '콘텐츠 따라잡음'(프런티어) → 무한 깔때기. 시점 약속 회피.
+		"caught_up": "다 따라잡았어요!",
+		"frontier_sub": "새 스테이지는 계속 추가돼요",
+		"play_endless": "무한 도전",
 		"adv_big": "스테이지",
 		"adv_sub": "차근차근 깨는 모험",
 		"endless_big": "무한",

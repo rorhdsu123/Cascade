@@ -2441,7 +2441,9 @@ func _result_advance() -> void:
 		if stage_idx + 1 < STAGES.size():
 			_start_stage(stage_idx + 1)
 		else:
-			mode = "select"
+			# 마지막 스테이지 = 완주 아니라 '콘텐츠 따라잡음' → 리텐션 기둥(무한)으로 깔때기.
+			# [[stage-last-clear-is-frontier-not-finale]]
+			_start_endless()
 	else:
 		_start_stage(stage_idx)
 
@@ -2627,13 +2629,16 @@ func _draw_result(fnt: Font) -> void:
 	# ① 헤드라인. 혼자만 크다.
 	#    폭에 맞춰 줄인다 — "아쉬워요!"는 5자라 64px가 넉넉하지만 "스테이지 클리어!"는 8자라
 	#    같은 크기면 패널을 끝까지 밀어낸다. 글자 수가 아니라 패널이 크기를 정하게 한다.
+	# 마지막 스테이지 클리어 = 완주(피날레) 아님 — 라이브 업데이트로 스테이지는 계속 늘어난다.
+	# '콘텐츠 따라잡음(프런티어)'으로 다루고 무한으로 유도. [[stage-last-clear-is-frontier-not-finale]]
+	var frontier: bool = game_clear and stage_idx + 1 >= STAGES.size()
 	var msg: String
 	var msg_col: Color
 	if director.scores():
 		msg = _t("score_headline") % _comma(endless_score)   # 점수 모드: 점수가 헤드라인(리더보드 지표)
 		msg_col = C_GOLD
 	elif game_clear:
-		msg = _t("stage_clear")
+		msg = _t("caught_up") if frontier else _t("stage_clear")
 		msg_col = C_GOLD
 	else:
 		msg = _fail_headline()
@@ -2656,6 +2661,11 @@ func _draw_result(fnt: Font) -> void:
 		var reason: String = _t("cause_stuck") if stuck else _t("cause_core")
 		var rw: float = fnt.get_string_size(reason, HORIZONTAL_ALIGNMENT_LEFT, -1, 20).x
 		_draw_text_outlined(fnt, Vector2(cx - rw * 0.5, p.position.y + 124.0), reason, 20, Color(1.0, 0.5, 0.5))
+	elif frontier:
+		# 프런티어: 완봉/처치 성적 대신 '새 스테이지는 계속 온다'는 안내(무한 유도는 주CTA가 담당).
+		var fs: String = _t("frontier_sub")
+		var fw: float = fnt.get_string_size(fs, HORIZONTAL_ALIGNMENT_LEFT, -1, 20).x
+		_draw_text_outlined(fnt, Vector2(cx - fw * 0.5, p.position.y + 124.0), fs, 20, Color(0.72, 0.78, 1.0))
 	else:
 		var res: String = _t("shutout") if leaked == 0 else _t("kills_leaks") % [killed, leaked]
 		var rw2: float = fnt.get_string_size(res, HORIZONTAL_ALIGNMENT_LEFT, -1, 20).x
@@ -2728,7 +2738,9 @@ func _draw_result(fnt: Font) -> void:
 	# ── 재도전 버튼. 부활 가능하면 부차(작고 톤 다운), 아니면 주(초록 3D — 홈 시작 버튼 문법).
 	var label: String = _t("retry")
 	if game_clear:
-		label = _t("next_stage") if stage_idx + 1 < STAGES.size() else _t("go_home")
+		# 마지막 스테이지 클리어면 _result_advance()가 무한으로 보낸다(프런티어 깔때기) → 주CTA=무한 도전.
+		# (예전엔 라벨 go_home인데 동작은 select라 오라벨 + 아래 고스트 홈과 중복이었다 — 버그 수정 겸 통합.)
+		label = _t("next_stage") if stage_idx + 1 < STAGES.size() else _t("play_endless")
 	var r: Rect2 = lay["retry"]
 	var lfs: int = 26 if revivable else 38
 	var icon_r: float = 13.0 if revivable else 17.0
@@ -2940,7 +2952,9 @@ func _draw_select(fnt: Font) -> void:
 
 	var hint: String = _t("select_hint")
 	var hw: float = fnt.get_string_size(hint, HORIZONTAL_ALIGNMENT_LEFT, -1, 17).x
-	_draw_text_outlined(fnt, Vector2(400.0 - hw * 0.5, 724.0), hint, 17, Color(0.5, 0.52, 0.62))
+	# y=724는 8번 타일(668~726)과 겹쳤다(C57서 타일을 PLAY_BTN 위로 밀며 힌트 위치를 안 옮김).
+	# PLAY_BTN(742~868) 아래로 내려 메뉴 힌트(y=910) 리듬과 맞춘다.
+	_draw_text_outlined(fnt, Vector2(400.0 - hw * 0.5, 908.0), hint, 17, Color(0.5, 0.52, 0.62))
 
 # 천 단위 콤마 (점수 가독성)
 func _comma(n: int) -> String:
