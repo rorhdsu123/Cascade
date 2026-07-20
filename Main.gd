@@ -305,6 +305,7 @@ const GameMode = preload("res://modes/game_mode.gd")
 const StageMode = preload("res://modes/stage_mode.gd")
 const EndlessMode = preload("res://modes/endless_mode.gd")
 const FeaturedMode = preload("res://modes/featured_mode.gd")
+const LeaderboardService = preload("res://leaderboard.gd")   # 점수 저장·제출 이음새 (C64)
 var director: GameMode = null    # 감독(스폰·난이도·종료 결정). _start_stage에서 st와 함께 세팅
 
 # 무한모드(감독=EndlessMode) — 캠페인 스테이지와 형제. C52 설계·C56 game_rng 분리.
@@ -312,7 +313,8 @@ var director: GameMode = null    # 감독(스폰·난이도·종료 결정). _st
 #   재도전·홈복귀는 전부 director.scores()/retry_kind()로 묻는다(C62). `if endless:`를 다시 넣으면 갈라짐.
 var endless: bool = false          # (관측용) 무한/featured 진행 중
 var endless_score: int = 0         # 이번 런 점수 = Σ(줄×기본점 + 처치×콤보×배수), C52+C58
-var endless_best: int = 0          # 로컬 베스트(user:// 영속)
+var endless_best: int = 0          # 로컬 베스트(리더보드 서비스가 소유, 여기선 읽기 캐시로 미러)
+var _leaderboard := LeaderboardService.new()   # 점수 저장·제출 이음새 — 파일/플랫폼 접근을 여기로만 (기획: endless-leaderboard-design)
 var endless_prev_best: int = 0     # 런 시작 시점의 베스트(결과 팝업 델타 표시용)
 var endless_new_best: bool = false # 이번 런이 신기록인가(결과 팝업 배지)
 var endless_beat_best: bool = false # 판 중에 이미 최고를 넘었나(HUD 실시간 갱신 신호)
@@ -474,29 +476,15 @@ func _mix3(a: int, b: int, c: int) -> int:
 func _ready() -> void:
 	randomize()          # 코스메틱 전역 RNG
 	game_rng.randomize()  # 게임 스트림(프리플레이 기본; 데일리/회귀는 seed_game으로 덮어씀)
-	_load_endless_best()
+	endless_best = _leaderboard.best()   # 서비스가 로드한 로컬 베스트를 캐시로 미러
 	# 한글 렌더용 시스템 폰트(기본 fallback엔 한글 글리프 없음). ⚠배포 시엔 Noto Sans KR 등 번들 필요.
 	var sf := SystemFont.new()
 	sf.font_names = PackedStringArray(["Apple SD Gothic Neo", "AppleGothic", "Noto Sans CJK KR", "Arial"])
 	_font = sf
 	mode = "menu"
 
-# 로컬 베스트 영속(user://). 플랫폼 리더보드는 소프트런치 셸에서(C50 ③), 지금은 로컬만.
-const ENDLESS_SAVE: String = "user://endless.save"
-
-func _load_endless_best() -> void:
-	if not FileAccess.file_exists(ENDLESS_SAVE):
-		return
-	var f := FileAccess.open(ENDLESS_SAVE, FileAccess.READ)
-	if f != null:
-		endless_best = f.get_32()
-		f.close()
-
-func _save_endless_best() -> void:
-	var f := FileAccess.open(ENDLESS_SAVE, FileAccess.WRITE)
-	if f != null:
-		f.store_32(endless_best)
-		f.close()
+# 로컬 베스트 영속·플랫폼 제출은 LeaderboardService(leaderboard.gd)가 소유 — Main은 파일/플랫폼
+# API를 직접 만지지 않는다. 제출은 결과 팝업에서 _leaderboard.submit(), best는 캐시로 미러(C64 이음새).
 
 # 점수 가산 + 판 중 최고 갱신 감지(HUD 실시간 신호). best>0일 때만 = 첫 판(best 0)은 '갱신'이 무의미.
 func _add_endless_score(pts: int) -> void:
@@ -2335,10 +2323,10 @@ func _draw_result(fnt: Font) -> void:
 	var cx: float = p.position.x + p.size.x * 0.5
 
 	# 무한: 런 종료 시점에 베스트 확정(부활로 이어가면 다음 팝업서 재갱신). 신기록이면 배지.
+	# 제출은 서비스로만 — 로컬 영속 + (모바일 때) 플랫폼 통지. best 캐시 미러 갱신.
 	if director.scores() and endless_score > endless_best:
-		endless_best = endless_score
-		endless_new_best = true
-		_save_endless_best()
+		endless_new_best = _leaderboard.submit(endless_score)
+		endless_best = _leaderboard.best()
 
 	# ① 헤드라인. 혼자만 크다.
 	#    폭에 맞춰 줄인다 — "아쉬워요!"는 5자라 64px가 넉넉하지만 "스테이지 클리어!"는 8자라
