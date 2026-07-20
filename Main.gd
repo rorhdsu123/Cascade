@@ -505,6 +505,7 @@ func _ready() -> void:
 	game_rng.randomize()  # 게임 스트림(프리플레이 기본; 데일리/회귀는 seed_game으로 덮어씀)
 	_load_endless_best()
 	_load_settings()
+	_load_campaign()
 	_locale = I18N.resolve_locale(OS.get_locale_language())
 	# 번들 폰트(res://) — 시스템폰트 의존 제거. Noto Sans가 라틴/키릴/그리스를 커버(영어 우선 출시).
 	# 라틴 밖 글리프(개발용 한글, 이모지 등)는 SystemFont fallback으로만 뜬다 → 영어 실기기엔 안 나옴.
@@ -547,7 +548,9 @@ func _load_endless_best() -> void:
 		return
 	var f := FileAccess.open(ENDLESS_SAVE, FileAccess.READ)
 	if f != null:
-		endless_best = f.get_32()
+		# 4바이트 미만 = 부분쓰기 손상(강제종료 등) → 기본값 0 유지.
+		if f.get_length() >= 4:
+			endless_best = f.get_32()
 		f.close()
 
 func _save_endless_best() -> void:
@@ -564,8 +567,10 @@ func _load_settings() -> void:
 		return
 	var f := FileAccess.open(SETTINGS_SAVE, FileAccess.READ)
 	if f != null:
-		sound_on = f.get_8() != 0
-		bgm_on = f.get_8() != 0
+		# 2바이트 미만 = 부분쓰기 손상 → 기본값 유지(안 그러면 sound_on이 조용히 false로 뒤집힘).
+		if f.get_length() >= 2:
+			sound_on = f.get_8() != 0
+			bgm_on = f.get_8() != 0
 		f.close()
 
 func _save_settings() -> void:
@@ -573,6 +578,35 @@ func _save_settings() -> void:
 	if f != null:
 		f.store_8(1 if sound_on else 0)
 		f.store_8(1 if bgm_on else 0)
+		f.close()
+
+# 캠페인 진행도 영속(user://). cleared 딕셔너리를 스테이지 비트마스크(비트 i = 스테이지 i 클리어)로 저장.
+# ≤32스테이지면 32비트 하나에 담겨 store_32로 고정 4바이트 — 부분쓰기 내성이 가변길이보다 낫다.
+# dev_unlock_all(플테 '0'키)은 cleared를 안 건드리므로 저장에 새지 않는다. fail_streak(DDA)는 세션 한정 유지.
+const CAMPAIGN_SAVE: String = "user://campaign.save"
+
+func _load_campaign() -> void:
+	if not FileAccess.file_exists(CAMPAIGN_SAVE):
+		return
+	var f := FileAccess.open(CAMPAIGN_SAVE, FileAccess.READ)
+	if f == null:
+		return
+	# 4바이트 미만 = 부분쓰기 손상 → 진행도 0에서 시작(홈/1스테이지는 항상 안전).
+	if f.get_length() >= 4:
+		var mask: int = f.get_32()
+		for i in range(STAGES.size()):
+			if (mask & (1 << i)) != 0:
+				cleared[i] = true
+	f.close()
+
+func _save_campaign() -> void:
+	var mask: int = 0
+	for i in range(STAGES.size()):
+		if bool(cleared.get(i, false)):
+			mask |= (1 << i)
+	var f := FileAccess.open(CAMPAIGN_SAVE, FileAccess.WRITE)
+	if f != null:
+		f.store_32(mask)
 		f.close()
 
 # 점수 가산 + 판 중 최고 갱신 감지(HUD 실시간 신호). best>0일 때만 = 첫 판(best 0)은 '갱신'이 무의미.
@@ -1654,6 +1688,7 @@ func _check_win() -> void:
 	if director.is_cleared(_director_ctx()):
 		game_clear = true
 		cleared[stage_idx] = true
+		_save_campaign()               # 진행도 즉시 영속 — 앱을 닫아도 해금 유지
 		fail_streak[stage_idx] = 0     # 깼으니 갓 모드 해제
 		_spawn_confetti()              # 클리어 축하 — 3색 색종이가 위에서 쏟아진다(경축, 공격 아님)
 
