@@ -26,6 +26,12 @@ const SPLIT_ROW: int = 5
 const SLIDE_SPEED: float = 8.0   # 적 전진 표시 이징 속도(칸/초)
 const ROCKET_DUR: float = 0.16  # 로켓 비행 지속(빠르게 질주)
 const CALLOUT_DUR: float = 1.6  # 첫 등장 콜아웃 배너 지속
+# 스테이지 인트로 카드 — 캠페인 진입 시 중앙 팝업(이름·태그·목표)이 떠서 잠깐 머물다 상단
+# 목표 카드로 축소·이동하며 녹아든다(BlockBlast 목표 배너 관찰). 탭하면 즉시 스킵.
+const INTRO_APPEAR: float = 0.28
+const INTRO_HOLD: float = 0.50    # BlockBlast 배너 실측 홀드 ~0.55s에 맞춤(1.2s는 정적 늘어짐)
+const INTRO_DOCK: float = 0.35    # 상단 도킹 = 빠르게 톡(느리면 늘어진다)
+const INTRO_TOTAL: float = 1.13   # APPEAR+HOLD+DOCK
 
 # 라인클리어 폭발
 const LINE_BASE: int = 120
@@ -455,6 +461,7 @@ var hitstop: float = 0.0       # 명중 순간 순간 멈칫(게임 타이머 �
 var core_hits: Array = []      # [{col, life}] 거점 피격 충격 플래시
 var callout_text: String = ""  # 첫 등장 콜아웃 배너
 var callout_timer: float = 0.0
+var intro_t: float = -1.0  # 스테이지 인트로 카드 진행(초). <0 = 비활성(캠페인 진입에서만 켠다)
 var seen_types: Dictionary = {}  # etype -> 이미 콜아웃 봤나
 var anim_t: float = 0.0        # 깜빡임 등 연출용 누적 시간
 var red_flash: float = 0.0
@@ -650,6 +657,7 @@ func _start_stage(idx: int) -> void:
 	director = StageMode.new(st)
 	mode = "play"
 	_init_game()
+	intro_t = 0.0   # 캠페인 진입에서만 인트로 카드 재생(무한·featured는 _init_game이 -1로 둠)
 
 # 무한모드 시작 — 스테이지 dict 없이 EndlessMode가 깊이로 스케줄. DDA off(리더보드 공정성, C52 ⑦).
 func _start_endless() -> void:
@@ -742,6 +750,7 @@ func _init_game() -> void:
 	core_hits = []
 	callout_text = ""
 	callout_timer = 0.0
+	intro_t = -1.0   # 기본 off — _start_stage(캠페인)만 켠다
 	seen_types = {}
 	anim_t = 0.0
 	red_flash = 0.0
@@ -2012,6 +2021,13 @@ func _input(event: InputEvent) -> void:
 				settings_open = false   # ESC = 모달 닫기(홈 아님)
 		return
 
+	# 스테이지 인트로 재생 중 — 아무 입력이나 = 즉시 스킵(도킹 건너뜀). 판 입력은 차단(카드 뒤 오배치 방지).
+	if intro_t >= 0.0:
+		if (event is InputEventMouseButton and (event as InputEventMouseButton).pressed) \
+				or (event is InputEventKey and (event as InputEventKey).pressed):
+			intro_t = -1.0
+		return
+
 	if event is InputEventKey:
 		var pk: InputEventKey = event as InputEventKey
 		if pk.pressed and pk.keycode == KEY_ESCAPE:
@@ -2085,6 +2101,12 @@ func _process(delta: float) -> void:
 	if mode == "menu" or mode == "select" or mode == "leaderboard":
 		queue_redraw()
 		return
+	# 스테이지 인트로 진행(중앙→상단 도킹). 적 전진은 배치 기반이라 인트로 중 판은 정지 상태.
+	if intro_t >= 0.0:
+		intro_t += delta
+		if intro_t >= INTRO_TOTAL:
+			intro_t = -1.0
+		queue_redraw()
 	# 히트스톱: 게임 타이머 전부 정지, 그림만(시간감소라 항상 해제 → 데드락 없음)
 	if hitstop > 0.0:
 		hitstop = maxf(0.0, hitstop - delta)
@@ -2373,6 +2395,10 @@ func _draw() -> void:
 		var cbx: float = 400.0 - cow * 0.5
 		draw_rect(Rect2(cbx - 16.0, 150.0, cow + 32.0, 46.0), Color(0.05, 0.02, 0.08, 0.62 * ca))
 		_draw_text_outlined(fnt, Vector2(cbx, 183.0), callout_text, 32, Color(1.0, 0.9, 0.4, ca))
+
+	# 스테이지 인트로 카드 (중앙 팝업 → 상단 목표 카드로 도킹). 캠페인 진입 1회.
+	if intro_t >= 0.0 and not game_over and not game_clear:
+		_draw_stage_intro(fnt)
 
 	# 죽음 연출이 재생 중이면 팝업을 미룬다 — 보드가 메워지는 걸 먼저 보여준다
 	if (game_over or game_clear) and not _death_playing():
@@ -2703,6 +2729,56 @@ func _fail_headline() -> String:
 	if ratio <= FAIL_NEAR:
 		return _t("fail_near")
 	return _t("fail_far")
+
+# 스테이지 인트로 카드 — 중앙 큰 팝업(이름·태그·목표)이 떠서 머물다, 상단 목표 카드(goal_r)로
+# 축소·이동하며 알파가 빠져 '녹아든다'. 텍스트는 카드 높이비로 함께 축소 → 도킹 끝에 목표 카드에 안착.
+# BlockBlast의 목표 배너(중앙 등장 → 상단 HUD 도킹) 관찰. 목표는 판마다 같지만(적 N 처치) 이름·태그·수는
+# 판별로 달라 진입 오리엔테이션 + 챕터 비트를 준다. [[transient-celebration-overlay-not-base-ui]] 순수 오버레이.
+func _draw_stage_intro(fnt: Font) -> void:
+	var t: float = intro_t
+	var appear: float = clampf(t / INTRO_APPEAR, 0.0, 1.0)
+	var dock_lin: float = clampf((t - INTRO_APPEAR - INTRO_HOLD) / INTRO_DOCK, 0.0, 1.0)
+	var dock: float = dock_lin * dock_lin * (3.0 - 2.0 * dock_lin)   # smoothstep(부드러운 이징)
+
+	# 밴드는 중앙 고정(이동 안 함) — 도킹 때 제자리에서 페이드. 대신 목표 칩(💀 N)만 상단 목표 카드로
+	# 날아가 녹아든다(BlockBlast 관찰: 배너는 제자리 페이드, 타겟 아이콘만 HUD로 상승). 위협 글리프는
+	# 착지할 자리가 없다(상단 카드는 '전 타입 소탕'이라 타입 중립 해골) → 밴드와 함께 제자리 페이드.
+	var r: Rect2 = Rect2(-6.0, 356.0, 812.0, 188.0)
+	var band_a: float = appear * (1.0 - dock)
+
+	# 스크림·패널: 밴드와 함께 페이드
+	draw_rect(Rect2(-20, -20, VW_BASE + 40.0, vh + 40.0), Color(0.0, 0.0, 0.0, 0.34 * band_a))
+	draw_rect(Rect2(r.position.x + 4.0, r.position.y + 6.0, r.size.x, r.size.y), Color(0.0, 0.0, 0.0, 0.4 * band_a))
+	draw_rect(r, Color(0.14, 0.14, 0.21, band_a))
+	draw_rect(r, Color(0.85, 0.7, 0.3, band_a), false, 3.0)
+
+	# 인트로는 핵심만 — 스테이지 N + 💀 처치 수. 타입(글리프·이름)은 뺐다(수가 목표의 전부).
+	var cx: float = r.position.x + r.size.x * 0.5
+	# ① 스테이지 N (상단, 작게) — 밴드와 함께 제자리 페이드
+	var sn: String = _t("stage_n") % (stage_idx + 1)
+	var sn_w: float = fnt.get_string_size(sn, HORIZONTAL_ALIGNMENT_LEFT, -1, 24).x
+	_draw_text_outlined(fnt, Vector2(cx - sn_w * 0.5, r.position.y + r.size.y * 0.35), sn, 24, Color(0.72, 0.74, 0.9, band_a))
+	# ② 💀 처치 수(히어로) + 작은 '처치' 접미사 — 도킹 동안 중앙 → 상단 목표 카드로 날아가 녹아든다.
+	#    수는 크게(목표의 핵심), 접미사는 작게(무슨 수인지 못 박기). 인트로=목표 선언, HUD=남은 수 추적.
+	var goal_s: String = str(director.enemy_total())
+	var suf: String = _t("intro_kills")
+	var num_fs: int = 60
+	var skull_s: float = 48.0
+	var chip_hold: Vector2 = Vector2(cx, r.position.y + r.size.y * 0.62)
+	var chip_end: Vector2 = Vector2(293.0, 66.0)   # 상단 목표 카드(goal_r) skull+수 그룹
+	var chip: Vector2 = chip_hold.lerp(chip_end, dock)
+	var cs: float = lerpf(1.0, 0.47, dock)           # 60→~28 카드 크기로 축소
+	var chip_a: float = appear * (1.0 - clampf((dock - 0.72) / 0.28, 0.0, 1.0))
+	var nfs: int = maxi(1, int(num_fs * cs))
+	var sfs: int = maxi(1, int(24.0 * cs))
+	var ss: float = skull_s * cs
+	var nw: float = fnt.get_string_size(goal_s, HORIZONTAL_ALIGNMENT_LEFT, -1, nfs).x
+	var sufw: float = fnt.get_string_size(suf, HORIZONTAL_ALIGNMENT_LEFT, -1, sfs).x
+	var baseline: float = chip.y + nfs * 0.35
+	var cgl: float = chip.x - (ss + 12.0 * cs + nw + 8.0 * cs + sufw) * 0.5
+	_draw_enemy_icon(Vector2(cgl + ss * 0.5, chip.y), ss)
+	_draw_text_outlined(fnt, Vector2(cgl + ss + 12.0 * cs, baseline), goal_s, nfs, Color(0.98, 0.88, 0.5, chip_a))
+	_draw_text_outlined(fnt, Vector2(cgl + ss + 12.0 * cs + nw + 8.0 * cs, baseline), suf, sfs, Color(0.86, 0.8, 0.56, chip_a))
 
 func _draw_result(fnt: Font) -> void:
 	# 스크림 — 팝업 뒤의 보드를 '멈춘 배경'으로 눌러둔다(모달 표시)

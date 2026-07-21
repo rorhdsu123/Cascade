@@ -82,6 +82,7 @@ const STR: Dictionary = {
 		"select_hint": "SPACE or tap a button",
 		"stage_n": "Stage %d",
 		"all_cleared": "All clear! Play again",
+		"intro_kills": "kills",   # 인트로 💀 수 접미사(목표 프레이밍). 수 뒤에 작게.
 		# ── HUD ──
 		"combo": "Combo x%d",
 		"leaderboard": "Leaderboard",   # 메뉴 우상단 진입 버튼
@@ -173,6 +174,7 @@ const STR: Dictionary = {
 		"select_hint": "SPACE 또는 버튼 클릭",
 		"stage_n": "스테이지 %d",
 		"all_cleared": "전부 클리어! 다시 도전",
+		"intro_kills": "처치",   # 인트로 💀 수 접미사(목표 프레이밍). 수 뒤에 작게.
 		"combo": "콤보 x%d",
 		"leaderboard": "리더보드",
 		"new_best_live": "최고 갱신!",
