@@ -246,7 +246,12 @@ const C_BORD := Color(0.24, 0.24, 0.38)
 #   마룬-빨강 시절 그대로라, 플레이어가 배운 "탱크 = 육중한 기본"이 유지된다.
 const C_E_BASIC := Color("#a855f7")   # 바이올렛
 const C_E_FAST  := Color("#22d3ee")   # 시안
-const C_E_TANK  := Color("#6d28d9")   # 딥 바이올렛 (basic의 무거운 변주)
+# tank=장갑 → 강철/건메탈(금속 = 장갑). 도착 순간 '장갑'이 실루엣만으로 읽히게(C73, basic 보라와 분리).
+#   판·리벳·베벨은 아래 렌더에서. 딥바이올렛(#6d28d9) 시절엔 basic과 같은 보라라 '네모난 basic'으로 읽혔다.
+const C_E_TANK    := Color("#64748b")   # 강철(쿨블루 슬레이트)
+const C_E_TANK_HI := Color("#aab6c6")   # 상단 베벨 하이라이트
+const C_E_TANK_DK := Color("#2f3b4d")   # 이음선·하단 그림자
+const C_E_RIVET   := Color("#d7dee8")   # 코너 리벳
 const C_E_SWARM := Color("#a3e635")   # 라임
 const C_E_SPLIT := Color("#60a5fa")   # 파랑 — 로스터에서 유일한 한색(빨강 회피). 시안(fast)보다 확연히 파랑
 
@@ -1475,7 +1480,7 @@ func _etype_fx_color(etype: String) -> Color:
 		"fast":
 			return C_E_FAST
 		"tank":
-			return Color("#c084fc")   # 딥 바이올렛의 밝은 변주 (파편이 배경에 묻히지 않게)
+			return Color("#cbd5e1")   # 밝은 강철 (금속 파편 — 몸체 강철색과 일관, 배경에 안 묻힘). C73
 		"swarm":
 			return C_E_SWARM
 		"split":
@@ -2534,7 +2539,9 @@ func _result_advance() -> void:
 		if stage_idx + 1 < STAGES.size():
 			_start_stage(stage_idx + 1)
 		else:
-			mode = "select"
+			# 마지막 스테이지 = 완주 아니라 '콘텐츠 따라잡음' → 리텐션 기둥(무한)으로 깔때기.
+			# [[stage-last-clear-is-frontier-not-finale]]
+			_start_endless()
 	else:
 		_start_stage(stage_idx)
 
@@ -2727,13 +2734,16 @@ func _draw_result(fnt: Font) -> void:
 	# ① 헤드라인. 혼자만 크다.
 	#    폭에 맞춰 줄인다 — "아쉬워요!"는 5자라 64px가 넉넉하지만 "스테이지 클리어!"는 8자라
 	#    같은 크기면 패널을 끝까지 밀어낸다. 글자 수가 아니라 패널이 크기를 정하게 한다.
+	# 마지막 스테이지 클리어 = 완주(피날레) 아님 — 라이브 업데이트로 스테이지는 계속 늘어난다.
+	# '콘텐츠 따라잡음(프런티어)'으로 다루고 무한으로 유도. [[stage-last-clear-is-frontier-not-finale]]
+	var frontier: bool = game_clear and stage_idx + 1 >= STAGES.size()
 	var msg: String
 	var msg_col: Color
 	if director.scores():
 		msg = _t("score_headline") % _comma(endless_score)   # 점수 모드: 점수가 헤드라인(리더보드 지표)
 		msg_col = C_GOLD
 	elif game_clear:
-		msg = _t("stage_clear")
+		msg = _t("caught_up") if frontier else _t("stage_clear")
 		msg_col = C_GOLD
 	else:
 		msg = _fail_headline()
@@ -2756,6 +2766,11 @@ func _draw_result(fnt: Font) -> void:
 		var reason: String = _t("cause_stuck") if stuck else _t("cause_core")
 		var rw: float = fnt.get_string_size(reason, HORIZONTAL_ALIGNMENT_LEFT, -1, 20).x
 		_draw_text_outlined(fnt, Vector2(cx - rw * 0.5, p.position.y + 124.0), reason, 20, Color(1.0, 0.5, 0.5))
+	elif frontier:
+		# 프런티어: 완봉/처치 성적 대신 '새 스테이지는 계속 온다'는 안내(무한 유도는 주CTA가 담당).
+		var fs: String = _t("frontier_sub")
+		var fw: float = fnt.get_string_size(fs, HORIZONTAL_ALIGNMENT_LEFT, -1, 20).x
+		_draw_text_outlined(fnt, Vector2(cx - fw * 0.5, p.position.y + 124.0), fs, 20, Color(0.72, 0.78, 1.0))
 	else:
 		var res: String = _t("shutout") if leaked == 0 else _t("kills_leaks") % [killed, leaked]
 		var rw2: float = fnt.get_string_size(res, HORIZONTAL_ALIGNMENT_LEFT, -1, 20).x
@@ -2828,7 +2843,9 @@ func _draw_result(fnt: Font) -> void:
 	# ── 재도전 버튼. 부활 가능하면 부차(작고 톤 다운), 아니면 주(초록 3D — 홈 시작 버튼 문법).
 	var label: String = _t("retry")
 	if game_clear:
-		label = _t("next_stage") if stage_idx + 1 < STAGES.size() else _t("go_home")
+		# 마지막 스테이지 클리어면 _result_advance()가 무한으로 보낸다(프런티어 깔때기) → 주CTA=무한 도전.
+		# (예전엔 라벨 go_home인데 동작은 select라 오라벨 + 아래 고스트 홈과 중복이었다 — 버그 수정 겸 통합.)
+		label = _t("next_stage") if stage_idx + 1 < STAGES.size() else _t("play_endless")
 	var r: Rect2 = lay["retry"]
 	var lfs: int = 26 if revivable else 38
 	var icon_r: float = 13.0 if revivable else 17.0
@@ -3195,7 +3212,9 @@ func _draw_select(fnt: Font) -> void:
 
 	var hint: String = _t("select_hint")
 	var hw: float = fnt.get_string_size(hint, HORIZONTAL_ALIGNMENT_LEFT, -1, 17).x
-	_draw_text_outlined(fnt, Vector2(400.0 - hw * 0.5, 724.0), hint, 17, Color(0.5, 0.52, 0.62))
+	# y=724는 8번 타일(668~726)과 겹쳤다(C57서 타일을 PLAY_BTN 위로 밀며 힌트 위치를 안 옮김).
+	# PLAY_BTN(742~868) 아래로 내려 메뉴 힌트(y=910) 리듬과 맞춘다.
+	_draw_text_outlined(fnt, Vector2(400.0 - hw * 0.5, 908.0), hint, 17, Color(0.5, 0.52, 0.62))
 
 # 천 단위 콤마 (점수 가독성)
 func _comma(n: int) -> String:
@@ -3606,10 +3625,25 @@ func _draw_board(fnt: Font) -> void:
 				_draw_text_outlined(fnt, Vector2(cx - 4.0, cy - s - 14.0), "!", 26,
 						Color(1.0, 0.95, 0.3, 0.4 + 0.6 * blink))
 			"tank":
-				# 딥 바이올렛 큰 사각형 + 더 두꺼운 외곽선 (육중함은 테두리 두께가 진다)
+				# 장갑 = 강철 판금 블록. 베벨 하이라이트 + 세로 이음선 2줄 + 코너 리벳 4개 + 두꺼운
+				# 외곽선 → 색(강철)과 form(판·리벳)이 함께 "장갑"을 즉시 말한다(basic 보라 원과 분리). C73.
 				var hs: float = CELL * 0.42
-				draw_rect(Rect2(cx - hs, cy - hs, hs * 2.0, hs * 2.0), C_E_TANK)
-				draw_rect(Rect2(cx - hs, cy - hs, hs * 2.0, hs * 2.0), C_E_RIM, false, C_E_RIM_W + 1.0)
+				var full: Rect2 = Rect2(cx - hs, cy - hs, hs * 2.0, hs * 2.0)
+				draw_rect(full, C_E_TANK)
+				draw_rect(Rect2(cx - hs, cy - hs, hs * 2.0, hs * 2.0 * 0.30), Color(C_E_TANK_HI.r, C_E_TANK_HI.g, C_E_TANK_HI.b, 0.55))  # 상단 베벨
+				draw_rect(Rect2(cx - hs, cy + hs * 0.55, hs * 2.0, hs * 0.45), Color(C_E_TANK_DK.r, C_E_TANK_DK.g, C_E_TANK_DK.b, 0.45))  # 하단 그림자
+				var seam_dk: Color = Color(C_E_TANK_DK.r, C_E_TANK_DK.g, C_E_TANK_DK.b, 0.9)
+				draw_line(Vector2(cx - hs * 0.34, cy - hs), Vector2(cx - hs * 0.34, cy + hs), seam_dk, 1.8)  # 판 이음선
+				draw_line(Vector2(cx + hs * 0.34, cy - hs), Vector2(cx + hs * 0.34, cy + hs), seam_dk, 1.8)
+				var rv: float = CELL * 0.055
+				var inset: float = hs * 0.72
+				for sx in [-1.0, 1.0]:
+					for sy in [-1.0, 1.0]:
+						var rc: Vector2 = Vector2(cx + sx * inset, cy + sy * inset)
+						draw_circle(rc, rv, C_E_RIVET)
+						draw_circle(rc, rv, seam_dk, false, 1.0)
+				draw_rect(full, C_E_RIM, false, C_E_RIM_W + 1.0)                                  # 두꺼운 외곽선
+				draw_rect(full.grow(-CELL * 0.05), Color(C_E_TANK_HI.r, C_E_TANK_HI.g, C_E_TANK_HI.b, 0.4), false, 1.3)  # 안쪽 베벨선
 				rad = hs
 				bar_w = CELL * 0.70   # 탱크는 게이지도 크다 = "버티는 게 보임"(C14)
 				bar_h = 16.0
