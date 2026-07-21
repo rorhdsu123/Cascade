@@ -80,6 +80,7 @@ const STR: Dictionary = {
 		"all_cleared": "All clear! Play again",
 		# ── HUD ──
 		"combo": "Combo x%d",
+		"leaderboard": "Leaderboard",   # 메뉴 우상단 진입 버튼
 		"new_best_live": "New best!",
 		"score": "Score",
 		"depth": "Depth %d",
@@ -165,6 +166,7 @@ const STR: Dictionary = {
 		"stage_n": "스테이지 %d",
 		"all_cleared": "전부 클리어! 다시 도전",
 		"combo": "콤보 x%d",
+		"leaderboard": "리더보드",
 		"new_best_live": "최고 갱신!",
 		"score": "점수",
 		"depth": "깊이 %d",
