@@ -230,7 +230,13 @@ const C_RED  := Color("#e5484d")
 const C_BLUE := Color("#3b82f6")
 const C_YELL := Color("#eab308")
 const C_BG   := Color("#0d0d1a")
-const C_BG_PB := Color("#2a2470")     # 넘음 배경 — 여백·상단바·하단바를 '한 색'으로 통일(밝은 인디고). 8×8 보드 셀은 원색 유지(다크 아일랜드).
+const C_BG_PB := Color("#2a2470")     # 존1(밝은 인디고). 여백·상하단바가 절대점수 존마다 이 계열로 이산 전환. 8×8 셀은 원색 유지(다크 아일랜드).
+# ── 절대점수 존 = '밤하늘 상승'(이산 단계, 매 판) ── 난이도(PB 너머, 개인축)와 분리한 '스펙터클' 축(절대점수).
+#   매 판(첫 판 포함) 점수 오르며 계단을 밟는다. 연속 크리프(안 보임)를 폐기하고 전이 순간에만 툭 바뀜(지각됨).
+#   PB 돌파(상대·정점)는 이 계단 '위'로 솟는 크레셴도(크라운 락)로 별도 유지. 값은 튜닝 대상(사람 플테).
+const ZONE_SCORES: Array = [4000, 12000, 30000, 65000]   # 존 1~4 진입 점수. 그 위는 프리스티지(PRESTIGE_STEP마다 전이 비트만 재발화, 새 아트 없음).
+const PRESTIGE_STEP: int = 65000
+const ZONE_BG: Array = [Color("#2a2470"), Color("#382178"), Color("#481f7a"), Color("#5a1d78")]  # 존1~4 밤하늘: 인디고→보라→퍼플→마젠타퍼플(점점 진하고 vivid=상승감). 렌더로 튜닝.
 const C_CELL := Color("#111122")
 const C_GRID := Color(0.28, 0.28, 0.38, 0.55)
 const C_HUD  := Color(0.06, 0.06, 0.12)
@@ -447,7 +453,11 @@ var impacts: Array = []        # [{pos, life, max, color, radius}] 빔 임팩트
 var kill_pulse: float = 0.0    # 킬 순간 ENEMIES LEFT 헤드라인 펄스
 var pb_pop_t: float = -1.0     # PB 돌파 '순간' 버스트 타이머(방사광+스티커 팝인). <0=대기. (스티커 자체는 이후에도 상주)
 const PB_POP_DUR: float = 1.15 # 순간 버스트 길이(팝인·방사광). 스티커는 이 뒤로도 판 끝까지 붙어 있음.
-var pb_bg_mix: float = 0.0     # 넘음 배경 전환 0→1(부드럽게 이징, 판 종료까지 지속). 넘으면 플레이씬 배경이 '기록 구간' 색으로.
+var zone_index: int = 0        # 현재 절대점수 존(0=base·1~4·그 위 프리스티지). 전이 엣지로만 상승.
+var zone_mix: float = 0.0      # base→존색 존재감(존≥1서 1로 이징).
+var zone_col: Color = C_BG_PB  # 현재 존 배경색. 존 바뀌면 목표 존색으로 짧게 이징(전이 순간의 이산 스텝).
+var zone_trans_t: float = -1.0 # 존 전이 원샷 비트 타이머(링 + 배경 밝기 플래시). <0=대기.
+const ZONE_TRANS_DUR: float = 1.3
 var push_streaks: Array = []   # [{from, to, life, max}] 넉백 잔상
 var aim_marks: Array = []      # [{c, r}] 조준 프리뷰 링 — 들고 있는 조각 '위'에 최상단 오버레이로 그린다
 var rockets: Array = []        # [{dir, idx, t, dur, combo, ended}] 라인 따라 질주하는 로켓
@@ -611,9 +621,40 @@ func _save_campaign() -> void:
 func _add_endless_score(pts: int) -> void:
 	endless_score += pts
 	# 넘는 '순간'(not-beat → beat 엣지)에 원샷 1회 발화 — 이후 프레임은 이미 beat라 재발화 없음.
+	# ── PB 돌파(상대·정점) = 계단 위로 솟는 크레셴도(크라운 락+버스트). 존 전이보다 크게. ──
 	if endless_best > 0 and not endless_beat_best and endless_score > endless_best:
 		endless_beat_best = true
-		pb_pop_t = PB_POP_DUR   # 순간 버스트(방사광+스티커 팝인). 배경 전환은 pb_bg_mix가 이후 부드럽게.
+		pb_pop_t = PB_POP_DUR   # 순간 버스트(방사광+스티커 팝인).
+	# ── 절대점수 존(스펙터클·매판) = 계단. 존 오르는 '순간' 전이 비트(링+배경 플래시). 배경은 zone_col이 뒤따라 스텝. ──
+	var z: int = _zone_for(endless_score)
+	if z > zone_index:
+		zone_index = z
+		zone_trans_t = ZONE_TRANS_DUR
+
+# 존 틴트 — base(여백/상·하단 바)를 현재 존 배경색으로 lerp. 세 표면이 한 함수를 공유(C31: 값 두 곳 금지).
+#   전이 순간엔 존색을 쿨하게 살짝 밝혀(_zone_flash) 스텝을 주변부에서도 지각되게.
+func _zone_tint(base: Color) -> Color:
+	var c: Color = zone_col
+	var fl: float = _zone_flash()
+	if fl > 0.0:
+		c = c.lerp(Color(0.66, 0.72, 1.0), fl)
+	return base.lerp(c, zone_mix)
+
+# 절대점수 → 존 인덱스(0=base, 1~4, 그 위 프리스티지). 전이 엣지 감지와 배경 목표색이 공유.
+func _zone_for(sc: int) -> int:
+	var z: int = 0
+	for i in range(ZONE_SCORES.size()):
+		if sc >= int(ZONE_SCORES[i]):
+			z = i + 1
+	if z >= ZONE_SCORES.size():   # 천장 도달 → 프리스티지(간격 반복, 배경은 존4서 포화·전이 비트만 재발화)
+		var top: int = int(ZONE_SCORES[ZONE_SCORES.size() - 1])
+		z = ZONE_SCORES.size() + (sc - top) / PRESTIGE_STEP
+	return z
+
+# 현재 존의 배경 목표색(존4서 포화 — 프리스티지는 색 안 바뀌고 전이 비트만).
+func _zone_bg_target() -> Color:
+	var i: int = clampi(zone_index - 1, 0, ZONE_BG.size() - 1)
+	return ZONE_BG[i]
 
 # 선형 해금: 1스테이지는 항상 열려 있고, 그다음부턴 직전 스테이지를 깨야 열린다
 func _is_unlocked(i: int) -> bool:
@@ -735,7 +776,10 @@ func _init_game() -> void:
 	impacts = []
 	kill_pulse = 0.0
 	pb_pop_t = -1.0
-	pb_bg_mix = 0.0
+	zone_index = 0
+	zone_mix = 0.0
+	zone_col = C_BG_PB
+	zone_trans_t = -1.0
 	push_streaks = []
 	rockets = []
 	hitstop = 0.0
@@ -2017,6 +2061,12 @@ func _input(event: InputEvent) -> void:
 		if pk.pressed and pk.keycode == KEY_ESCAPE:
 			mode = _home_mode()  # 플레이 중 포기 → 홈(허브)으로
 			return
+		# ⚠플테 전용 DEV: '9'키 = 점수 +10,000. PB 너머 심화(bf 3~6)를 자연 그라인드 없이 눈으로 보기 위함.
+		#   실제 _add_endless_score를 태워 넘김 엣지·발화·심화 파이프라인 그대로 재현. 출시 전 제거.
+		if pk.pressed and pk.keycode == KEY_9 and endless:
+			_add_endless_score(10000)
+			queue_redraw()
+			return
 
 	# resolve 재생 중에는 배치/선택 입력 정지 (연출 끝나면 자동 복귀)
 	if resolving:
@@ -2221,8 +2271,13 @@ func _process(delta: float) -> void:
 		kill_pulse = maxf(0.0, kill_pulse - delta)
 	if pb_pop_t >= 0.0:
 		pb_pop_t = maxf(-1.0, pb_pop_t - delta)   # 0 밑으로 떨어지면 대기(-1)로
-	# 넘음 배경 전환 — beat면 1로, 아니면 0으로 0.6초에 걸쳐 이징(판 끝까지 지속). 죽음 연출 중엔 얼리지 않음.
-	pb_bg_mix = move_toward(pb_bg_mix, 1.0 if endless_beat_best else 0.0, delta / 0.6)
+	# 절대점수 존 배경 — 존별 이산 밤하늘. 존≥1이면 존재감(zone_mix)→1, 존색은 목표 존색으로 짧게 이징(전이 순간의 스텝).
+	#   전이는 zone_index가 _add_endless_score에서 엣지로 올라갈 때 발화(zone_trans_t). 여긴 색만 따라감.
+	zone_mix = move_toward(zone_mix, 1.0 if zone_index >= 1 else 0.0, delta / 0.5)
+	if zone_index >= 1:
+		zone_col = zone_col.lerp(_zone_bg_target(), clampf(delta / 0.4, 0.0, 1.0))
+	if zone_trans_t >= 0.0:
+		zone_trans_t = maxf(-1.0, zone_trans_t - delta)
 	# 적 flinch 감쇠 + 전진/넉백 표시(vis_row) 부드럽게 이징
 	for e in enemies:
 		if e.get("flinch", 0.0) > 0.0:
@@ -2261,7 +2316,7 @@ func _draw() -> void:
 	# 넘음 배경(여백) — 개인기록 넘으면 warm 플럼으로 solid 전환(pb_bg_mix 이징, 판 끝까지). 상·하단 바·셀도 같은
 	#   방식으로 함께 전환(아래) → 화면 전체가 한 색으로 통일 + 반투명 veil 없어 haze 0. 어둠 유지로 대비 보존.
 	#   폭·높이는 반응형(VW_BASE 고정폭 + vh)이라 긴 폰에서도 여백이 남지 않는다.
-	draw_rect(Rect2(-20, -20, VW_BASE + 40.0, vh + 40.0), C_BG.lerp(C_BG_PB, pb_bg_mix))
+	draw_rect(Rect2(-20, -20, VW_BASE + 40.0, vh + 40.0), _zone_tint(C_BG))
 
 	_draw_hud(fnt)
 	_draw_board(fnt)
@@ -2399,11 +2454,40 @@ func _draw() -> void:
 			cpos + Vector2(-hw * ca - hh * sa, -hw * sa + hh * ca),
 		]), col)
 
+	# 존 전이 비트(계단) — PB 크레셴도 '아래'에 먼저 그려 PB가 위로 솟게(위계: 존 전이 < PB 돌파).
+	if zone_trans_t >= 0.0:
+		_draw_zone_trans()
 	# PB 돌파 — 순간 버스트(방사광+링, 1회)는 pb_pop_t 창에서만. 스티커는 넘은 뒤 판 끝까지 상주(계속 갱신 중).
 	if pb_pop_t >= 0.0:
 		_draw_pb_burst()
 	if endless_beat_best:
 		_draw_pb_sticker(fnt)   # 버스트 위(최상단 헤드라인)
+
+# 존 전이 원샷(계단 비트) — 점수 카드에서 부드러운 링(존색 쿨). 배경 밝기 플래시(_zone_flash)와 한 쌍.
+#   숫자는 안 띄운다(라이브 점수 카드와 중복). PB 버스트보다 작게 = 위계. 코지(셰이크·흰섬광 없음). 전부 오버레이.
+func _draw_zone_trans() -> void:
+	var p: float = clampf(1.0 - zone_trans_t / ZONE_TRANS_DUR, 0.0, 1.0)   # 0→1
+	var cc: Vector2 = Vector2(293.0, 56.0)   # 점수 카드 중심
+	var a: float = 1.0
+	if p < 0.06:
+		a = p / 0.06
+	elif p > 0.55:
+		a = clampf((1.0 - p) / 0.45, 0.0, 1.0)
+	var ring: Color = zone_col.lerp(Color(0.72, 0.8, 1.0), 0.6)   # 존색+쿨 살짝
+	for k in range(2):
+		var rr: float = clampf((p - float(k) * 0.12) / 0.55, 0.0, 1.0)
+		if rr <= 0.0 or rr >= 1.0:
+			continue
+		draw_arc(cc, lerp(20.0, 92.0 + float(k) * 18.0, rr), 0.0, TAU, 40,
+				Color(ring.r, ring.g, ring.b, a * (1.0 - rr) * 0.5), 2.5)
+
+# 전이 순간 배경 밝기 플래시 계수(0~) — 존 넘는 초반 0.3s만 쿨하게 밝아졌다 사그라듦.
+#   여백·상하단바가 한 박자 '휙' 밝아지며 새 존색으로 정착 = 이산 스텝이 주변부에서도 확실히 지각됨.
+func _zone_flash() -> float:
+	if zone_trans_t < 0.0:
+		return 0.0
+	var p: float = 1.0 - zone_trans_t / ZONE_TRANS_DUR
+	return clampf(1.0 - p / 0.3, 0.0, 1.0) * 0.22
 
 # PB 돌파 순간 버스트 — 방사광+shockwave 링(1회). 시선을 '점수' 카드로 끌어당긴다. 전부 오버레이(기본 UI 무간섭).
 func _draw_pb_burst() -> void:
@@ -3288,7 +3372,7 @@ func _draw_enemy_icon(center: Vector2, s: float) -> void:
 		draw_rect(Rect2(tx - s * 0.015, cy + s * 0.22, s * 0.03, s * 0.16), dark)
 
 func _draw_hud(fnt: Font) -> void:
-	draw_rect(Rect2(0, 0, 800, 144), C_HUD.lerp(C_BG_PB, pb_bg_mix))   # 넘음: 상단 바도 여백과 '같은' warm 플럼으로(통일)
+	draw_rect(Rect2(0, 0, 800, 144), _zone_tint(C_HUD))   # 존: 상단 바도 여백과 '같은' 존색으로(통일)
 	# CORE HP는 보드 하단 방어선(_draw_core)에만 표시 — 상단 중복 제거.
 	if combo >= 2:
 		# 유예 중(헛수 1회)이면 경고색으로만 — 다음 헛수에 끊긴다는 신호(텍스트는 안 붙임)
@@ -3853,7 +3937,7 @@ func _draw_collapse() -> void:
 					CELL - bpad * 2.0, CELL - bpad * 2.0), _color_of(board[r][c]))
 
 func _draw_bottom(fnt: Font) -> void:
-	draw_rect(Rect2(0, bot_y, VW_BASE, vh - float(bot_y)), C_HUD.lerp(C_BG_PB, pb_bg_mix))   # 넘음: 하단 바도 여백과 '같은' warm 플럼으로(통일)
+	draw_rect(Rect2(0, bot_y, VW_BASE, vh - float(bot_y)), _zone_tint(C_HUD))   # 존: 하단 바도 여백과 '같은' 존색으로(통일)
 
 	# 3슬롯 트레이
 	for i in range(3):
