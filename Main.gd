@@ -245,7 +245,12 @@ const C_BORD := Color(0.24, 0.24, 0.38)
 #   마룬-빨강 시절 그대로라, 플레이어가 배운 "탱크 = 육중한 기본"이 유지된다.
 const C_E_BASIC := Color("#a855f7")   # 바이올렛
 const C_E_FAST  := Color("#22d3ee")   # 시안
-const C_E_TANK  := Color("#6d28d9")   # 딥 바이올렛 (basic의 무거운 변주)
+# tank=장갑 → 강철/건메탈(금속 = 장갑). 도착 순간 '장갑'이 실루엣만으로 읽히게(C73, basic 보라와 분리).
+#   판·리벳·베벨은 아래 렌더에서. 딥바이올렛(#6d28d9) 시절엔 basic과 같은 보라라 '네모난 basic'으로 읽혔다.
+const C_E_TANK    := Color("#64748b")   # 강철(쿨블루 슬레이트)
+const C_E_TANK_HI := Color("#aab6c6")   # 상단 베벨 하이라이트
+const C_E_TANK_DK := Color("#2f3b4d")   # 이음선·하단 그림자
+const C_E_RIVET   := Color("#d7dee8")   # 코너 리벳
 const C_E_SWARM := Color("#a3e635")   # 라임
 const C_E_SPLIT := Color("#60a5fa")   # 파랑 — 로스터에서 유일한 한색(빨강 회피). 시안(fast)보다 확연히 파랑
 
@@ -1478,7 +1483,7 @@ func _etype_fx_color(etype: String) -> Color:
 		"fast":
 			return C_E_FAST
 		"tank":
-			return Color("#c084fc")   # 딥 바이올렛의 밝은 변주 (파편이 배경에 묻히지 않게)
+			return Color("#cbd5e1")   # 밝은 강철 (금속 파편 — 몸체 강철색과 일관, 배경에 안 묻힘). C73
 		"swarm":
 			return C_E_SWARM
 		"split":
@@ -3355,10 +3360,25 @@ func _draw_board(fnt: Font) -> void:
 				_draw_text_outlined(fnt, Vector2(cx - 4.0, cy - s - 14.0), "!", 26,
 						Color(1.0, 0.95, 0.3, 0.4 + 0.6 * blink))
 			"tank":
-				# 딥 바이올렛 큰 사각형 + 더 두꺼운 외곽선 (육중함은 테두리 두께가 진다)
+				# 장갑 = 강철 판금 블록. 베벨 하이라이트 + 세로 이음선 2줄 + 코너 리벳 4개 + 두꺼운
+				# 외곽선 → 색(강철)과 form(판·리벳)이 함께 "장갑"을 즉시 말한다(basic 보라 원과 분리). C73.
 				var hs: float = CELL * 0.42
-				draw_rect(Rect2(cx - hs, cy - hs, hs * 2.0, hs * 2.0), C_E_TANK)
-				draw_rect(Rect2(cx - hs, cy - hs, hs * 2.0, hs * 2.0), C_E_RIM, false, C_E_RIM_W + 1.0)
+				var full: Rect2 = Rect2(cx - hs, cy - hs, hs * 2.0, hs * 2.0)
+				draw_rect(full, C_E_TANK)
+				draw_rect(Rect2(cx - hs, cy - hs, hs * 2.0, hs * 2.0 * 0.30), Color(C_E_TANK_HI.r, C_E_TANK_HI.g, C_E_TANK_HI.b, 0.55))  # 상단 베벨
+				draw_rect(Rect2(cx - hs, cy + hs * 0.55, hs * 2.0, hs * 0.45), Color(C_E_TANK_DK.r, C_E_TANK_DK.g, C_E_TANK_DK.b, 0.45))  # 하단 그림자
+				var seam_dk: Color = Color(C_E_TANK_DK.r, C_E_TANK_DK.g, C_E_TANK_DK.b, 0.9)
+				draw_line(Vector2(cx - hs * 0.34, cy - hs), Vector2(cx - hs * 0.34, cy + hs), seam_dk, 1.8)  # 판 이음선
+				draw_line(Vector2(cx + hs * 0.34, cy - hs), Vector2(cx + hs * 0.34, cy + hs), seam_dk, 1.8)
+				var rv: float = CELL * 0.055
+				var inset: float = hs * 0.72
+				for sx in [-1.0, 1.0]:
+					for sy in [-1.0, 1.0]:
+						var rc: Vector2 = Vector2(cx + sx * inset, cy + sy * inset)
+						draw_circle(rc, rv, C_E_RIVET)
+						draw_circle(rc, rv, seam_dk, false, 1.0)
+				draw_rect(full, C_E_RIM, false, C_E_RIM_W + 1.0)                                  # 두꺼운 외곽선
+				draw_rect(full.grow(-CELL * 0.05), Color(C_E_TANK_HI.r, C_E_TANK_HI.g, C_E_TANK_HI.b, 0.4), false, 1.3)  # 안쪽 베벨선
 				rad = hs
 				bar_w = CELL * 0.70   # 탱크는 게이지도 크다 = "버티는 게 보임"(C14)
 				bar_h = 16.0

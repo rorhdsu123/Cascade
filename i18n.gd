@@ -111,7 +111,7 @@ const STR: Dictionary = {
 		"how_click": "Click a piece, then click board to place",
 		"how_drag": "Drag a piece onto the board to place",
 		"rule_blast": "Fill a full row OR column -> blast!",
-		"rule_combo": "Chain clears -> COMBO streak (bigger dmg)",
+		"rule_combo": "Chain clears -> COMBO (wider blast)",
 	},
 	"ko": {
 		"st1_name": "첫 방어선",
@@ -198,7 +198,7 @@ const STR: Dictionary = {
 		"how_click": "조각을 고르고 보드를 눌러 놓기",
 		"how_drag": "조각을 보드로 끌어 놓기",
 		"rule_blast": "가로 또는 세로 한 줄 채우면 -> 폭발!",
-		"rule_combo": "연쇄 클리어 -> 콤보 (피해 증가)",
+		"rule_combo": "연쇄 클리어 -> 콤보 (터지는 범위↑)",
 	},
 }
 
