@@ -4,7 +4,7 @@ extends SceneTree
 #   ② 렌더(HUD·팝업) = 창 모드 + 상태 직접 세팅 후 스샷(전 판 구동은 창 OS 이벤트로 flaky): godot --script ...
 # [[godot-pixel-verify-needs-window]] 렌더는 창 필수. 로직은 헤드리스 OK.
 
-const DIR: String = "/private/tmp/claude-501/-Users-im-yujin-Desktop-Cascade-endless/d9711f36-7ab4-476a-9118-046b10970466/scratchpad/"
+const DIR: String = "/private/tmp/claude-501/-Users-im-yujin-Desktop-Cascade-worktrees-endless/23fb7c58-31b3-4280-8678-c11fa1fcbecd/scratchpad/"
 
 func _initialize() -> void:
 	_run.call_deferred()
@@ -58,17 +58,62 @@ func _run() -> void:
 	g.call("queue_redraw")
 	await _shot("ui_select.png")
 
-	# 2b) 인게임 HUD — 최고 갱신(금색) 상태
+	# 2b-i) 인게임 HUD — 추격(넘기 전): 좌상단 "최고 8,000" 회색 기준선, 점수는 그 아래
 	g.call("_start_endless")
 	await process_frame
 	g.set("endless_best", 8000)
-	g.set("endless_score", 15230)
-	g.set("endless_beat_best", true)   # score>best → 금색 '최고 갱신!'
-	g.set("place_count", 52)
-	g.set("combo", 4)
+	g.set("endless_score", 6500)
+	g.set("endless_beat_best", false)
+	g.set("place_count", 34)
+	g.set("combo", 3)
 	g.set("mode", "play")
 	g.call("queue_redraw")
+	await _shot("ui_hud_chase.png")
+
+	# 2b-ii) 인게임 HUD — 크라운 락(넘은 뒤): 좌상단 "👑 15,230" 금색 라이브 기록, 점수 카드도 금색
+	g.set("endless_best", 8000)
+	g.set("endless_score", 15230)
+	g.set("endless_beat_best", true)   # score>best → 크라운 락 발동
+	g.set("place_count", 92)
+	g.set("combo", 6)
+	g.set("kill_pulse", 0.3)           # 처치 직후 반짝(kp) 상태로 캡처
+	g.call("queue_redraw")
 	await _shot("ui_hud_beat.png")
+
+	# 2b-iii) PB 돌파 원샷 — 진행도별 정지 캡처(pb_pop_t = DUR*(1-p))
+	var dur: float = g.get("PB_POP_DUR")
+	for pv in [0.20, 0.45, 0.80]:
+		g.set("pb_pop_t", dur * (1.0 - pv))
+		g.call("queue_redraw")
+		await _shot("ui_pbpop_%02d.png" % int(pv * 100.0))
+
+	# 2b-iv) 원샷 연속 프레임 캡처(영상용) — 컨페티까지 실제로 터뜨려 1.3초 재생.
+	#   ⚠엔진 자체 _process가 await process_frame마다 또 돌면 이중 틱(pb_pop_t 2배 감소)이라
+	#     set_process(false)로 끄고 수동 단일 틱만 준다 → 실게임(초당 1틱)과 동일 타이밍.
+	if not _headless():
+		# 배경 전환 폭 비교(mix 0 vs 1) — 같은 씬, 넘기 전/후(확정색 = 밝은 인디고)
+		g.set("endless_beat_best", false)
+		g.set("pb_pop_t", -1.0)
+		g.set("pb_bg_mix", 0.0)
+		g.call("queue_redraw")
+		await _shot("ui_bg_off.png")
+		g.set("endless_beat_best", true)
+		g.set("pb_bg_mix", 1.0)
+		g.call("queue_redraw")
+		await _shot("ui_bg_on.png")
+
+		g.set_process(false)
+		g.set_physics_process(false)
+		g.set("endless_beat_best", true)
+		g.set("pb_bg_mix", 0.0)
+		g.set("pb_pop_t", dur)
+		var frames: int = 110   # 팝인(1.15s) + 지속 스티커·배경 전환 꼬리까지
+		for fi in range(frames):
+			g.call("_process", 1.0 / 60.0)
+			g.call("queue_redraw")
+			await process_frame
+			await RenderingServer.frame_post_draw
+			root.get_texture().get_image().save_png(DIR + "cap_%03d.png" % fi)
 
 	# 2c) 결과 팝업 — 신기록 + 델타
 	g.set("game_over", true)

@@ -220,6 +220,7 @@ const C_RED  := Color("#e5484d")
 const C_BLUE := Color("#3b82f6")
 const C_YELL := Color("#eab308")
 const C_BG   := Color("#0d0d1a")
+const C_BG_PB := Color("#2a2470")     # 넘음 배경 — 여백·상단바·하단바를 '한 색'으로 통일(밝은 인디고). 8×8 보드 셀은 원색 유지(다크 아일랜드).
 const C_CELL := Color("#111122")
 const C_GRID := Color(0.28, 0.28, 0.38, 0.55)
 const C_HUD  := Color(0.06, 0.06, 0.12)
@@ -416,6 +417,9 @@ var debris: Array = []         # [{pos, vel, life, max, color, size}] 사망 파
 var confetti: Array = []       # [{pos, vel, life, max, color, rot, spin, w, h, sway, phase}] 클리어 축하 색종이
 var impacts: Array = []        # [{pos, life, max, color, radius}] 빔 임팩트/탱크 막음 링
 var kill_pulse: float = 0.0    # 킬 순간 ENEMIES LEFT 헤드라인 펄스
+var pb_pop_t: float = -1.0     # PB 돌파 '순간' 버스트 타이머(방사광+스티커 팝인). <0=대기. (스티커 자체는 이후에도 상주)
+const PB_POP_DUR: float = 1.15 # 순간 버스트 길이(팝인·방사광). 스티커는 이 뒤로도 판 끝까지 붙어 있음.
+var pb_bg_mix: float = 0.0     # 넘음 배경 전환 0→1(부드럽게 이징, 판 종료까지 지속). 넘으면 플레이씬 배경이 '기록 구간' 색으로.
 var push_streaks: Array = []   # [{from, to, life, max}] 넉백 잔상
 var aim_marks: Array = []      # [{c, r}] 조준 프리뷰 링 — 들고 있는 조각 '위'에 최상단 오버레이로 그린다
 var rockets: Array = []        # [{dir, idx, t, dur, combo, ended}] 라인 따라 질주하는 로켓
@@ -491,8 +495,10 @@ func _ready() -> void:
 # 점수 가산 + 판 중 최고 갱신 감지(HUD 실시간 신호). best>0일 때만 = 첫 판(best 0)은 '갱신'이 무의미.
 func _add_endless_score(pts: int) -> void:
 	endless_score += pts
-	if endless_best > 0 and endless_score > endless_best:
+	# 넘는 '순간'(not-beat → beat 엣지)에 원샷 1회 발화 — 이후 프레임은 이미 beat라 재발화 없음.
+	if endless_best > 0 and not endless_beat_best and endless_score > endless_best:
 		endless_beat_best = true
+		pb_pop_t = PB_POP_DUR   # 순간 버스트(방사광+스티커 팝인). 배경 전환은 pb_bg_mix가 이후 부드럽게.
 
 # 선형 해금: 1스테이지는 항상 열려 있고, 그다음부턴 직전 스테이지를 깨야 열린다
 func _is_unlocked(i: int) -> bool:
@@ -611,6 +617,8 @@ func _init_game() -> void:
 	confetti = []
 	impacts = []
 	kill_pulse = 0.0
+	pb_pop_t = -1.0
+	pb_bg_mix = 0.0
 	push_streaks = []
 	rockets = []
 	hitstop = 0.0
@@ -2055,6 +2063,10 @@ func _process(delta: float) -> void:
 		im -= 1
 	if kill_pulse > 0.0:
 		kill_pulse = maxf(0.0, kill_pulse - delta)
+	if pb_pop_t >= 0.0:
+		pb_pop_t = maxf(-1.0, pb_pop_t - delta)   # 0 밑으로 떨어지면 대기(-1)로
+	# 넘음 배경 전환 — beat면 1로, 아니면 0으로 0.6초에 걸쳐 이징(판 끝까지 지속). 죽음 연출 중엔 얼리지 않음.
+	pb_bg_mix = move_toward(pb_bg_mix, 1.0 if endless_beat_best else 0.0, delta / 0.6)
 	# 적 flinch 감쇠 + 전진/넉백 표시(vis_row) 부드럽게 이징
 	for e in enemies:
 		if e.get("flinch", 0.0) > 0.0:
@@ -2083,7 +2095,9 @@ func _draw() -> void:
 		var mag: float = SHAKE_AMP * (shake_timer / SHAKE_DUR)
 		draw_set_transform(Vector2(randf_range(-mag, mag), randf_range(-mag, mag)))
 
-	draw_rect(Rect2(-20, -20, 840, 1040), C_BG)
+	# 넘음 배경(여백) — 개인기록 넘으면 warm 플럼으로 solid 전환(pb_bg_mix 이징, 판 끝까지). 상·하단 바·셀도 같은
+	#   방식으로 함께 전환(아래) → 화면 전체가 한 색으로 통일 + 반투명 veil 없어 haze 0. 어둠 유지로 대비 보존.
+	draw_rect(Rect2(-20, -20, 840, 1040), C_BG.lerp(C_BG_PB, pb_bg_mix))
 
 	_draw_hud(fnt)
 	_draw_board(fnt)
@@ -2216,6 +2230,63 @@ func _draw() -> void:
 			cpos + Vector2(hw * ca - hh * sa, hw * sa + hh * ca),
 			cpos + Vector2(-hw * ca - hh * sa, -hw * sa + hh * ca),
 		]), col)
+
+	# PB 돌파 — 순간 버스트(방사광+링, 1회)는 pb_pop_t 창에서만. 스티커는 넘은 뒤 판 끝까지 상주(계속 갱신 중).
+	if pb_pop_t >= 0.0:
+		_draw_pb_burst()
+	if endless_beat_best:
+		_draw_pb_sticker(fnt)   # 버스트 위(최상단 헤드라인)
+
+# PB 돌파 순간 버스트 — 방사광+shockwave 링(1회). 시선을 '점수' 카드로 끌어당긴다. 전부 오버레이(기본 UI 무간섭).
+func _draw_pb_burst() -> void:
+	var p: float = clampf(1.0 - pb_pop_t / PB_POP_DUR, 0.0, 1.0)   # 진행 0→1
+	var a: float = 1.0
+	if p < 0.06:
+		a = p / 0.06
+	elif p > 0.7:
+		a = clampf((1.0 - p) / 0.3, 0.0, 1.0)
+	var cc: Vector2 = Vector2((800.0 - 464.0) * 0.5 + 125.0, 56.0)   # 점수 카드 중심 (293,56)
+	# ① shockwave 링 — 시선 유도. 옆 '적 이동' 카드(좌단 x=442) 안 넘게 반경 제한.
+	for k in range(2):
+		var rk: float = clampf((p - float(k) * 0.14) / 0.6, 0.0, 1.0)
+		if rk <= 0.0 or rk >= 1.0:
+			continue
+		draw_arc(cc, lerp(28.0, 128.0 + float(k) * 34.0, rk), 0.0, TAU, 40,
+				Color(1.0, 0.92, 0.6, a * (1.0 - rk) * 0.55), 3.0)
+	# ② 방사광 — 더 밝게·짧게(near-white, 길이 42→84 → x최대 377 < 442). 피크 p≈0.1 뒤 빠르게 사그라듦(펀치).
+	var ray_a: float = a * clampf(1.0 - absf(p - 0.1) / 0.18, 0.0, 1.0) * 0.85
+	if ray_a > 0.01:
+		for i in range(12):
+			var ang: float = p * 0.35 + float(i) * TAU / 12.0
+			var dir: Vector2 = Vector2(cos(ang), sin(ang))
+			draw_line(cc + dir * 40.0, cc + dir * 84.0, Color(1.0, 0.98, 0.82, ray_a), 5.0)
+
+# "👑 신기록!" 스티커 — 넘은 순간 카드 상단에 비스듬히 '붙어' 판 끝까지 상주(계속 갱신 중이라 안 뗀다).
+#   팝인만 오버슛 원샷(pb_pop_t 창), 이후 고정. 기본 UI('점수' 라벨)를 '가릴' 뿐 안 바꾼다(occlude-don't-mutate).
+func _draw_pb_sticker(fnt: Font) -> void:
+	var ss: float = 1.0
+	var wob: float = 0.0
+	var a: float = 1.0
+	if pb_pop_t >= 0.0:   # 팝인 구간만 애니
+		var p: float = clampf(1.0 - pb_pop_t / PB_POP_DUR, 0.0, 1.0)
+		if p < 0.06:
+			a = p / 0.06
+		if p < 0.14:
+			var ip: float = p / 0.14
+			ss = (1.0 - pow(1.0 - ip, 2.0)) + sin(clampf(ip, 0.0, 1.0) * PI) * 0.18   # 오버슛 팝인
+			wob = sin(p * 26.0) * 0.03 * clampf(1.0 - p / 0.3, 0.0, 1.0)              # 진입 살짝 흔들
+	var cx: float = (800.0 - 464.0) * 0.5 + 125.0   # 점수 카드 중심 x (293)
+	var label: String = "👑 신기록!"
+	var sfs: int = 22
+	var lw: float = fnt.get_string_size(label, HORIZONTAL_ALIGNMENT_LEFT, -1, sfs).x
+	var sw: float = lw + 34.0
+	var sh: float = 40.0
+	draw_set_transform(Vector2(cx, 30.0), -0.12 + wob, Vector2(ss, ss))     # 카드 상단 걸치게, ~-7°
+	draw_rect(Rect2(-sw * 0.5 + 2.0, -sh * 0.5 + 3.0, sw, sh), Color(0.0, 0.0, 0.0, 0.22 * a))   # 그림자
+	draw_rect(Rect2(-sw * 0.5, -sh * 0.5, sw, sh), Color(0.82, 0.58, 0.06, a))                   # 골드 테두리
+	draw_rect(Rect2(-sw * 0.5 + 3.0, -sh * 0.5 + 3.0, sw - 6.0, sh - 6.0), Color(1.0, 0.86, 0.3, a))  # 크림 속
+	draw_string(fnt, Vector2(-lw * 0.5, sfs * 0.36), label, HORIZONTAL_ALIGNMENT_LEFT, -1, sfs, Color(0.3, 0.15, 0.0, a))
+	draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
 
 # ===== 결과 팝업 =====
 # 화면을 통째로 덮는 텍스트 나열이 아니라, 어두워진 게임 위에 뜨는 '카드'.
@@ -2913,7 +2984,7 @@ func _draw_enemy_icon(center: Vector2, s: float) -> void:
 		draw_rect(Rect2(tx - s * 0.015, cy + s * 0.22, s * 0.03, s * 0.16), dark)
 
 func _draw_hud(fnt: Font) -> void:
-	draw_rect(Rect2(0, 0, 800, 144), C_HUD)
+	draw_rect(Rect2(0, 0, 800, 144), C_HUD.lerp(C_BG_PB, pb_bg_mix))   # 넘음: 상단 바도 여백과 '같은' warm 플럼으로(통일)
 	# CORE HP는 보드 하단 방어선(_draw_core)에만 표시 — 상단 중복 제거.
 	if combo >= 2:
 		# 유예 중(헛수 1회)이면 경고색으로만 — 다음 헛수에 끊긴다는 신호(텍스트는 안 붙임)
@@ -2945,22 +3016,31 @@ func _draw_hud(fnt: Font) -> void:
 		# 점수 모드: GOAL 카드 = 점수(리더보드 지표). 최고 넘으면 카드·제목·숫자가 금색으로(실시간 갱신 신호).
 		#   깊이·최고는 좌상단, 콤보는 우상단.
 		var beat: bool = endless_beat_best
-		_draw_card(goal_r, C_GOLD if beat else Color(0.5, 0.42, 0.78))
-		var ptitle: String = "최고 갱신!" if beat else "점수"
-		var pt_w: float = fnt.get_string_size(ptitle, HORIZONTAL_ALIGNMENT_LEFT, -1, 16).x
-		_draw_text_outlined(fnt, Vector2(goal_r.position.x + gw * 0.5 - pt_w * 0.5, box_y + 24.0), ptitle, 16,
-				C_GOLD if beat else Color(0.82, 0.78, 1.0))
+		# 금색 위계 정리: 넘어도 점수 카드는 '중립' 유지 — 지속 기록 신호는 좌상단 크라운 락 + 스티커 + 배경이 전담.
+		#   (카드까지 금색이면 금색 4중이라 위계가 뭉갠다.) 기본 UI 텍스트/크기/색 불변(kill-pulse 반짝만 유지).
+		_draw_card(goal_r, Color(0.5, 0.42, 0.78))
+		var pt_w: float = fnt.get_string_size("점수", HORIZONTAL_ALIGNMENT_LEFT, -1, 16).x
+		_draw_text_outlined(fnt, Vector2(goal_r.position.x + gw * 0.5 - pt_w * 0.5, box_y + 24.0), "점수", 16,
+				Color(0.82, 0.78, 1.0))
 		var sc_str: String = _comma(endless_score)
 		var sc_fs: int = 40
 		var sc_w: float = fnt.get_string_size(sc_str, HORIZONTAL_ALIGNMENT_LEFT, -1, sc_fs).x
-		var sc_col: Color = C_GOLD if beat else Color.WHITE.lerp(C_GOLD, kp)
+		var sc_col: Color = Color.WHITE.lerp(C_GOLD, kp)
 		_draw_text_outlined(fnt, Vector2(goal_r.position.x + gw * 0.5 - sc_w * 0.5, box_y + 70.0), sc_str, sc_fs, sc_col)
-		# 좌상단: 깊이 + 최고(목표 기준선). 최고를 넘었으면 금색으로 '넘었다'를 색으로도.
+		# 좌상단: 깊이 + 크라운 락(BlockBlast 관찰). 넘기 전 = 옛 최고(추격 기준선, 회색). 넘은 뒤 = 👑 라이브
+		#   신기록(점수에 잠겨 매 처치마다 상승, kp로 반짝) — "지금부터 전부 신기록". 이 숫자가 곧 발화선(적 HP 램프):
+		#   영광과 벼랑이 같은 숫자다(endless_mode.gd '내 실력의 끝단이 늘 벼랑').
 		_draw_text_outlined(fnt, Vector2(12.0, 30.0), "깊이 %d" % place_count, 22, Color(0.72, 0.74, 0.9))
 		if endless_best > 0:
-			var best_lbl: String = "최고 %s" % _comma(endless_best)
-			_draw_text_outlined(fnt, Vector2(12.0, 56.0), best_lbl, 16,
-					C_GOLD if beat else Color(0.6, 0.62, 0.78))
+			var rec_lbl: String
+			var rec_col: Color
+			if beat:
+				rec_lbl = "👑 %s" % _comma(maxi(endless_best, endless_score))
+				rec_col = C_GOLD.lerp(Color.WHITE, kp * 0.6)   # 처치마다 흰빛 반짝 = 기록이 실시간으로 새로 쓰인다
+			else:
+				rec_lbl = "최고 %s" % _comma(endless_best)
+				rec_col = Color(0.6, 0.62, 0.78)
+			_draw_text_outlined(fnt, Vector2(12.0, 56.0), rec_lbl, 16, rec_col)
 	else:
 		# GOAL 카드 — 제목 "목표" + 내용 "💀 남은 적 N"(전 타입 소탕이 목표라 타입 중립 해골).
 		_draw_card(goal_r, Color(0.85, 0.7, 0.3))
@@ -3027,7 +3107,7 @@ func _draw_board(fnt: Font) -> void:
 		for c in range(COLS):
 			var rx: float = BOARD_X + c * CELL
 			var ry: float = BOARD_Y + r * CELL
-			draw_rect(Rect2(rx, ry, CELL, CELL), C_CELL)
+			draw_rect(Rect2(rx, ry, CELL, CELL), C_CELL)   # 8×8 보드 셀은 원색 유지 — 넘음 전환은 주변(바·여백)만, 보드는 다크 아일랜드
 			draw_rect(Rect2(rx, ry, CELL, CELL), C_GRID, false)
 			if board[r][c] == "" or charging.has(Vector2i(c, r)):
 				continue
@@ -3444,7 +3524,7 @@ func _draw_collapse() -> void:
 					CELL - bpad * 2.0, CELL - bpad * 2.0), _color_of(board[r][c]))
 
 func _draw_bottom(fnt: Font) -> void:
-	draw_rect(Rect2(0, BOT_Y, 800, 1000 - BOT_Y), C_HUD)
+	draw_rect(Rect2(0, BOT_Y, 800, 1000 - BOT_Y), C_HUD.lerp(C_BG_PB, pb_bg_mix))   # 넘음: 하단 바도 여백과 '같은' warm 플럼으로(통일)
 
 	# 3슬롯 트레이
 	for i in range(3):
