@@ -97,8 +97,9 @@ const STR: Dictionary = {
 		# ── 게임플레이 콜아웃/tell(원래 영어로 authored — 값 동일, 로케일 확장용으로만 키화) ──
 		"ll_double": "DOUBLE!",
 		"ll_triple": "TRIPLE!",
-		"ll_tetris": "TETRIS!",
+		"ll_tetris": "QUAD!",
 		"ll_mega": "MEGA!",
+		"tut_kill": "Enemy incoming! Clear a line to take it down",
 		"combo_flash": "COMBO x%d",
 		"tell_block": "BLOCK",
 		"callout_fast": "FAST — quick!",
@@ -186,8 +187,9 @@ const STR: Dictionary = {
 		# ⚠아래 콜아웃/tell·온보딩의 한국어는 초안(원문이 영어라 대응 한글이 없었음). 검수/조정 여지.
 		"ll_double": "더블!",
 		"ll_triple": "트리플!",
-		"ll_tetris": "테트리스!",
+		"ll_tetris": "쿼드!",
 		"ll_mega": "메가!",
+		"tut_kill": "적이 내려와요! 줄을 채워 잡으세요",
 		"combo_flash": "콤보 x%d",
 		"tell_block": "버팀",
 		"callout_fast": "속공 — 빠르다!",
