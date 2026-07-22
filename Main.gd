@@ -342,6 +342,7 @@ var endless_beat_best: bool = false # 판 중에 이미 최고를 넘었나(HUD 
 # 점수 계수(C58 손맛)는 감독 소유로 이관(C61 seam): EndlessMode.CLEAR_BASE/KILL_MULT.
 #   코어는 director.clear_score()/kill_score()로 묻는다 — 모드 이름 대신 능력.
 var _adv_hover: bool = false       # 메뉴: Adventure(스테이지) 버튼 호버
+var _stages_hover: bool = false    # 메뉴: 스테이지 목록 칩 호버
 var _classic_hover: bool = false   # 메뉴: Classic(무한) 버튼 호버
 var _lb_hover: bool = false        # 메뉴: 리더보드(우상단 트로피) 버튼 호버
 var _lb_play_hover: bool = false   # 리더보드 화면: 하단 '무한 도전' CTA 호버
@@ -659,12 +660,37 @@ func _is_unlocked(i: int) -> bool:
 		return true
 	return bool(cleared.get(i - 1, false))
 
+# 무한 모드 해금 = 스테이지 1을 깬 뒤(C80). 튜토리얼이 스테이지 1에만 붙어 있어(_tut_active),
+#   무한부터 누른 신규는 규칙을 하나도 못 배운 채 죽는다. 문은 튜토리얼 포함 1~2분짜리 하나뿐이고
+#   그 뒤로는 영원히 안 잠긴다. 캠페인=깔때기라는 로드맵 기조의 실행이지 듀얼코어 위반이 아니다.
+# ⚠무한 진입점은 전부 이 함수를 거쳐야 한다(허브 버튼·키보드 E/0·리더보드 CTA). 하나라도 빠지면 구멍.
+func _endless_unlocked() -> bool:
+	if dev_unlock_all:
+		return true   # 플테 우회(선택화면 '0')
+	if endless_best > 0:
+		return true   # 이미 무한을 해본 기존 세이브 — 최고점이 있는데 잠기면 모순이다(잠금 도입 전 설치)
+	return bool(cleared.get(0, false))
+
 # 지금 도전할 스테이지 = 아직 안 깬 첫 스테이지 (전부 깼으면 마지막)
 func _current_stage() -> int:
 	for i in range(STAGES.size()):
 		if not bool(cleared.get(i, false)):
 			return i
 	return STAGES.size() - 1
+
+# 허브의 목록 칩은 '고를 것이 생긴 뒤에만' 나온다 — 신규는 열린 판이 스테이지 1 하나뿐이라
+#   큰 버튼이 이미 그리로 간다. 첫 화면은 갈래 하나(Adventure)로 좁히는 게 깔때기다.
+#   ⚠그리기와 히트테스트가 이 하나를 공유해야 한다(보이지 않는데 눌리는 유령 버튼 방지).
+func _stages_chip_visible() -> bool:
+	return _cleared_count() > 0
+
+# 깬 스테이지 수 — 허브 목록 칩과 선택화면 부제가 같은 출처를 본다(둘이 어긋나면 바로 불신).
+func _cleared_count() -> int:
+	var n: int = 0
+	for i in range(STAGES.size()):
+		if bool(cleared.get(i, false)):
+			n += 1
+	return n
 
 func _all_cleared() -> bool:
 	for i in range(STAGES.size()):
@@ -676,6 +702,14 @@ func _all_cleared() -> bool:
 #   (구: 스테이지는 목록(select)이 홈이었으나 통일 — '홈'이 화면마다 다른 곳을 가리키면 헷갈린다.)
 func _home_mode() -> String:
 	return "menu"
+
+# 허브의 Adventure = '이어하기'. 다음 도전할 스테이지로 바로 들어간다(C80: 복귀 마찰 절반).
+#   단 전부 깼으면 반복 재도전 대신 목록으로 — 그때는 '고르는 것'이 유일하게 남은 행동이다.
+func _adventure_go() -> void:
+	if _all_cleared():
+		mode = "select"
+		return
+	_start_stage(_current_stage())
 
 # 스테이지 시작 — 독립 레벨이라 보드·거점·적을 전부 초기화하고 st만 갈아끼운다
 func _start_stage(idx: int) -> void:
@@ -2001,6 +2035,28 @@ func _notification(what: int) -> void:
 	queue_redraw()
 
 func _input(event: InputEvent) -> void:
+	# ── 설정 모달: 열려 있으면 모달 입력만 처리(닫힐 때까지 뒤쪽 입력 차단) ──
+	#   ⚠최상단이어야 한다 — 허브에서도 기어로 열리므로(C80), 플레이 경로 안에 두면 허브에선 모달이
+	#   떠 있는데 뒤의 메뉴 버튼이 눌린다.
+	if settings_open:
+		var slay: Dictionary = _settings_layout()
+		if event is InputEventMouseMotion:
+			var mp2: Vector2 = (event as InputEventMouseMotion).position
+			_set_close_hover = (slay["close"] as Rect2).has_point(mp2)
+			_set_home_hover = (slay["home_btn"] as Rect2).has_point(mp2)
+			_set_replay_hover = (slay["replay_btn"] as Rect2).has_point(mp2)
+			_set_sound_hover = (slay["sound_tog"] as Rect2).has_point(mp2)
+			_set_bgm_hover = (slay["bgm_tog"] as Rect2).has_point(mp2)
+		elif event is InputEventMouseButton:
+			var sb: InputEventMouseButton = event as InputEventMouseButton
+			if sb.pressed and sb.button_index == MOUSE_BUTTON_LEFT:
+				_settings_click(sb.position, slay)
+		elif event is InputEventKey:
+			var sek: InputEventKey = event as InputEventKey
+			if sek.pressed and sek.keycode == KEY_ESCAPE:
+				settings_open = false   # ESC = 모달 닫기(홈 아님)
+		return
+
 	# ── 메인 메뉴(허브): Adventure(스테이지) / Classic(무한) ──
 	# 세로 중앙 오프셋(_ui_dy)만큼 화면을 내려 그리므로, 입력 좌표는 그만큼 되돌려 히트테스트한다.
 	if mode == "menu":
@@ -2008,16 +2064,24 @@ func _input(event: InputEvent) -> void:
 		if event is InputEventMouseMotion:
 			var mmp: Vector2 = (event as InputEventMouseMotion).position - mdy
 			_adv_hover = MENU_ADV_BTN.has_point(mmp)
-			_classic_hover = MENU_CLASSIC_BTN.has_point(mmp)
+			_stages_hover = MENU_STAGES_BTN.has_point(mmp) and _stages_chip_visible()
+			_classic_hover = MENU_CLASSIC_BTN.has_point(mmp) and _endless_unlocked()
 			_lb_hover = MENU_LB_BTN.has_point(mmp)
+			_gear_hover = MENU_GEAR_BTN.has_point(mmp)
 		elif event is InputEventMouseButton:
 			var mb: InputEventMouseButton = event as InputEventMouseButton
 			if mb.pressed and mb.button_index == MOUSE_BUTTON_LEFT:
 				var mbp: Vector2 = mb.position - mdy
 				if MENU_ADV_BTN.has_point(mbp):
-					mode = "select"                # 스테이지 목록으로
+					_adventure_go()                # 이어하기 = 다음 스테이지로 바로
+				elif MENU_STAGES_BTN.has_point(mbp) and _stages_chip_visible():
+					mode = "select"                # 목록 = 재도전·둘러보기
 				elif MENU_CLASSIC_BTN.has_point(mbp):
-					_start_endless()               # 무한 모드 바로 시작
+					if _endless_unlocked():
+						_start_endless()           # 무한 모드 바로 시작
+					# 잠겼으면 무반응 — 선택화면의 잠긴 카드와 같은 어휘(자물쇠는 이유를 이미 적어 둠)
+				elif MENU_GEAR_BTN.has_point(mbp):
+					settings_open = true           # 허브에서도 설정(소리 끄기)
 				elif MENU_LB_BTN.has_point(mbp):
 					# ⚠mbp(=dy 보정 좌표)여야 한다. raw position을 쓰면 그리는 자리와 눌리는 자리가
 					#   _ui_dy만큼 어긋나 1000보다 높은 모든 화면(=모든 폰)에서 이 버튼이 죽는다.
@@ -2026,9 +2090,10 @@ func _input(event: InputEvent) -> void:
 		elif event is InputEventKey:
 			var mk: InputEventKey = event as InputEventKey
 			if mk.pressed and (mk.keycode == KEY_SPACE or mk.keycode == KEY_ENTER):
-				mode = "select"                    # 기본 = Adventure
+				_adventure_go()                    # 기본 = Adventure(이어하기)
 			elif mk.pressed and (mk.keycode == KEY_E or mk.keycode == KEY_0):
-				_start_endless()                   # E/0 = Classic(무한)
+				if _endless_unlocked():
+					_start_endless()               # E/0 = Classic(무한). 잠금은 버튼과 같은 게이트를 탄다
 			elif mk.pressed and mk.keycode == KEY_L:
 				mode = "leaderboard"               # L = 리더보드
 		return
@@ -2039,21 +2104,22 @@ func _input(event: InputEvent) -> void:
 		if event is InputEventMouseMotion:
 			var lp: Vector2 = (event as InputEventMouseMotion).position - ldy
 			_back_hover = BACK_BTN.has_point(lp)
-			_lb_play_hover = LB_PLAY_BTN.has_point(lp)
+			_lb_play_hover = LB_PLAY_BTN.has_point(lp) and _endless_unlocked()
 		elif event is InputEventMouseButton:
 			var lmb: InputEventMouseButton = event as InputEventMouseButton
 			if lmb.pressed and lmb.button_index == MOUSE_BUTTON_LEFT:
 				var lmp: Vector2 = lmb.position - ldy
 				if BACK_BTN.has_point(lmp):
 					mode = "menu"
-				elif LB_PLAY_BTN.has_point(lmp):
-					_start_endless()
+				elif LB_PLAY_BTN.has_point(lmp) and _endless_unlocked():
+					_start_endless()   # ⚠허브 버튼과 같은 게이트 — 여기만 열어두면 잠금이 새는 뒷문이 된다
 		elif event is InputEventKey:
 			var lk: InputEventKey = event as InputEventKey
 			if lk.pressed and lk.keycode == KEY_ESCAPE:
 				mode = "menu"
 			elif lk.pressed and (lk.keycode == KEY_SPACE or lk.keycode == KEY_E):
-				_start_endless()
+				if _endless_unlocked():
+					_start_endless()
 		return
 
 	# ── 레벨 선택 화면 ──
@@ -2129,26 +2195,6 @@ func _input(event: InputEvent) -> void:
 					_result_advance()
 			elif ke.pressed and ke.keycode == KEY_ESCAPE:
 				mode = _home_mode()
-		return
-
-	# ── 설정 모달: 열려 있으면 모달 입력만 처리(닫힐 때까지 판 입력 차단) ──
-	if settings_open:
-		var slay: Dictionary = _settings_layout()
-		if event is InputEventMouseMotion:
-			var mp2: Vector2 = (event as InputEventMouseMotion).position
-			_set_close_hover = (slay["close"] as Rect2).has_point(mp2)
-			_set_home_hover = (slay["home_btn"] as Rect2).has_point(mp2)
-			_set_replay_hover = (slay["replay_btn"] as Rect2).has_point(mp2)
-			_set_sound_hover = (slay["sound_tog"] as Rect2).has_point(mp2)
-			_set_bgm_hover = (slay["bgm_tog"] as Rect2).has_point(mp2)
-		elif event is InputEventMouseButton:
-			var sb: InputEventMouseButton = event as InputEventMouseButton
-			if sb.pressed and sb.button_index == MOUSE_BUTTON_LEFT:
-				_settings_click(sb.position, slay)
-		elif event is InputEventKey:
-			var sek: InputEventKey = event as InputEventKey
-			if sek.pressed and sek.keycode == KEY_ESCAPE:
-				settings_open = false   # ESC = 모달 닫기(홈 아님)
 		return
 
 	if event is InputEventKey:
@@ -2382,6 +2428,10 @@ func _draw() -> void:
 		draw_set_transform(Vector2(0.0, _ui_dy()))
 		_draw_menu(fnt)
 		draw_set_transform(Vector2.ZERO)
+		# 허브 기어로 연 설정(C80). 모달은 자체 좌표계라 오프셋 밖에서 그린다.
+		#   ⚠이 줄이 없으면 '입력은 먹는데 화면엔 아무것도 없는' 모달이 된다(상태 프로브로는 안 잡힘).
+		if settings_open:
+			_draw_settings(fnt)
 		return
 
 	if mode == "select":
@@ -2698,8 +2748,13 @@ func _result_advance() -> void:
 # 좌표는 한 곳(_settings_layout)에서만 정의 — 그리기(_draw_settings)와 입력(_settings_click)이 공유(C31 원칙).
 #   행 = 라벨(왼쪽) + 컨트롤(오른쪽), 전 행 동일 정렬. 800×1000 캔버스에 480폭 패널(좌우 160 여백).
 func _settings_layout() -> Dictionary:
+	# 허브에서 연 설정은 '홈·재시작' 두 행이 무의미하다(이미 홈이고, 재시작할 판이 없다) → 짧은 패널.
+	#   빈 행을 비활성으로 남기면 "왜 안 눌리지"가 되므로 아예 없앤다(C80).
+	var compact: bool = mode == "menu"
 	# 뷰포트가 1000보다 크면(실기기 세로) 모달을 세로 중앙으로 내린다 — 나머지 좌표는 py에서 파생됨.
-	var p: Rect2 = Rect2(160.0, 270.0 + (vh - 1000.0) * 0.5, 480.0, 410.0)
+	#   오프셋은 다른 화면과 같은 _ui_dy()를 쓴다(세이프에어리어 반영) — 예전 (vh-1000)*0.5는
+	#   노치가 있는 기기에서 모달만 위로 치우쳤다.
+	var p: Rect2 = Rect2(160.0, 270.0 + _ui_dy(), 480.0, 250.0 if compact else 410.0)
 	var px: float = p.position.x
 	var py: float = p.position.y
 	var pw: float = p.size.x
@@ -2712,16 +2767,20 @@ func _settings_layout() -> Dictionary:
 	var th: float = 32.0
 	var bw: float = 140.0
 	var bh: float = 50.0
+	# compact면 액션 버튼 자리를 빈 Rect로 — 그리기·히트테스트가 같은 출처를 보므로 둘 다 자동으로 사라진다.
+	var home_r: Rect2 = Rect2() if compact else Rect2(ctrl_r - bw, r3 - bh * 0.5, bw, bh)
+	var replay_r: Rect2 = Rect2() if compact else Rect2(ctrl_r - bw, r4 - bh * 0.5, bw, bh)
 	return {
 		"panel": p,
+		"compact": compact,
 		"label_x": px + 36.0,
 		"title_y": py + 50.0,
 		"divider_y": py + 235.0,
 		"close": Rect2(px + pw - 56.0, py + 16.0, 40.0, 40.0),
 		"sound_tog": Rect2(ctrl_r - tw, r1 - th * 0.5, tw, th),
 		"bgm_tog": Rect2(ctrl_r - tw, r2 - th * 0.5, tw, th),
-		"home_btn": Rect2(ctrl_r - bw, r3 - bh * 0.5, bw, bh),
-		"replay_btn": Rect2(ctrl_r - bw, r4 - bh * 0.5, bw, bh),
+		"home_btn": home_r,
+		"replay_btn": replay_r,
 		"r1": r1, "r2": r2, "r3": r3, "r4": r4,
 	}
 
@@ -2803,6 +2862,9 @@ func _draw_settings(fnt: Font) -> void:
 	_draw_toggle(lay["sound_tog"], sound_on, _set_sound_hover)
 	_draw_text_outlined(fnt, Vector2(lx, float(lay["r2"]) + 9.0), _t("music"), 26, Color(0.86, 0.87, 0.95))
 	_draw_toggle(lay["bgm_tog"], bgm_on, _set_bgm_hover)
+
+	if bool(lay["compact"]):
+		return   # 허브에서 연 설정 = 소리·배경음만. 아래 액션 행은 그릴 것도 누를 것도 없다.
 
 	# 구분선
 	draw_line(Vector2(lx, lay["divider_y"]), Vector2(p.position.x + p.size.x - 36.0, lay["divider_y"]), Color(1.0, 1.0, 1.0, 0.10), 2.0)
@@ -3049,9 +3111,13 @@ const PLAY_BTN: Rect2 = Rect2(150.0, 742.0, 500.0, 126.0)
 # ===== 메인 메뉴(허브) 화면 =====
 # 앱을 켜면 처음 만나는 두 갈래: Adventure(=스테이지 모드) / Classic(=무한 모드).
 #   레퍼런스(Block Blast)의 홈 = 위 로고, 아래 큰 버튼 두 개. select(스테이지 목록)는 Adventure 안쪽.
-const MENU_ADV_BTN: Rect2 = Rect2(150.0, 600.0, 500.0, 116.0)     # 오렌지 = 스테이지(모험)
-const MENU_CLASSIC_BTN: Rect2 = Rect2(150.0, 740.0, 500.0, 116.0) # 블루 = 무한(∞)
+# Adventure = '이어하기'(다음 스테이지로 바로 진입, C80). 목록은 그 아래 얇은 칩으로 내려간다 —
+#   큰 버튼은 재개, 칩은 '다른 판 고르기'. 복귀 유저가 판까지 두 번 누르던 걸 한 번으로.
+const MENU_ADV_BTN: Rect2 = Rect2(150.0, 560.0, 500.0, 116.0)     # 오렌지 = 스테이지(모험) — 이어하기
+const MENU_STAGES_BTN: Rect2 = Rect2(150.0, 690.0, 500.0, 46.0)   # 얇은 칩 = 스테이지 목록(재도전·둘러보기)
+const MENU_CLASSIC_BTN: Rect2 = Rect2(150.0, 762.0, 500.0, 116.0) # 블루 = 무한(∞)
 const MENU_LB_BTN: Rect2 = Rect2(560.0, 40.0, 216.0, 60.0)       # 우상단 트로피 = 리더보드(opt-in 천장, 모드 아님)
+const MENU_GEAR_BTN: Rect2 = Rect2(24.0, 40.0, 60.0, 60.0)       # 좌상단 기어 = 설정(허브에서도 소리를 끌 수 있게)
 const BACK_BTN: Rect2 = Rect2(24.0, 24.0, 132.0, 54.0)           # select/리더보드 → 메뉴 복귀
 const LB_PLAY_BTN: Rect2 = Rect2(150.0, 786.0, 500.0, 76.0)       # 리더보드 → 무한 도전(peek를 플레이로)
 
@@ -3079,12 +3145,38 @@ func _draw_menu(fnt: Font) -> void:
 	var tgw: float = fnt.get_string_size(tag, HORIZONTAL_ALIGNMENT_LEFT, -1, tgfs).x
 	_draw_text_outlined(fnt, Vector2(400.0 - tgw * 0.5, 340.0), tag, tgfs, Color(0.55, 0.72, 0.95))
 
+	# Adventure 슬롯 = '어디까지 왔나'. Endless의 Best와 같은 자리·같은 크기 = 두 기둥이 대칭.
+	#   신규는 비움(첫 실행에 자랑할 것이 없는 게 맞다) · 진행 중은 목적지 · 다 깼으면 프런티어 문구.
+	var adv_slot: String = ""
+	if _all_cleared():
+		adv_slot = _t("caught_up")
+	elif _current_stage() > 0 or bool(cleared.get(0, false)):
+		adv_slot = _t("stage_n") % (_current_stage() + 1)
 	_draw_menu_button(fnt, MENU_ADV_BTN, _adv_hover,
 			Color(0.98, 0.62, 0.16), Color(0.86, 0.48, 0.10), Color(0.55, 0.30, 0.05),
-			_t("adv_big"), _t("adv_sub"), "adv")
+			_t("adv_big"), _t("adv_sub"), "adv", adv_slot, false)
+
+	# 스테이지 목록 칩 — Adventure의 하위 행동('다른 판 고르기'). 큰 버튼과 위계가 겹치지 않게 얇고 조용히.
+	if _stages_chip_visible():
+		var chip: Rect2 = MENU_STAGES_BTN
+		draw_rect(chip, Color(0.24, 0.19, 0.12) if _stages_hover else Color(0.17, 0.14, 0.10))
+		draw_rect(chip, Color(0.72, 0.50, 0.22) if _stages_hover else Color(0.45, 0.33, 0.16), false, 2.0)
+		var chip_txt: String = _t("stage_list") % [_cleared_count(), STAGES.size()]
+		var chip_fs: int = 20
+		var chip_w: float = fnt.get_string_size(chip_txt, HORIZONTAL_ALIGNMENT_LEFT, -1, chip_fs).x
+		_draw_text_outlined(fnt, Vector2(chip.get_center().x - chip_w * 0.5, chip.position.y + 31.0), chip_txt, chip_fs,
+				Color(1.0, 0.88, 0.66) if _stages_hover else Color(0.82, 0.70, 0.52))
+
+	# 무한 = 스테이지 1을 깨야 열린다(_endless_unlocked). 잠금 표기는 선택화면의 잠긴 카드와 같은 어휘.
+	var el_open: bool = _endless_unlocked()
+	var el_slot: String = (_t("best_score") % _comma(endless_best)) if (el_open and endless_best > 0) else ""
 	_draw_menu_button(fnt, MENU_CLASSIC_BTN, _classic_hover,
 			Color(0.42, 0.68, 0.92), Color(0.30, 0.56, 0.82), Color(0.10, 0.26, 0.44),
-			_t("endless_big"), _t("endless_sub"), "classic")
+			_t("endless_big"), _t("endless_sub") if el_open else _t("endless_locked"), "classic",
+			el_slot, not el_open)
+
+	# 좌상단 설정 기어 — 허브에서도 소리를 끌 수 있게(예전엔 게임을 시작해야만 설정에 닿았다).
+	_draw_gear_icon(MENU_GEAR_BTN.get_center(), 19.0, Color(0.9, 0.92, 1.0) if _gear_hover else Color(0.5, 0.53, 0.66))
 
 	# 우상단 리더보드 진입(모드 아닌 peek — opt-in 경쟁 천장). 트로피 + 라벨(i18n).
 	var lb: Rect2 = MENU_LB_BTN
@@ -3096,37 +3188,50 @@ func _draw_menu(fnt: Font) -> void:
 	_draw_text_outlined(fnt, Vector2(lb.position.x + 58.0, lb_mid + 7.0), _t("leaderboard"), 22,
 			Color.WHITE if _lb_hover else Color(0.9, 0.88, 0.78))
 
-	var hint: String = _t("menu_hint")
-	var hw: float = fnt.get_string_size(hint, HORIZONTAL_ALIGNMENT_LEFT, -1, 17).x
-	_draw_text_outlined(fnt, Vector2(400.0 - hw * 0.5, 910.0), hint, 17, Color(0.5, 0.52, 0.62))
+# 키보드 힌트("SPACE = Adventure…")는 제거했다(C80) — 모바일 우선 빌드에 PC 안내가 남아 있었다.
+#   키 입력 자체는 그대로 받는다(데스크톱 테스트용). 글자만 뺀 것.
 
 # 메뉴 버튼 한 개(입체 그림자 → 본체 → 상단 하이라이트 → 테두리 + 좌측 아이콘 + 라벨)
+#   slot   = 우측에 붙는 상태 한 줄(Adventure=목적지 / Endless=최고점). 빈 문자열이면 안 그린다.
+#   locked = 잠긴 갈래. 색을 죽이고 슬롯 자리에 자물쇠 — 선택화면의 잠긴 카드와 같은 어휘.
 func _draw_menu_button(fnt: Font, r: Rect2, hot: bool, base: Color, base_dim: Color, shadow: Color,
-		big: String, sub: String, kind: String) -> void:
-	draw_rect(Rect2(r.position.x, r.position.y + 8.0, r.size.x, r.size.y), shadow)
-	draw_rect(r, base if hot else base_dim)
-	draw_rect(Rect2(r.position.x, r.position.y, r.size.x, r.size.y * 0.32), Color(1.0, 1.0, 1.0, 0.16))
-	draw_rect(r, shadow, false, 4.0)
+		big: String, sub: String, kind: String, slot: String = "", locked: bool = false) -> void:
+	# 잠금은 '어둡고 채도 없음'으로만 말한다(형태·자리는 그대로 두어 열렸을 때와 같은 물건임을 유지).
+	var body: Color = (base if hot else base_dim)
+	var edge: Color = shadow
+	if locked:
+		body = Color(0.19, 0.20, 0.26)
+		edge = Color(0.12, 0.13, 0.17)
+	draw_rect(Rect2(r.position.x, r.position.y + 8.0, r.size.x, r.size.y), edge)
+	draw_rect(r, body)
+	draw_rect(Rect2(r.position.x, r.position.y, r.size.x, r.size.y * 0.32), Color(1.0, 1.0, 1.0, 0.06 if locked else 0.16))
+	draw_rect(r, edge, false, 4.0)
 
 	# 좌측 아이콘 원판 + 심볼
+	var ink: Color = Color(0.52, 0.54, 0.64) if locked else Color.WHITE
 	var ic: Vector2 = Vector2(r.position.x + 70.0, r.position.y + r.size.y * 0.5)
-	draw_circle(ic, 34.0, Color(1.0, 1.0, 1.0, 0.20))
+	draw_circle(ic, 34.0, Color(1.0, 1.0, 1.0, 0.08 if locked else 0.20))
 	if kind == "classic":
-		_draw_infinity(ic, 30.0, Color.WHITE)
+		_draw_infinity(ic, 30.0, ink)
 	else:
-		_draw_flag(ic, 30.0, Color.WHITE)
+		_draw_flag(ic, 30.0, ink)
 
-	# 라벨: 큰 제목 + 소제목. 무한은 우측에 최고점 후크.
+	# 라벨: 큰 제목 + 소제목(잠기면 소제목이 해금 조건을 말한다)
 	var lx: float = r.position.x + 128.0
-	_draw_text_outlined(fnt, Vector2(lx, r.position.y + 54.0), big, 40, Color.WHITE, Color(shadow.r, shadow.g, shadow.b, 0.95))
-	_draw_text_outlined(fnt, Vector2(lx, r.position.y + 88.0), sub, 18, Color(0.96, 0.98, 1.0, 0.9),
-			Color(shadow.r, shadow.g, shadow.b, 0.95))
-	if kind == "classic" and endless_best > 0:
-		var bst: String = _t("best_score") % _comma(endless_best)
-		var bfs: int = 22
-		var bw: float = fnt.get_string_size(bst, HORIZONTAL_ALIGNMENT_LEFT, -1, bfs).x
-		_draw_text_outlined(fnt, Vector2(r.position.x + r.size.x - bw - 24.0, r.position.y + r.size.y * 0.5 + 8.0),
-				bst, bfs, C_GOLD, Color(shadow.r, shadow.g, shadow.b, 0.95))
+	_draw_text_outlined(fnt, Vector2(lx, r.position.y + 54.0), big, 40, ink, Color(edge.r, edge.g, edge.b, 0.95))
+	_draw_text_outlined(fnt, Vector2(lx, r.position.y + 88.0), sub, 18,
+			Color(0.62, 0.64, 0.76) if locked else Color(0.96, 0.98, 1.0, 0.9),
+			Color(edge.r, edge.g, edge.b, 0.95))
+
+	# 우측 슬롯: 잠금이면 자물쇠, 아니면 상태 한 줄
+	var slot_y: float = r.position.y + r.size.y * 0.5
+	if locked:
+		_draw_lock(Vector2(r.position.x + r.size.x - 44.0, slot_y), 30.0, Color(0.58, 0.60, 0.70))
+	elif slot != "":
+		var sfs: int = 22
+		var sw: float = fnt.get_string_size(slot, HORIZONTAL_ALIGNMENT_LEFT, -1, sfs).x
+		_draw_text_outlined(fnt, Vector2(r.position.x + r.size.x - sw - 24.0, slot_y + 8.0),
+				slot, sfs, C_GOLD, Color(edge.r, edge.g, edge.b, 0.95))
 
 # ∞ 심볼(두 원 윤곽) — 무한 모드 표식
 func _draw_infinity(c: Vector2, s: float, col: Color) -> void:
@@ -3254,19 +3359,33 @@ func _draw_leaderboard(fnt: Font) -> void:
 		ry += rpitch
 
 	# ── 하단 CTA: 무한 도전(peek를 플레이로) ──
+	# ⚠허브 버튼과 같은 게이트(_endless_unlocked) — 여기만 열어두면 잠금이 새는 뒷문이 된다.
+	var cta_open: bool = _endless_unlocked()
 	var cta: Rect2 = LB_PLAY_BTN
-	draw_rect(Rect2(cta.position.x, cta.position.y + 7.0, cta.size.x, cta.size.y), Color(0.10, 0.28, 0.14))
-	draw_rect(cta, Color(0.42, 0.82, 0.32) if _lb_play_hover else Color(0.34, 0.72, 0.26))
-	draw_rect(Rect2(cta.position.x, cta.position.y, cta.size.x, cta.size.y * 0.32), Color(1.0, 1.0, 1.0, 0.16))
-	draw_rect(cta, Color(0.16, 0.42, 0.18), false, 4.0)
-	var clab: String = _t("play_endless")
-	var cfs: int = 34
-	var clw: float = fnt.get_string_size(clab, HORIZONTAL_ALIGNMENT_LEFT, -1, cfs).x
 	var cmid: float = cta.position.y + cta.size.y * 0.5
-	var cin_w: float = 26.0 + 14.0 + clw
-	var cin_l: float = cta.position.x + cta.size.x * 0.5 - cin_w * 0.5
-	_draw_play_icon(Vector2(cin_l + 13.0, cmid), 14.0, Color.WHITE)
-	_draw_text_outlined(fnt, Vector2(cin_l + 40.0, cmid + 12.0), clab, cfs, Color.WHITE, Color(0.10, 0.28, 0.14, 0.95))
+	if not cta_open:
+		# 잠김: 초록(진행) 언어를 걷고 자물쇠 + 해금 조건. 눌러도 아무 일 없음(선택화면 잠긴 카드와 동일).
+		draw_rect(cta, Color(0.17, 0.18, 0.24))
+		draw_rect(cta, Color(0.32, 0.34, 0.44), false, 3.0)
+		var llab: String = _t("endless_locked")
+		var lfs2: int = 22
+		var llw: float = fnt.get_string_size(llab, HORIZONTAL_ALIGNMENT_LEFT, -1, lfs2).x
+		var lin_w: float = 28.0 + 12.0 + llw
+		var lin_l: float = cta.position.x + cta.size.x * 0.5 - lin_w * 0.5
+		_draw_lock(Vector2(lin_l + 14.0, cmid), 26.0, Color(0.58, 0.60, 0.70))
+		_draw_text_outlined(fnt, Vector2(lin_l + 40.0, cmid + 8.0), llab, lfs2, Color(0.72, 0.74, 0.86))
+	else:
+		draw_rect(Rect2(cta.position.x, cta.position.y + 7.0, cta.size.x, cta.size.y), Color(0.10, 0.28, 0.14))
+		draw_rect(cta, Color(0.42, 0.82, 0.32) if _lb_play_hover else Color(0.34, 0.72, 0.26))
+		draw_rect(Rect2(cta.position.x, cta.position.y, cta.size.x, cta.size.y * 0.32), Color(1.0, 1.0, 1.0, 0.16))
+		draw_rect(cta, Color(0.16, 0.42, 0.18), false, 4.0)
+		var clab: String = _t("play_endless")
+		var cfs: int = 34
+		var clw: float = fnt.get_string_size(clab, HORIZONTAL_ALIGNMENT_LEFT, -1, cfs).x
+		var cin_w: float = 26.0 + 14.0 + clw
+		var cin_l: float = cta.position.x + cta.size.x * 0.5 - cin_w * 0.5
+		_draw_play_icon(Vector2(cin_l + 13.0, cmid), 14.0, Color.WHITE)
+		_draw_text_outlined(fnt, Vector2(cin_l + 40.0, cmid + 12.0), clab, cfs, Color.WHITE, Color(0.10, 0.28, 0.14, 0.95))
 
 	# ── 정직 주석: 친구·퍼센타일은 플랫폼 연결 전 미리보기 ──
 	if not _leaderboard.has_platform():
@@ -3302,11 +3421,7 @@ func _draw_select(fnt: Font) -> void:
 	var title: String = "CASCADE"
 	var tw: float = fnt.get_string_size(title, HORIZONTAL_ALIGNMENT_LEFT, -1, 60).x
 	_draw_text_outlined(fnt, Vector2(400.0 - tw * 0.5, 122.0), title, 60, C_GOLD)
-	var done_n: int = 0
-	for i in range(STAGES.size()):
-		if bool(cleared.get(i, false)):
-			done_n += 1
-	var sub: String = _t("cleared_count") % [done_n, STAGES.size()]
+	var sub: String = _t("cleared_count") % [_cleared_count(), STAGES.size()]
 	var sw: float = fnt.get_string_size(sub, HORIZONTAL_ALIGNMENT_LEFT, -1, 22).x
 	_draw_text_outlined(fnt, Vector2(400.0 - sw * 0.5, 166.0), sub, 22, Color(0.7, 0.72, 0.85))
 
