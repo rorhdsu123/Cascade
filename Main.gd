@@ -771,6 +771,14 @@ func _init_game() -> void:
 	enemy_seq = 0
 	tray = [{}, {}, {}]
 	sel = 0
+	# 튜토리얼(스테이지 1 첫 실행): 빈 전장에서 '터뜨리기'만 먼저 배운다. 시작 적 없이 가이드된 십자 클리어.
+	tut_phase = 0
+	tut_lock = false
+	tut_cells = []
+	tut_msg = ""
+	if _tut_active():
+		_tut_setup_beat1()
+		return
 	_refill_tray()
 	# 시작 시 적 몇 마리 배치 — 빈 보드에서 "ENEMIES ADVANCE IN N"이 어색하지 않게(전진 중인 전선처럼).
 	var start_cols: Array = []
@@ -782,6 +790,42 @@ func _init_game() -> void:
 		game_over = true
 		stuck = true
 		_begin_stuck_death()
+
+# 튜토리얼(스테이지1 첫 실행) 상태머신. phase 0=off/종료·1=박자1(십자 QUAD)·2=박자2(세로줄 격추).
+# tut_lock 중엔 tut_cells(정확한 목표 칸)에만 놓게 강제 → 전원 동일 경험. 놓는 순간 풀린다(_place_piece).
+var tut_phase: int = 0
+var tut_lock: bool = false
+var tut_cells: Array = []       # 이번 박자에 채워야 할 목표 칸(Vector2i col,row) — 잠금·타깃 큐 공유 출처
+var tut_msg: String = ""        # 상단 안내 문구(박자2 "적이 내려와요…")
+
+# 튜토리얼 활성: 스테이지 1을 아직 못 깬 신규(캠페인 세이브 기준). 깨고 나면 다시 안 뜬다.
+func _tut_active() -> bool:
+	return stage_idx == 0 and not endless and not bool(cleared.get(0, false))
+
+# 박자 1 — 보드 정중앙에 2×2 홈(cols 3·4 × rows 3·4)만 남기고 가로·세로를 십자로 채운다.
+# 트레이엔 노란 2×2(O) 하나. 홈에 끼우면 가로 2줄(row 3·4) + 세로 2칸(col 3·4)이 동시에 터진다 = 대칭 십자 쿼드.
+func _tut_setup_beat1() -> void:
+	for c in range(COLS):
+		board[3][c] = "B"
+		board[4][c] = "B"
+	for r in range(ROWS):
+		board[r][3] = "B"
+		board[r][4] = "B"
+	tut_cells = []
+	for r in range(3, 5):
+		for c in range(3, 5):
+			board[r][c] = ""             # 정중앙 2×2 홈
+			tut_cells.append(Vector2i(c, r))
+	tray = [{"type": "O", "color": "Y", "offsets": (PIECES["O"] as Array).duplicate()}, {}, {}]
+	sel = 0
+	tut_phase = 1
+	tut_lock = true   # 중앙 홈에만 놓게 잠금 → 전원 QUAD 동일 경험
+
+# 박자 2는 별도 세팅 함수가 없다 — 무대 없이 '정상 플레이 + 안내 문구'(_end_turn 참조).
+# 실제 적이 내려오고, 조준 링이 힌트로 작동하며, 유저가 줄로 잡으면 종료. 동결·강제 없음.
+# 단, 트레이만 큰 세로 조각으로 줘서 2~3개로 기둥을 세우기 쉽게 한다(_refill_tray, 부드러운 세로 유도).
+func _tut_v_piece(ty: String, col: String) -> Dictionary:
+	return {"type": ty, "color": col, "offsets": (PIECES[ty] as Array).duplicate()}
 
 # 진행도 가중 랜덤 조각 1개 생성 (초반 SMALL 편향, 후반 BIG 비중↑)
 func _free_cells() -> int:
@@ -1032,6 +1076,12 @@ func _tray_any_placeable() -> bool:
 # ⚠공정성: '받자마자 셋 다 못 놓는' 즉사(실측 막힘사망의 11~27%)는 플레이어 실수가 아니라 딜 사고.
 #   최소 하나는 놓을 수 있는 트레이가 나올 때까지 다시 굴린다(막힘은 이제 '스스로 몰린 결과'로만).
 func _refill_tray() -> void:
+	if tut_phase == 2:
+		# 박자2: 큰 세로 조각(I5v+I3v면 8칸 기둥 = 2개로 완성)을 줘서 2~3개로 세로줄을 세워 적을 잡게 한다.
+		#   부드러운 세로 유도 — 자유 배치는 그대로(잠금 없음), 조각 구성만 기둥 세우기 쉽게.
+		tray = [_tut_v_piece("I5v", "B"), _tut_v_piece("I3v", "Y"), _tut_v_piece("Iv", "R")]
+		sel = 0
+		return
 	if director.deterministic_track():
 		# 결정적 트랙은 재추첨 금지(보드-반응 = 결정성 파괴). 못 놓는 트레이도 그대로 → 막힘사(부활 가능).
 		for i in range(3):
@@ -1144,6 +1194,9 @@ func _can_place(cells: Array) -> bool:
 		if c.x < 0 or c.x >= COLS or c.y < 0 or c.y >= ROWS:
 			return false
 		if board[c.y][c.x] != "":
+			return false
+		# 튜토리얼: 목표 칸(tut_cells) 밖은 불허 → 미리보기·스냅백이 그대로 "여기만 돼"를 말한다.
+		if tut_lock and not tut_cells.has(c):
 			return false
 	return true
 
@@ -1544,6 +1597,17 @@ func _finish_resolve() -> void:
 # 턴 마무리: 적 전진/누수/스폰 → 누수 연출 → 승/패/공간부족 판정
 # (공격이 있었으면 그 뒤에, 없었으면 배치 직후에 호출)
 func _end_turn() -> void:
+	# 박자1 QUAD 직후 → 박자2 진입: 무대 없이 '정상 플레이 + 안내 문구'. 실제 적이 내려온다(아래 advance_step이 스폰).
+	#   동결·강제 없음 = 진짜 게임을 가르침. 조준 링(놓으면 죽을 적)이 부드러운 힌트로 작동.
+	if tut_phase == 1:
+		tut_phase = 2
+		tut_msg = _t("tut_kill")
+		tut_cells = []
+		_refill_tray()      # 큰 세로 조각으로 교체(phase==2 분기) → 2~3개로 기둥 세우기
+	# 박자2: 유저가 첫 적을 줄로 잡으면(killed>0) "지우기=공격" 학습 완료 → 튜토리얼 종료.
+	elif tut_phase == 2 and killed > 0:
+		tut_phase = 0
+		tut_msg = ""
 	advance_step()          # 적 이동(step_every 주기)·누수(거점 피해)·스폰
 	_reveal_leaks()         # 누수 연출은 공격 뒤에 재생 (자기 감쇠 → 데드락 없음)
 	# ⚠거점 파괴가 클리어보다 우선(모드-무관 불변식). 마지막 적이 누수로 total을 채우며 동시에
@@ -1799,6 +1863,7 @@ func _place_piece() -> void:
 	var cells: Array = _ghost_cells()
 	if not _can_place(cells):
 		return
+	tut_lock = false   # 중앙에 성공적으로 놓았다 → 잠금 해제(리필될 정상 조각은 자유 배치)
 	for ci in cells:
 		var c: Vector2i = ci as Vector2i
 		board[c.y][c.x] = active["color"]
@@ -2274,6 +2339,7 @@ func _draw() -> void:
 	_draw_collapse()
 	_draw_held()
 	_draw_aim_overlay()   # 조준 링은 들고 있는 조각 '위' = 최상단 (커서 아래 적도 신호가 안 가려지게)
+	_draw_tut_msg(fnt)
 
 	for fl in floaters:
 		var fa: float = clampf(fl["life"] / fl["max"], 0.0, 1.0)
@@ -3411,6 +3477,37 @@ func _draw_heart(center: Vector2, s: float, col: Color) -> void:
 		Vector2(center.x, center.y + s * 0.52),
 	]), col)
 
+# 튜토리얼 박자1 타깃 — 정중앙 2×2 홈에 O 조각색 반투명 고스트 + 맥동 테두리로 "여기 놓아라"를 말 없이.
+# 잠금(tut_lock) 중에만 뜨고, 놓는 순간 사라진다. 조각 색(노랑)과 맞춰 "이 노란 블록을 여기"로 짝지음.
+# 튜토리얼 상단 안내 문구(박자2 "적이 내려와요…") — HUD와 보드 사이 빈 띠에 중앙 정렬.
+func _draw_tut_msg(fnt: Font) -> void:
+	if tut_msg == "":
+		return
+	var sz: int = 24
+	var w: float = fnt.get_string_size(tut_msg, HORIZONTAL_ALIGNMENT_LEFT, -1, sz).x
+	_draw_text_outlined(fnt, Vector2(400.0 - w * 0.5, 132.0), tut_msg, sz, Color(1.0, 0.95, 0.5))
+
+func _draw_tut_target() -> void:
+	if not tut_lock or tut_cells.is_empty():
+		return
+	var pulse: float = 0.5 + 0.5 * sin(anim_t * 5.0)
+	var col: Color = _color_of("Y")
+	var ghost: Color = col.lerp(Color.WHITE, 0.3)   # 밝혀서 어두운 셀 위 알파 블렌딩의 칙칙함 상쇄 → 트레이 조각과 같은 밝은 노랑
+	var bpad: float = 5.0
+	# 목표 칸마다 조각색 반투명 고스트 + 흰 테두리(트레이 조각과 같은 문법)로 "이 노란 블록이 여기".
+	var minx: float = 1e9; var miny: float = 1e9; var maxx: float = -1e9; var maxy: float = -1e9
+	for cell in tut_cells:
+		var cv: Vector2i = cell as Vector2i
+		var cx: float = float(BOARD_X + cv.x * CELL)
+		var cy: float = float(board_y + cv.y * CELL)
+		var rc: Rect2 = Rect2(cx + bpad, cy + bpad, CELL - bpad * 2.0, CELL - bpad * 2.0)
+		draw_rect(rc, Color(ghost.r, ghost.g, ghost.b, 0.55))
+		draw_rect(rc, Color(1.0, 1.0, 1.0, 0.4), false, 2.0)
+		minx = minf(minx, cx); miny = minf(miny, cy); maxx = maxf(maxx, cx + CELL); maxy = maxf(maxy, cy + CELL)
+	# 맥동 외곽 링 — 목표 칸 전체를 감싼다(시선 유도, 잠금 중에만, 놓으면 사라짐)
+	draw_rect(Rect2(minx, miny, maxx - minx, maxy - miny).grow(2.0 + 3.0 * pulse),
+			Color(col.r, col.g, col.b, 0.45 + 0.45 * pulse), false, 3.0)
+
 func _draw_board(fnt: Font) -> void:
 	draw_rect(Rect2(BOARD_X - 2, board_y - 2, COLS * CELL + 4, ROWS * CELL + 4), C_BORD, false)
 	# 충전 중인 셀. 그리드 위에 따로 그린다(부푼 블록이 옆 셀 배경에 잘리지 않게).
@@ -3435,6 +3532,9 @@ func _draw_board(fnt: Font) -> void:
 				continue
 			draw_rect(Rect2(rx + bpad, ry + bpad, CELL - bpad * 2.0, CELL - bpad * 2.0),
 					_color_of(board[r][c]))
+
+	# 튜토리얼 박자1: 중앙 홈에 '여기 놓아라' 타깃(조각색 고스트+맥동 테두리) — 잠금 중에만. 없으면 못 놓는 게 버그처럼 느껴짐.
+	_draw_tut_target()
 
 	# 분열선: gen0 분열체가 이 경계를 넘는 순간 갈라진다. 파랑 점선 = '균열 예정선' — 화면의 유일한
 	#   파랑이라 분열체(같은 파랑)와 짝지어 읽힌다(글자 아닌 색으로 소속을 말함, [[hud-signal-by-color-not-text]]).
