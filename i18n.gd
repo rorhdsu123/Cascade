@@ -100,6 +100,7 @@ const STR: Dictionary = {
 		"ll_tetris": "QUAD!",
 		"ll_mega": "MEGA!",
 		"tut_kill": "Enemy incoming! Clear a line to take it down",
+		"tut_leak": "Enemy slipped through — Core took damage!",
 		"combo_flash": "COMBO x%d",
 		"tell_block": "BLOCK",
 		"callout_fast": "FAST — quick!",
@@ -113,6 +114,7 @@ const STR: Dictionary = {
 		"how_click": "Click a piece, then click board to place",
 		"how_drag": "Drag a piece onto the board to place",
 		"rule_blast": "Fill a full row OR column -> blast!",
+		"rule_defend": "Enemies advance -> blast them before they hit the Core",
 		"rule_combo": "Chain clears -> COMBO (wider blast)",
 	},
 	"ko": {
@@ -190,6 +192,7 @@ const STR: Dictionary = {
 		"ll_tetris": "쿼드!",
 		"ll_mega": "메가!",
 		"tut_kill": "적이 내려와요! 줄을 채워 잡으세요",
+		"tut_leak": "적이 통과했어요 — 거점이 깎였어요!",
 		"combo_flash": "콤보 x%d",
 		"tell_block": "버팀",
 		"callout_fast": "속공 — 빠르다!",
@@ -202,6 +205,7 @@ const STR: Dictionary = {
 		"how_click": "조각을 고르고 보드를 눌러 놓기",
 		"how_drag": "조각을 보드로 끌어 놓기",
 		"rule_blast": "가로 또는 세로 한 줄 채우면 -> 폭발!",
+		"rule_defend": "적이 전진해요 -> 거점에 닿기 전에 터뜨리세요",
 		"rule_combo": "연쇄 클리어 -> 콤보 (터지는 범위↑)",
 	},
 }

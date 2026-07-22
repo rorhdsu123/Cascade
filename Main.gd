@@ -776,6 +776,9 @@ func _init_game() -> void:
 	tut_lock = false
 	tut_cells = []
 	tut_msg = ""
+	tut_leak_taught = false
+	tut_flash_msg = ""
+	tut_flash_t = 0.0
 	if _tut_active():
 		_tut_setup_beat1()
 		return
@@ -796,7 +799,13 @@ func _init_game() -> void:
 var tut_phase: int = 0
 var tut_lock: bool = false
 var tut_cells: Array = []       # 이번 박자에 채워야 할 목표 칸(Vector2i col,row) — 잠금·타깃 큐 공유 출처
-var tut_msg: String = ""        # 상단 안내 문구(박자2 "적이 내려와요…")
+var tut_msg: String = ""        # 상단 안내 문구(박자2 "적이 내려와요…") — 서 있는 상태 지시(지속)
+# 박자3(손해 학습): 첫 누수(거점 피격)에 딱 한 번, 사건에 얹는 짧은 캡션. 스크립트 강제 없이
+#   '진짜로 놓쳤을 때'만 발화 → 방어 절반을 몸으로 배운다. tut_msg(지시)와 별개 채널(사건·타임드).
+const TUT_FLASH_DUR: float = 3.6
+var tut_leak_taught: bool = false   # 이 판에서 이미 가르쳤나(1회성 게이트, _init_game서 리셋)
+var tut_flash_msg: String = ""      # 사건 캡션(누수 순간 "거점이 깎였어요")
+var tut_flash_t: float = 0.0        # 남은 표시 시간(_process서 감쇠, 끝나면 tut_msg 지시로 복귀)
 
 # 튜토리얼 활성: 스테이지 1을 아직 못 깬 신규(캠페인 세이브 기준). 깨고 나면 다시 안 뜬다.
 func _tut_active() -> bool:
@@ -1584,6 +1593,12 @@ func _reveal_leaks() -> void:
 	if pending_leaks.size() > 0:
 		red_flash = RED_FLASH_DUR
 		shake_timer = maxf(shake_timer, SHAKE_DUR * 1.6)
+		# 박자3(손해 학습): 튜토리얼 중 첫 누수 — 붉은 플래시·-1·흔들림이 이미 눈을 아래로 끈다.
+		#   여기에 사건 캡션 한 번만 얹어 "왜 아팠나"를 말로 묶어준다(1회성, 강제 아님).
+		if _tut_active() and not tut_leak_taught:
+			tut_leak_taught = true
+			tut_flash_msg = _t("tut_leak")
+			tut_flash_t = TUT_FLASH_DUR
 	pending_leaks = []
 
 # 공격 시퀀스 종료 → 그 다음에 세계가 움직인다(적 이동·누수·스폰) → 판정
@@ -2193,6 +2208,8 @@ func _process(delta: float) -> void:
 		shake_timer = maxf(0.0, shake_timer - delta)
 	if callout_timer > 0.0:
 		callout_timer = maxf(0.0, callout_timer - delta)
+	if tut_flash_t > 0.0:
+		tut_flash_t = maxf(0.0, tut_flash_t - delta)
 	if not snapback.is_empty():
 		snapback["t"] = float(snapback["t"]) - delta
 		if float(snapback["t"]) <= 0.0:
@@ -3481,11 +3498,19 @@ func _draw_heart(center: Vector2, s: float, col: Color) -> void:
 # 잠금(tut_lock) 중에만 뜨고, 놓는 순간 사라진다. 조각 색(노랑)과 맞춰 "이 노란 블록을 여기"로 짝지음.
 # 튜토리얼 상단 안내 문구(박자2 "적이 내려와요…") — HUD와 보드 사이 빈 띠에 중앙 정렬.
 func _draw_tut_msg(fnt: Font) -> void:
-	if tut_msg == "":
+	# 사건 캡션(박자3 누수)이 살아있으면 그것을 붉게 우선 표시 — 누수 색신호(-1·붉은 플래시)와 짝.
+	#   꺼지면 서 있는 지시(tut_msg, 노랑)로 자연 복귀. 마지막 0.9초는 알파 감쇠(사건은 흘러가듯).
+	var msg: String = tut_msg
+	var col: Color = Color(1.0, 0.95, 0.5)   # 노랑 = 지시(서 있는 상태)
+	if tut_flash_t > 0.0:
+		msg = tut_flash_msg
+		col = Color(1.0, 0.55, 0.45)         # 온기 있는 붉은색 = 손해 사건(누수 신호와 동색 계열)
+		col.a = clampf(tut_flash_t / 0.9, 0.0, 1.0)
+	if msg == "":
 		return
 	var sz: int = 24
-	var w: float = fnt.get_string_size(tut_msg, HORIZONTAL_ALIGNMENT_LEFT, -1, sz).x
-	_draw_text_outlined(fnt, Vector2(400.0 - w * 0.5, 132.0), tut_msg, sz, Color(1.0, 0.95, 0.5))
+	var w: float = fnt.get_string_size(msg, HORIZONTAL_ALIGNMENT_LEFT, -1, sz).x
+	_draw_text_outlined(fnt, Vector2(400.0 - w * 0.5, 132.0), msg, sz, col)
 
 func _draw_tut_target() -> void:
 	if not tut_lock or tut_cells.is_empty():
@@ -4030,5 +4055,8 @@ func _draw_bottom(fnt: Font) -> void:
 			HORIZONTAL_ALIGNMENT_LEFT, -1, 19, Color(0.8, 0.8, 0.85))
 	draw_string(fnt, Vector2(20.0, inst_y + 28.0), _t("rule_blast"),
 			HORIZONTAL_ALIGNMENT_LEFT, -1, 19, Color(0.55, 0.85, 0.6))
-	draw_string(fnt, Vector2(20.0, inst_y + 54.0), _t("rule_combo"),
+	# 방어 절반 — 적이 전진해 거점을 깎는다는 규칙(퍼즐 절반만 있던 구멍). 붉은 톤으로 위협 신호.
+	draw_string(fnt, Vector2(20.0, inst_y + 54.0), _t("rule_defend"),
+			HORIZONTAL_ALIGNMENT_LEFT, -1, 18, Color(0.9, 0.55, 0.5))
+	draw_string(fnt, Vector2(20.0, inst_y + 80.0), _t("rule_combo"),
 			HORIZONTAL_ALIGNMENT_LEFT, -1, 17, Color(0.85, 0.75, 0.4))
