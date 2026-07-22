@@ -67,11 +67,9 @@ const STR: Dictionary = {
 		"caught_up": "All caught up!",
 		"frontier_sub": "New stages keep coming",
 		"play_endless": "Play Endless",
-		# ── 메인 메뉴(허브) ──
+		# ── 메인 메뉴(허브) ── (소제목 adv_sub·endless_sub는 C82서 제거 — 유저 요청)
 		"adv_big": "Adventure",
-		"adv_sub": "Clear stages, one by one",
 		"endless_big": "Endless",
-		"endless_sub": "Endless run · High score",
 		"endless_locked": "Clear Stage 1 to unlock",   # 무한 잠금(허브 버튼 소제목 + 리더보드 CTA)
 		"best_score": "Best %s",     # 메뉴 · HUD 무한 최고점
 		# ── 스테이지 선택 ──
@@ -172,9 +170,7 @@ const STR: Dictionary = {
 		"frontier_sub": "새 스테이지는 계속 추가돼요",
 		"play_endless": "무한 도전",
 		"adv_big": "스테이지",
-		"adv_sub": "차근차근 깨는 모험",
 		"endless_big": "무한",
-		"endless_sub": "끝없이 도전 · 최고점",
 		"endless_locked": "스테이지 1을 깨면 열려요",
 		"best_score": "최고 %s",
 		"cleared_count": "클리어 %d / %d",

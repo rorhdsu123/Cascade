@@ -3118,8 +3118,7 @@ func _draw_menu(fnt: Font) -> void:
 	var tgw: float = fnt.get_string_size(tag, HORIZONTAL_ALIGNMENT_LEFT, -1, tgfs).x
 	_draw_text_outlined(fnt, Vector2(400.0 - tgw * 0.5, 340.0), tag, tgfs, Color(0.55, 0.72, 0.95))
 
-	# Adventure 슬롯 = '어디까지 왔나'. Endless의 Best와 같은 자리·같은 크기 = 두 기둥이 대칭.
-	#   신규는 비움(첫 실행에 자랑할 것이 없는 게 맞다) · 진행 중은 목적지 · 다 깼으면 프런티어 문구.
+	# Adventure 슬롯 = '어디까지 왔나'(진행 중 목적지 / 완주 프런티어). 소제목은 유저 요청으로 제거(C82).
 	var adv_slot: String = ""
 	if _all_cleared():
 		adv_slot = _t("caught_up")
@@ -3127,15 +3126,15 @@ func _draw_menu(fnt: Font) -> void:
 		adv_slot = _t("stage_n") % (_current_stage() + 1)
 	_draw_menu_button(fnt, MENU_ADV_BTN, _adv_hover,
 			Color(0.98, 0.62, 0.16), Color(0.86, 0.48, 0.10), Color(0.55, 0.30, 0.05),
-			_t("adv_big"), _t("adv_sub"), "adv", adv_slot, false)
+			_t("adv_big"), "", "adv", adv_slot, false)
 
-	# 무한 = 스테이지 1을 깨야 열린다(_endless_unlocked). 잠금 표기는 선택화면의 잠긴 카드와 같은 어휘.
+	# 무한 = 스테이지 1을 깨야 열린다(_endless_unlocked). 소제목·최고점 슬롯 제거(C82, 유저 요청).
+	#   단 잠긴 동안엔 소제목 자리에 해금 조건을 남긴다 — 자물쇠만으론 '왜 잠겼나'가 안 읽힌다(기능 안내).
 	var el_open: bool = _endless_unlocked()
-	var el_slot: String = (_t("best_score") % _comma(endless_best)) if (el_open and endless_best > 0) else ""
 	_draw_menu_button(fnt, MENU_CLASSIC_BTN, _classic_hover,
 			Color(0.42, 0.68, 0.92), Color(0.30, 0.56, 0.82), Color(0.10, 0.26, 0.44),
-			_t("endless_big"), _t("endless_sub") if el_open else _t("endless_locked"), "classic",
-			el_slot, not el_open)
+			_t("endless_big"), "" if el_open else _t("endless_locked"), "classic",
+			"", not el_open)
 
 	# 우상단 리더보드 진입(모드 아닌 peek — opt-in 경쟁 천장). 트로피 + 라벨(i18n).
 	var lb: Rect2 = MENU_LB_BTN
@@ -3175,12 +3174,16 @@ func _draw_menu_button(fnt: Font, r: Rect2, hot: bool, base: Color, base_dim: Co
 	else:
 		_draw_flag(ic, 30.0, ink)
 
-	# 라벨: 큰 제목 + 소제목(잠기면 소제목이 해금 조건을 말한다)
+	# 라벨: 큰 제목(+ 소제목). 소제목이 없으면 제목을 버튼 세로 중앙에 홀로 앉힌다 —
+	#   위쪽 고정이면 아래가 휑해 '잘린 카드'로 보인다.
 	var lx: float = r.position.x + 128.0
-	_draw_text_outlined(fnt, Vector2(lx, r.position.y + 54.0), big, 40, ink, Color(edge.r, edge.g, edge.b, 0.95))
-	_draw_text_outlined(fnt, Vector2(lx, r.position.y + 88.0), sub, 18,
-			Color(0.62, 0.64, 0.76) if locked else Color(0.96, 0.98, 1.0, 0.9),
-			Color(edge.r, edge.g, edge.b, 0.95))
+	var has_sub: bool = sub != ""
+	var title_y: float = r.position.y + (54.0 if has_sub else 67.0)
+	_draw_text_outlined(fnt, Vector2(lx, title_y), big, 40, ink, Color(edge.r, edge.g, edge.b, 0.95))
+	if has_sub:
+		_draw_text_outlined(fnt, Vector2(lx, r.position.y + 88.0), sub, 18,
+				Color(0.62, 0.64, 0.76) if locked else Color(0.96, 0.98, 1.0, 0.9),
+				Color(edge.r, edge.g, edge.b, 0.95))
 
 	# 우측 슬롯: 잠금이면 자물쇠, 아니면 상태 한 줄
 	var slot_y: float = r.position.y + r.size.y * 0.5
