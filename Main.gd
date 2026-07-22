@@ -3,16 +3,16 @@ extends Node2D
 # ===== 상수 =====
 const COLS: int = 8
 const ROWS: int = 8             # 8×8 (Block Blast와 동일). 줄=8칸이라 조각 유입 대비 수지가 조여짐
-const CELL: int = 64            # 셀 크기(픽셀) → 보드 512×512 (6×6 시절 516과 거의 동일 면적)
-const BOARD_X: int = 144        # (800 - COLS*CELL)/2. 폭 800은 세로 고정(portrait+expand)이라 상수 유지.
-# 세로 레이아웃은 런타임 파생(_relayout). 아래는 800×1000 기준 기본값 — 실기기선 뷰포트 높이로 덮어씀.
+const CELL: int = 90            # 셀 크기(픽셀) → 보드 720×720. 폭 720/800=90% (Block Blast 원본 프레임 실측: 89.7%).
+const BOARD_X: int = 40         # (800 - COLS*CELL)/2. 폭 800은 세로 고정(portrait+expand)이라 상수 유지.
+# 세로 레이아웃은 런타임 파생(_relayout). 아래 초기값은 _ready의 _relayout()이 즉시 덮어씀(placeholder).
 var board_y: int = 150          # 보드 상단 y (기본 150~662). 거점 띠·트레이가 전부 이 값에서 파생됨.
 var bot_y: int = 700            # 하단 패널 상단 (거점 띠 아래, 트레이 시작)
 var vh: float = 1000.0          # 현재 뷰포트 높이(리사이즈마다 갱신). 폭은 VW_BASE 고정.
 const VW_BASE: float = 800.0    # 논리 폭(portrait+expand에서 항상 800)
 const HUD_H: float = 144.0      # 상단 HUD 띠 높이(상단 고정)
 const TRAY_PANEL_H: float = 300.0  # 하단 트레이 패널 높이(하단 고정) = 원본 1000-700
-const CORE_BLOCK_H: float = 550.0  # 보드(512)+거점 띠 여백 = board_y부터 tray까지 확보할 세로
+const CORE_BLOCK_H: float = 758.0  # 보드(720=ROWS*CELL)+거점 띠(strip 32+여백 6) = board_y부터 tray까지 확보할 세로
 
 # 적 타입 (basic/fast/tank/swarm/split)
 # ⚠split은 반드시 배열 끝 — pick_etype iteration 순서가 회귀 시드에 물려 있다(끝+weight0 = 무영향).
@@ -536,15 +536,19 @@ func _ready() -> void:
 	mode = "menu"
 
 # 세로 레이아웃을 현재 뷰포트 높이에서 파생한다. portrait+expand라 폭은 800 고정, 높이만 실기기 비율로 늘어난다.
-# 앵커: HUD=상단 고정 · 트레이+거점=하단 고정 · 보드=그 사이 중앙(엄지 닿는 트레이를 맨 아래로).
-# 800×1000(데스크톱 기본)에선 board_y=150·bot_y=700로 원본과 픽셀-동일하게 떨어진다.
+# 앵커: HUD=상단 고정 · 트레이=하단 고정(엄지 그라운드) · 보드=그 사이 중앙. 폭 90%(CELL 90)로 키운 뒤
+#   보드 상단이 ≈23.7%에 떨어져 BB 원본 프레임(23%)과 일치한다 — 남는 여백은 BB의 상단 목표젬/하단 광고
+#   자리라 지금은 헤드룸·바닥 패널로 남는다(그 chrome가 붙으면 자연히 채워짐).
+# 800×1280(데스크톱)에선 bot_y=980·board_y≈183. 긴 폰(≈1739)에선 board_y≈412(BB 23%와 일치).
 # ⚠세이프에어리어(노치) 인셋은 실기기 배관에서 DisplayServer.get_display_safe_area()로 채운다 — 지금은 0.
 func _relayout() -> void:
 	vh = get_viewport_rect().size.y
-	bot_y = int(vh - TRAY_PANEL_H)                 # 트레이 패널을 화면 맨 아래에 고정
-	# 보드+거점 블록(550)을 HUD 아래와 트레이 위 사이에 중앙 배치. 짧은 창에선 트레이와 안 겹치게 클램프.
+	bot_y = int(vh - TRAY_PANEL_H)                 # 트레이 패널을 화면 맨 아래에 고정(그라운드)
+	# 보드+거점 블록을 HUD 아래와 트레이 위 사이에 중앙 배치.
 	var centered: int = int(HUD_H) + int(max(6.0, (float(bot_y) - HUD_H - CORE_BLOCK_H) * 0.5))
-	board_y = min(centered, bot_y - int(CORE_BLOCK_H))
+	# 720 보드는 짧은 창(<~1200)에선 다 안 들어간다 → 하한 HUD_H로 클램프해 음수/HUD 침범 방지.
+	var upper: int = max(int(HUD_H), bot_y - int(CORE_BLOCK_H))
+	board_y = clampi(centered, int(HUD_H), upper)
 	mode_btn = Rect2(596.0, float(bot_y) + 200.0, 184.0, 46.0)  # 트레이 안, bot_y 기준
 	queue_redraw()
 
