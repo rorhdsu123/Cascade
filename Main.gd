@@ -4111,15 +4111,10 @@ func _draw_bottom(fnt: Font) -> void:
 	draw_string(fnt, Vector2(mode_btn.get_center().x - sw * 0.5, mode_btn.position.y + 38.0),
 			sub, HORIZONTAL_ALIGNMENT_LEFT, -1, 13, Color(0.5, 0.5, 0.62))
 
-	# 조작 안내
-	var inst_y: float = float(bot_y) + float(TRAY_SLOT_H) + 30.0
-	var how: String = _t("how_click") if click_mode else _t("how_drag")
-	draw_string(fnt, Vector2(20.0, inst_y), how,
-			HORIZONTAL_ALIGNMENT_LEFT, -1, 19, Color(0.8, 0.8, 0.85))
-	draw_string(fnt, Vector2(20.0, inst_y + 28.0), _t("rule_blast"),
-			HORIZONTAL_ALIGNMENT_LEFT, -1, 19, Color(0.55, 0.85, 0.6))
-	# 방어 절반 — 적이 전진해 거점을 깎는다는 규칙(퍼즐 절반만 있던 구멍). 붉은 톤으로 위협 신호.
-	draw_string(fnt, Vector2(20.0, inst_y + 54.0), _t("rule_defend"),
-			HORIZONTAL_ALIGNMENT_LEFT, -1, 18, Color(0.9, 0.55, 0.5))
-	draw_string(fnt, Vector2(20.0, inst_y + 80.0), _t("rule_combo"),
-			HORIZONTAL_ALIGNMENT_LEFT, -1, 17, Color(0.85, 0.75, 0.4))
+	# 조작·규칙 상시 안내 4줄은 제거했다(C79). 화면 아래 1/4을 영구 점유하는 데다 혼자만 좌정렬·4색이라
+	#   디버그 메모처럼 읽혔고, 코지 톤과 정면으로 부딪혔다. 가르치는 몫은 전부 플레이가 가져간다:
+	#   배치·폭발·콤보는 스테이지1 튜토리얼 3박자가, 방어 절반은 매 턴 보이는 것들(한 칸씩 내려오는 적 ·
+	#   보드 바로 아래 상주하는 Core 바 · 누수 순간의 붉은 플래시+흔들림+-1)이 말한다.
+	#   ⚠교환 조건(유저 확정): 스테이지1을 무실점으로 깨는 플레이어는 방어 규칙을 글로는 전혀 안 본다.
+	#     플테에서 실제 혼란이 나오면 답은 글 한 줄 복원이 아니라 더 나은 tell이다.
+	#     [[hud-signal-by-color-not-text]] [[tutorial-stage1-onboarding]]

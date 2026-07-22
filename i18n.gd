@@ -118,15 +118,12 @@ const STR: Dictionary = {
 		"callout_tank": "TANK — big combo!",
 		"callout_swarm": "SWARM — sweep them!",
 		"callout_split": "SPLIT — kill above the line!",
-		# ── 입력 토글 + 온보딩 안내(PC 테스트 토글 포함) ──
+		# ── 입력 토글(PC 테스트용) ──
+		# 상시 조작·규칙 안내 4줄(how_*/rule_*)은 C79에서 제거 — 키도 함께 지웠다.
+		# 가르치는 몫은 스테이지1 튜토리얼과 화면이 보여주는 것들이 가져간다(_draw_bottom 주석 참조).
 		"mode_click": "CLICK MODE",
 		"mode_drag": "DRAG MODE",
 		"mode_switch": "tap to switch",
-		"how_click": "Click a piece, then click board to place",
-		"how_drag": "Drag a piece onto the board to place",
-		"rule_blast": "Fill a full row OR column -> blast!",
-		"rule_defend": "Enemies advance -> blast them before they hit the Core",
-		"rule_combo": "Chain clears -> COMBO (wider blast)",
 	},
 	"ko": {
 		"st1_name": "첫 방어선",
@@ -223,11 +220,6 @@ const STR: Dictionary = {
 		"mode_click": "클릭 모드",
 		"mode_drag": "드래그 모드",
 		"mode_switch": "눌러서 전환",
-		"how_click": "조각을 고르고 보드를 눌러 놓기",
-		"how_drag": "조각을 보드로 끌어 놓기",
-		"rule_blast": "가로 또는 세로 한 줄 채우면 -> 폭발!",
-		"rule_defend": "적이 전진해요 -> 거점에 닿기 전에 터뜨리세요",
-		"rule_combo": "연쇄 클리어 -> 콤보 (터지는 범위↑)",
 	},
 }
 
