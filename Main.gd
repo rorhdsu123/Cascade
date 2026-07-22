@@ -342,7 +342,6 @@ var endless_beat_best: bool = false # 판 중에 이미 최고를 넘었나(HUD 
 # 점수 계수(C58 손맛)는 감독 소유로 이관(C61 seam): EndlessMode.CLEAR_BASE/KILL_MULT.
 #   코어는 director.clear_score()/kill_score()로 묻는다 — 모드 이름 대신 능력.
 var _adv_hover: bool = false       # 메뉴: Adventure(스테이지) 버튼 호버
-var _stages_hover: bool = false    # 메뉴: 스테이지 목록 칩 호버
 var _classic_hover: bool = false   # 메뉴: Classic(무한) 버튼 호버
 var _lb_hover: bool = false        # 메뉴: 리더보드(우상단 트로피) 버튼 호버
 var _lb_play_hover: bool = false   # 리더보드 화면: 하단 '무한 도전' CTA 호버
@@ -678,13 +677,7 @@ func _current_stage() -> int:
 			return i
 	return STAGES.size() - 1
 
-# 허브의 목록 칩은 '고를 것이 생긴 뒤에만' 나온다 — 신규는 열린 판이 스테이지 1 하나뿐이라
-#   큰 버튼이 이미 그리로 간다. 첫 화면은 갈래 하나(Adventure)로 좁히는 게 깔때기다.
-#   ⚠그리기와 히트테스트가 이 하나를 공유해야 한다(보이지 않는데 눌리는 유령 버튼 방지).
-func _stages_chip_visible() -> bool:
-	return _cleared_count() > 0
-
-# 깬 스테이지 수 — 허브 목록 칩과 선택화면 부제가 같은 출처를 본다(둘이 어긋나면 바로 불신).
+# 깬 스테이지 수 — 선택화면 부제가 읽는다.
 func _cleared_count() -> int:
 	var n: int = 0
 	for i in range(STAGES.size()):
@@ -2064,24 +2057,18 @@ func _input(event: InputEvent) -> void:
 		if event is InputEventMouseMotion:
 			var mmp: Vector2 = (event as InputEventMouseMotion).position - mdy
 			_adv_hover = MENU_ADV_BTN.has_point(mmp)
-			_stages_hover = MENU_STAGES_BTN.has_point(mmp) and _stages_chip_visible()
 			_classic_hover = MENU_CLASSIC_BTN.has_point(mmp) and _endless_unlocked()
 			_lb_hover = MENU_LB_BTN.has_point(mmp)
-			_gear_hover = MENU_GEAR_BTN.has_point(mmp)
 		elif event is InputEventMouseButton:
 			var mb: InputEventMouseButton = event as InputEventMouseButton
 			if mb.pressed and mb.button_index == MOUSE_BUTTON_LEFT:
 				var mbp: Vector2 = mb.position - mdy
 				if MENU_ADV_BTN.has_point(mbp):
 					_adventure_go()                # 이어하기 = 다음 스테이지로 바로
-				elif MENU_STAGES_BTN.has_point(mbp) and _stages_chip_visible():
-					mode = "select"                # 목록 = 재도전·둘러보기
 				elif MENU_CLASSIC_BTN.has_point(mbp):
 					if _endless_unlocked():
 						_start_endless()           # 무한 모드 바로 시작
 					# 잠겼으면 무반응 — 선택화면의 잠긴 카드와 같은 어휘(자물쇠는 이유를 이미 적어 둠)
-				elif MENU_GEAR_BTN.has_point(mbp):
-					settings_open = true           # 허브에서도 설정(소리 끄기)
 				elif MENU_LB_BTN.has_point(mbp):
 					# ⚠mbp(=dy 보정 좌표)여야 한다. raw position을 쓰면 그리는 자리와 눌리는 자리가
 					#   _ui_dy만큼 어긋나 1000보다 높은 모든 화면(=모든 폰)에서 이 버튼이 죽는다.
@@ -2428,10 +2415,6 @@ func _draw() -> void:
 		draw_set_transform(Vector2(0.0, _ui_dy()))
 		_draw_menu(fnt)
 		draw_set_transform(Vector2.ZERO)
-		# 허브 기어로 연 설정(C80). 모달은 자체 좌표계라 오프셋 밖에서 그린다.
-		#   ⚠이 줄이 없으면 '입력은 먹는데 화면엔 아무것도 없는' 모달이 된다(상태 프로브로는 안 잡힘).
-		if settings_open:
-			_draw_settings(fnt)
 		return
 
 	if mode == "select":
@@ -2748,13 +2731,10 @@ func _result_advance() -> void:
 # 좌표는 한 곳(_settings_layout)에서만 정의 — 그리기(_draw_settings)와 입력(_settings_click)이 공유(C31 원칙).
 #   행 = 라벨(왼쪽) + 컨트롤(오른쪽), 전 행 동일 정렬. 800×1000 캔버스에 480폭 패널(좌우 160 여백).
 func _settings_layout() -> Dictionary:
-	# 허브에서 연 설정은 '홈·재시작' 두 행이 무의미하다(이미 홈이고, 재시작할 판이 없다) → 짧은 패널.
-	#   빈 행을 비활성으로 남기면 "왜 안 눌리지"가 되므로 아예 없앤다(C80).
-	var compact: bool = mode == "menu"
 	# 뷰포트가 1000보다 크면(실기기 세로) 모달을 세로 중앙으로 내린다 — 나머지 좌표는 py에서 파생됨.
 	#   오프셋은 다른 화면과 같은 _ui_dy()를 쓴다(세이프에어리어 반영) — 예전 (vh-1000)*0.5는
 	#   노치가 있는 기기에서 모달만 위로 치우쳤다.
-	var p: Rect2 = Rect2(160.0, 270.0 + _ui_dy(), 480.0, 250.0 if compact else 410.0)
+	var p: Rect2 = Rect2(160.0, 270.0 + _ui_dy(), 480.0, 410.0)
 	var px: float = p.position.x
 	var py: float = p.position.y
 	var pw: float = p.size.x
@@ -2767,20 +2747,16 @@ func _settings_layout() -> Dictionary:
 	var th: float = 32.0
 	var bw: float = 140.0
 	var bh: float = 50.0
-	# compact면 액션 버튼 자리를 빈 Rect로 — 그리기·히트테스트가 같은 출처를 보므로 둘 다 자동으로 사라진다.
-	var home_r: Rect2 = Rect2() if compact else Rect2(ctrl_r - bw, r3 - bh * 0.5, bw, bh)
-	var replay_r: Rect2 = Rect2() if compact else Rect2(ctrl_r - bw, r4 - bh * 0.5, bw, bh)
 	return {
 		"panel": p,
-		"compact": compact,
 		"label_x": px + 36.0,
 		"title_y": py + 50.0,
 		"divider_y": py + 235.0,
 		"close": Rect2(px + pw - 56.0, py + 16.0, 40.0, 40.0),
 		"sound_tog": Rect2(ctrl_r - tw, r1 - th * 0.5, tw, th),
 		"bgm_tog": Rect2(ctrl_r - tw, r2 - th * 0.5, tw, th),
-		"home_btn": home_r,
-		"replay_btn": replay_r,
+		"home_btn": Rect2(ctrl_r - bw, r3 - bh * 0.5, bw, bh),
+		"replay_btn": Rect2(ctrl_r - bw, r4 - bh * 0.5, bw, bh),
 		"r1": r1, "r2": r2, "r3": r3, "r4": r4,
 	}
 
@@ -2862,9 +2838,6 @@ func _draw_settings(fnt: Font) -> void:
 	_draw_toggle(lay["sound_tog"], sound_on, _set_sound_hover)
 	_draw_text_outlined(fnt, Vector2(lx, float(lay["r2"]) + 9.0), _t("music"), 26, Color(0.86, 0.87, 0.95))
 	_draw_toggle(lay["bgm_tog"], bgm_on, _set_bgm_hover)
-
-	if bool(lay["compact"]):
-		return   # 허브에서 연 설정 = 소리·배경음만. 아래 액션 행은 그릴 것도 누를 것도 없다.
 
 	# 구분선
 	draw_line(Vector2(lx, lay["divider_y"]), Vector2(p.position.x + p.size.x - 36.0, lay["divider_y"]), Color(1.0, 1.0, 1.0, 0.10), 2.0)
@@ -3111,13 +3084,11 @@ const PLAY_BTN: Rect2 = Rect2(150.0, 742.0, 500.0, 126.0)
 # ===== 메인 메뉴(허브) 화면 =====
 # 앱을 켜면 처음 만나는 두 갈래: Adventure(=스테이지 모드) / Classic(=무한 모드).
 #   레퍼런스(Block Blast)의 홈 = 위 로고, 아래 큰 버튼 두 개. select(스테이지 목록)는 Adventure 안쪽.
-# Adventure = '이어하기'(다음 스테이지로 바로 진입, C80). 목록은 그 아래 얇은 칩으로 내려간다 —
-#   큰 버튼은 재개, 칩은 '다른 판 고르기'. 복귀 유저가 판까지 두 번 누르던 걸 한 번으로.
-const MENU_ADV_BTN: Rect2 = Rect2(150.0, 560.0, 500.0, 116.0)     # 오렌지 = 스테이지(모험) — 이어하기
-const MENU_STAGES_BTN: Rect2 = Rect2(150.0, 690.0, 500.0, 46.0)   # 얇은 칩 = 스테이지 목록(재도전·둘러보기)
-const MENU_CLASSIC_BTN: Rect2 = Rect2(150.0, 762.0, 500.0, 116.0) # 블루 = 무한(∞)
+# Adventure = '이어하기'(다음 스테이지로 바로 진입, C80). 전부 깼을 때만 목록(select)으로 간다.
+#   (C81: 목록 칩·허브 기어는 유저 요청으로 제거 — 어색했다. 재도전 경로는 향후 재설계.)
+const MENU_ADV_BTN: Rect2 = Rect2(150.0, 600.0, 500.0, 116.0)     # 오렌지 = 스테이지(모험) — 이어하기
+const MENU_CLASSIC_BTN: Rect2 = Rect2(150.0, 740.0, 500.0, 116.0) # 블루 = 무한(∞)
 const MENU_LB_BTN: Rect2 = Rect2(560.0, 40.0, 216.0, 60.0)       # 우상단 트로피 = 리더보드(opt-in 천장, 모드 아님)
-const MENU_GEAR_BTN: Rect2 = Rect2(24.0, 40.0, 60.0, 60.0)       # 좌상단 기어 = 설정(허브에서도 소리를 끌 수 있게)
 const BACK_BTN: Rect2 = Rect2(24.0, 24.0, 132.0, 54.0)           # select/리더보드 → 메뉴 복귀
 const LB_PLAY_BTN: Rect2 = Rect2(150.0, 786.0, 500.0, 76.0)       # 리더보드 → 무한 도전(peek를 플레이로)
 
@@ -3156,17 +3127,6 @@ func _draw_menu(fnt: Font) -> void:
 			Color(0.98, 0.62, 0.16), Color(0.86, 0.48, 0.10), Color(0.55, 0.30, 0.05),
 			_t("adv_big"), _t("adv_sub"), "adv", adv_slot, false)
 
-	# 스테이지 목록 칩 — Adventure의 하위 행동('다른 판 고르기'). 큰 버튼과 위계가 겹치지 않게 얇고 조용히.
-	if _stages_chip_visible():
-		var chip: Rect2 = MENU_STAGES_BTN
-		draw_rect(chip, Color(0.24, 0.19, 0.12) if _stages_hover else Color(0.17, 0.14, 0.10))
-		draw_rect(chip, Color(0.72, 0.50, 0.22) if _stages_hover else Color(0.45, 0.33, 0.16), false, 2.0)
-		var chip_txt: String = _t("stage_list") % [_cleared_count(), STAGES.size()]
-		var chip_fs: int = 20
-		var chip_w: float = fnt.get_string_size(chip_txt, HORIZONTAL_ALIGNMENT_LEFT, -1, chip_fs).x
-		_draw_text_outlined(fnt, Vector2(chip.get_center().x - chip_w * 0.5, chip.position.y + 31.0), chip_txt, chip_fs,
-				Color(1.0, 0.88, 0.66) if _stages_hover else Color(0.82, 0.70, 0.52))
-
 	# 무한 = 스테이지 1을 깨야 열린다(_endless_unlocked). 잠금 표기는 선택화면의 잠긴 카드와 같은 어휘.
 	var el_open: bool = _endless_unlocked()
 	var el_slot: String = (_t("best_score") % _comma(endless_best)) if (el_open and endless_best > 0) else ""
@@ -3174,9 +3134,6 @@ func _draw_menu(fnt: Font) -> void:
 			Color(0.42, 0.68, 0.92), Color(0.30, 0.56, 0.82), Color(0.10, 0.26, 0.44),
 			_t("endless_big"), _t("endless_sub") if el_open else _t("endless_locked"), "classic",
 			el_slot, not el_open)
-
-	# 좌상단 설정 기어 — 허브에서도 소리를 끌 수 있게(예전엔 게임을 시작해야만 설정에 닿았다).
-	_draw_gear_icon(MENU_GEAR_BTN.get_center(), 19.0, Color(0.9, 0.92, 1.0) if _gear_hover else Color(0.5, 0.53, 0.66))
 
 	# 우상단 리더보드 진입(모드 아닌 peek — opt-in 경쟁 천장). 트로피 + 라벨(i18n).
 	var lb: Rect2 = MENU_LB_BTN

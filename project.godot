@@ -12,8 +12,6 @@ config_version=5
 
 config/name="Cascade"
 run/main_scene="res://Main.tscn"
-; 안드로이드 뒤로가기를 엔진이 앱 종료로 처리하지 않게 — Main._notification(WM_GO_BACK_REQUEST)이
-; 화면 사다리(모달→홈→일시정지→허브→종료)로 직접 다룬다. true면 판 중에 한 번 눌러 앱이 꺼진다.
 config/quit_on_go_back=false
 config/features=PackedStringArray("4.6", "GL Compatibility")
 

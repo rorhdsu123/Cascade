@@ -73,7 +73,6 @@ const STR: Dictionary = {
 		"endless_big": "Endless",
 		"endless_sub": "Endless run · High score",
 		"endless_locked": "Clear Stage 1 to unlock",   # 무한 잠금(허브 버튼 소제목 + 리더보드 CTA)
-		"stage_list": "Stages  %d / %d",               # 허브: Adventure 아래 목록 칩
 		"best_score": "Best %s",     # 메뉴 · HUD 무한 최고점
 		# ── 스테이지 선택 ──
 		"cleared_count": "Cleared %d / %d",
@@ -177,7 +176,6 @@ const STR: Dictionary = {
 		"endless_big": "무한",
 		"endless_sub": "끝없이 도전 · 최고점",
 		"endless_locked": "스테이지 1을 깨면 열려요",
-		"stage_list": "스테이지  %d / %d",
 		"best_score": "최고 %s",
 		"cleared_count": "클리어 %d / %d",
 		"dev_unlock": "DEV: 전체 해금 (0)",

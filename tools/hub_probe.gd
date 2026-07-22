@@ -57,9 +57,7 @@ func _run() -> void:
 	await process_frame
 
 	var ADV: Rect2 = g.get("MENU_ADV_BTN")
-	var CHIP: Rect2 = g.get("MENU_STAGES_BTN")
 	var CLASSIC: Rect2 = g.get("MENU_CLASSIC_BTN")
-	var GEAR: Rect2 = g.get("MENU_GEAR_BTN")
 	var LB: Rect2 = g.get("MENU_LB_BTN")
 	var LBPLAY: Rect2 = g.get("LB_PLAY_BTN")
 
@@ -105,25 +103,6 @@ func _run() -> void:
 	await _hub(all_c)
 	await _click(ADV)
 	_check("Adventure(전부 깸)", _state(), "select")
-
-	print("── 목록 칩 · 기어 · 설정 모달이 허브 입력을 막는가 ──")
-	await _hub({0: true})
-	await _click(CHIP)
-	_check("스테이지 목록 칩", _state(), "select")
-	# 신규(깬 판 0)엔 칩이 안 그려진다 → 그 자리를 눌러도 아무 일 없어야(유령 버튼 방지)
-	await _hub({})
-	await _click(CHIP)
-	_check("신규: 칩 자리 무반응", _state(), "menu")
-	await _hub({0: true})
-	await _click(GEAR)
-	_check("기어", _state(), "settings")
-	await _click(CLASSIC)   # 모달이 떠 있는 동안 뒤 버튼이 눌리면 안 된다
-	_check("모달 중 뒤 버튼 차단", _state(), "settings")
-	var lay: Dictionary = g.call("_settings_layout")
-	_check("허브 설정 = compact", str(bool(lay["compact"])), "true")
-	_check("compact엔 홈 버튼 없음", str((lay["home_btn"] as Rect2).has_point(Vector2(400, 600))), "false")
-	await _key(KEY_ESCAPE)
-	_check("ESC로 모달 닫힘", _state(), "menu")
 
 	print("── 기존 세이브 가드: 최고점이 있으면 잠기지 않는다 ──")
 	await _hub({})
