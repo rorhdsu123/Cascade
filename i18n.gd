@@ -15,7 +15,7 @@
 extends RefCounted
 
 const DEFAULT_LOCALE: String = "en"          # 영어 우선(base). 미지원 로케일은 여기로 폴백.
-const SUPPORTED: Array = ["en", "ko"]         # 영어만 출시하려면 ["en"]으로 — ko 테이블은 보존됨.
+const SUPPORTED: Array = ["en"]               # 영어 우선 출시(C75): 라틴 전용 폰트라 CJK는 두부 → en만 노출. ko 테이블은 아래 보존(CJK 폰트 번들 시 "ko" 복귀).
 
 const STR: Dictionary = {
 	"en": {
