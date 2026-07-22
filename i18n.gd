@@ -82,6 +82,17 @@ const STR: Dictionary = {
 		"select_hint": "SPACE or tap a button",
 		"stage_n": "Stage %d",
 		"all_cleared": "All clear! Play again",
+		# ── 리더보드 화면 ──
+		"lb_sub": "Endless · High score board",
+		"lb_empty_big": "Set your first record!",
+		"lb_empty_sub": "Post a score in Endless to open the ranking",
+		"lb_percentile": "Top %d%%",
+		"lb_friend_rank": "#%d of %d friends",   # ⚠인자 순서 = [순위, 총원] (로케일 공통)
+		"lb_my_best": "My best",
+		"lb_clean_cap": "No revive",
+		"lb_friends": "Friends",
+		"lb_you": "You",
+		"lb_preview_note": "Preview · Connect your account to see real friends",
 		# ── HUD ──
 		"combo": "Combo x%d",
 		"leaderboard": "Leaderboard",   # 메뉴 우상단 진입 버튼
@@ -176,6 +187,16 @@ const STR: Dictionary = {
 		"select_hint": "SPACE 또는 버튼 클릭",
 		"stage_n": "스테이지 %d",
 		"all_cleared": "전부 클리어! 다시 도전",
+		"lb_sub": "무한 · 최고점 자랑 보드",
+		"lb_empty_big": "첫 기록에 도전!",
+		"lb_empty_sub": "무한 모드에서 첫 점수를 남기면 순위가 열려요",
+		"lb_percentile": "상위 %d%%",
+		"lb_friend_rank": "%d위 / 친구 %d명",   # ⚠인자 순서 = [순위, 총원] (영어와 동일)
+		"lb_my_best": "내 최고",
+		"lb_clean_cap": "부활 없이",
+		"lb_friends": "친구 순위",
+		"lb_you": "나",
+		"lb_preview_note": "미리보기 · 계정을 연결하면 실제 친구 순위가 표시돼요",
 		"combo": "콤보 x%d",
 		"leaderboard": "리더보드",
 		"new_best_live": "최고 갱신!",

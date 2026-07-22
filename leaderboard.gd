@@ -16,12 +16,14 @@ const CLEAN_PATH: String = "user://endless_clean.save"   # 무부활 최고점(r
 
 # 미리보기 친구 보드(플랫폼 연결 전). 코지 톤의 이름·현실적 점수 분포 — 내 최고점이 사이 어딘가에 꽂힌다.
 #   실플랫폼 붙으면 _platform_board()가 이 자리를 대체.
+# ⚠이름은 라틴 문자만 쓴다 — 번들 폰트(Noto Sans 라틴)에 CJK 글리프가 없어 한글 이름은
+#   실기기에서 두부(□)로 뜬다. '나' 행의 표기는 여기가 아니라 화면이 소유한다(i18n lb_you).
 const MOCK_FRIENDS: Array = [
-	{"name": "하린", "score": 214600},
-	{"name": "도윤", "score": 152300},
-	{"name": "서준", "score": 96800},
-	{"name": "예은", "score": 61400},
-	{"name": "민서", "score": 33900},
+	{"name": "Mia", "score": 214600},
+	{"name": "Leo", "score": 152300},
+	{"name": "Ava", "score": 96800},
+	{"name": "Noah", "score": 61400},
+	{"name": "Emma", "score": 33900},
 ]
 
 var _best: int = 0
@@ -66,7 +68,7 @@ func board() -> Array:
 	var rows: Array = []
 	for f in MOCK_FRIENDS:
 		rows.append({"name": String(f["name"]), "score": int(f["score"]), "you": false})
-	rows.append({"name": "나", "score": _best, "you": true})
+	rows.append({"name": "", "score": _best, "you": true})   # 표기는 화면이 붙인다(_t("lb_you"))
 	rows.sort_custom(func(a, b): return int(a["score"]) > int(b["score"]))
 	return rows
 
