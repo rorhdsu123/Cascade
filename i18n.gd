@@ -99,8 +99,9 @@ const STR: Dictionary = {
 		"depth": "Depth %d",
 		"goal": "Goal",
 		"hud_enemies": "Enemies",    # 목표 카드 캡션(해골 아이콘 옆, 짧게)
-		"advance": "Advance",
+		"advance": "Enemy move",   # '적이 N턴 뒤 전진'을 명시 — 'Advance'만으론 누가/어디로가 모호
 		"turns": "turns",
+		"turn_1": "turn",          # remain==1 단수(‘1 turns’ 오류 방지)
 		# ── 거점(보드 하단 방어선) ──
 		"core_hp": "Core  %d / %d",
 		# ── 게임플레이 콜아웃/tell(원래 영어로 authored — 값 동일, 로케일 확장용으로만 키화) ──
@@ -199,6 +200,7 @@ const STR: Dictionary = {
 		"hud_enemies": "남은 적",
 		"advance": "적 이동",
 		"turns": "턴",
+		"turn_1": "턴",
 		"core_hp": "거점  %d / %d",
 		# ⚠아래 콜아웃/tell·온보딩의 한국어는 초안(원문이 영어라 대응 한글이 없었음). 검수/조정 여지.
 		"ll_double": "더블!",

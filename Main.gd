@@ -3556,13 +3556,7 @@ func _draw_hud(fnt: Font) -> void:
 	var sy: float = safe_top
 	draw_rect(Rect2(0, 0, 800, 144.0 + sy), C_HUD.lerp(C_BG_PB, pb_bg_mix))   # 넘음: 상단 바도 여백과 '같은' warm 플럼으로(통일)
 	# CORE HP는 보드 하단 방어선(_draw_core)에만 표시 — 상단 중복 제거.
-	if combo >= 2:
-		# 유예 중(헛수 1회)이면 경고색으로만 — 다음 헛수에 끊긴다는 신호(텍스트는 안 붙임)
-		var risky: bool = combo_miss > 0
-		var streak: String = _t("combo") % combo
-		var stw: float = fnt.get_string_size(streak, HORIZONTAL_ALIGNMENT_LEFT, -1, 22).x
-		var scol: Color = Color(1.0, 0.45, 0.3) if risky else C_GOLD
-		_draw_text_outlined(fnt, Vector2(736.0 - stw, 26.0 + sy), streak, 22, scol)   # 736: 우상단 기어에 자리를 비켜줌
+	# 콤보 상시 카운터는 카드 아래에 그린다(아래 참조) — 노치·기어 다툼과 위계 반대를 피해.
 
 	var step_every: int = director.hud_step_every()
 	var remain: int = step_every - (place_count % step_every)
@@ -3645,11 +3639,21 @@ func _draw_hud(fnt: Font) -> void:
 	var u_fs: int = 18
 	var n_col: Color = Color(1.0, 0.55, 0.3) if imminent else Color(0.9, 0.9, 0.95)
 	var n_w: float = fnt.get_string_size(n_str, HORIZONTAL_ALIGNMENT_LEFT, -1, n_fs).x
-	var turn_lbl: String = _t("turns")
+	var turn_lbl: String = _t("turn_1") if remain == 1 else _t("turns")   # '1 turns' 복수 오류 방지
 	var u_w: float = fnt.get_string_size(turn_lbl, HORIZONTAL_ALIGNMENT_LEFT, -1, u_fs).x
 	var grp_x: float = adv_r.position.x + aw * 0.5 - (n_w + 4.0 + u_w) * 0.5
 	_draw_text_outlined(fnt, Vector2(grp_x, box_y + 72.0), n_str, n_fs, n_col)
 	_draw_text_outlined(fnt, Vector2(grp_x + n_w + 4.0, box_y + 72.0), turn_lbl, u_fs, Color(0.72, 0.72, 0.8))
+
+	# ── 콤보 상시 카운터 — 카드 '아래·우측'에 종속 배치(대형 축하는 중앙 flash가 담당).
+	#   예전엔 최상단 우측(노치·기어와 다툼 + 1차 정보 카드보다 위 = 위계 반대)이었다. 유예 중이면
+	#   경고색으로만(다음 헛수에 끊긴다는 신호, 텍스트 안 붙임). [[hud-signal-by-color-not-text]]
+	if combo >= 2:
+		var streak: String = _t("combo") % combo
+		var st_fs: int = 20
+		var stw: float = fnt.get_string_size(streak, HORIZONTAL_ALIGNMENT_LEFT, -1, st_fs).x
+		var scol: Color = Color(1.0, 0.45, 0.3) if combo_miss > 0 else C_GOLD
+		_draw_text_outlined(fnt, Vector2(adv_r.position.x + aw - stw, box_y + box_h + 26.0), streak, st_fs, scol)
 
 	# 처치 진행바는 제거했다 — 빨강/초록 가로 막대라 거점 HP 바(진짜 체력)와 색 언어가 겹쳐
 	# 'HP가 바닥났다'로 오독됐다. 목표 카드의 '남은 적' 숫자만으로 진행도는 충분히 읽힌다.
