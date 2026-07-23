@@ -356,6 +356,7 @@ var track_record: bool = false     # featured 시퀀스 기록(사후 점수 검
 var track_log: Array = []          # [["P", idx, type, color] | ["S", depth, col, etype], ...]
 var cleared: Dictionary = {}     # 스테이지 인덱스 → 클리어 여부 (세션 한정, 저장 없음)
 var hover_stage: int = -1
+var sel_stage: int = 0           # 선택화면에서 고른 스테이지(하단 플레이 버튼이 이 번호를 실행·표시)
 var _play_hover: bool = false    # 하단 시작 버튼 호버
 var _retry_hover: bool = false   # 결과 팝업 재도전 버튼 호버
 var _home_hover: bool = false    # 결과 팝업 홈 버튼 호버
@@ -701,6 +702,7 @@ func _home_mode() -> String:
 func _adventure_go() -> void:
 	if _all_cleared():
 		mode = "select"
+		sel_stage = 0        # 진열장 진입 = 1번부터 고른 상태로(처음부터 다시가 기본값)
 		return
 	_start_stage(_current_stage())
 
@@ -2124,22 +2126,24 @@ func _input(event: InputEvent) -> void:
 				if BACK_BTN.has_point(smp):
 					mode = "menu"                       # 허브로 복귀(Classic은 메뉴에)
 				elif PLAY_BTN.has_point(smp):
-					_start_stage(_current_stage())      # 하단 큰 버튼 = 지금 도전할 스테이지
+					_start_stage(sel_stage)             # 하단 큰 버튼 = 고른 스테이지 실행
 				else:
-					var hit: int = _stage_at(smp)   # 이미 깬 스테이지 재도전(잠긴 건 -1)
+					var hit: int = _stage_at(smp)   # 타일 탭 = 선택(즉시 실행 아님, 잠긴 건 -1)
 					if hit >= 0:
-						_start_stage(hit)
+						sel_stage = hit
+						queue_redraw()
 		elif event is InputEventKey:
 			var sk: InputEventKey = event as InputEventKey
 			if sk.pressed and (sk.keycode == KEY_SPACE or sk.keycode == KEY_ENTER):
-				_start_stage(_current_stage())
+				_start_stage(sel_stage)                # 고른 스테이지 실행
 			elif sk.pressed and sk.keycode == KEY_ESCAPE:
 				mode = "menu"                          # 뒤로 = 허브
 				# ⚠'오늘의 판'(featured) 진입은 C60에서 보류 — 플레이어 노출 제거. 엔진은 tools/probe로만 도달.
 			elif sk.pressed and sk.keycode >= KEY_1 and sk.keycode < KEY_1 + STAGES.size():
 				var pick: int = sk.keycode - KEY_1
 				if _is_unlocked(pick):
-					_start_stage(pick)
+					sel_stage = pick                   # 번호키 = 선택(실행은 Space/버튼)
+					queue_redraw()
 			elif sk.pressed and sk.keycode == KEY_0:
 				dev_unlock_all = not dev_unlock_all   # ⚠플테 전용: 전 스테이지 해금 토글
 				queue_redraw()
@@ -3072,13 +3076,14 @@ func _draw_result(fnt: Font) -> void:
 	# 키 힌트는 없다(C39). SPACE=주 동작(부활 가능하면 이어하기)·ESC=홈은 그대로 받는다.
 
 # ===== 스테이지 선택 화면 (Adventure) — 홈(허브) 아래 한 단계 =====
-# Toon Blast식: 위쪽은 진행 상황(스테이지 목록·잠금), 시선의 착지점은 하단의 큰 시작 버튼.
-# 좌상단 화살표('홈')로 허브 복귀. (구: 이 화면을 '홈(스테이지)'이라 불렀으나 홈=허브로 통일)
-const SEL_X: float = 140.0
-const SEL_W: float = 520.0
-const SEL_Y0: float = 206.0   # 8스테이지 수용 위해 상향(C57). 소제목 y=166 아래 40px 여백
-const SEL_H: float = 58.0     # 8타일이 PLAY_BTN(y=742) 위에 들어오게 70→58 (C57). 내부 텍스트도 상향(+28/+50)
-const SEL_GAP: float = 8.0    # 8번째 타일 하단 = 206 + 7·66 + 58 = 726 < 742
+# '완주 진열장': 전부 깬 뒤에만 뜬다(_adventure_go). 모든 판이 이미 Done이라 이름·태그·설명은 군더더기.
+#   번호 그리드만 남기고, 하단 플레이 버튼이 고른 번호를 실행한다(유저 지시 C83).
+#   개수 무관 자동 줄바꿈(SEL_COLS열) — 스테이지가 늘어도 안 깨진다(구: 8개 하드튜닝 세로 바).
+# 좌상단 화살표('홈')로 허브 복귀.
+const SEL_COLS: int = 4
+const SEL_TILE: float = 150.0
+const SEL_GAP: float = 26.0
+const SEL_TOP: float = 216.0   # 그리드 영역 상단(소제목 y=166 아래). 하단은 PLAY_BTN(y=742)
 const PLAY_BTN: Rect2 = Rect2(150.0, 742.0, 500.0, 126.0)
 
 # ===== 메인 메뉴(허브) 화면 =====
@@ -3095,7 +3100,15 @@ const BACK_BTN: Rect2 = Rect2(24.0, 24.0, 132.0, 54.0)           # select/리더
 const LB_PLAY_BTN: Rect2 = Rect2(150.0, 786.0, 500.0, 76.0)       # 리더보드 → 무한 도전(peek를 플레이로)
 
 func _stage_rect(i: int) -> Rect2:
-	return Rect2(SEL_X, SEL_Y0 + float(i) * (SEL_H + SEL_GAP), SEL_W, SEL_H)
+	var rows: int = int(ceil(float(STAGES.size()) / float(SEL_COLS)))
+	var grid_w: float = SEL_COLS * SEL_TILE + (SEL_COLS - 1) * SEL_GAP
+	var grid_h: float = rows * SEL_TILE + (rows - 1) * SEL_GAP
+	var start_x: float = (800.0 - grid_w) * 0.5
+	var region_h: float = PLAY_BTN.position.y - SEL_TOP
+	var start_y: float = SEL_TOP + maxf(0.0, (region_h - grid_h) * 0.5)
+	var col: int = i % SEL_COLS
+	var row: int = i / SEL_COLS
+	return Rect2(start_x + col * (SEL_TILE + SEL_GAP), start_y + row * (SEL_TILE + SEL_GAP), SEL_TILE, SEL_TILE)
 
 # 잠긴 스테이지는 클릭 대상이 아니다(선형 진행)
 func _stage_at(pos: Vector2) -> int:
@@ -3389,57 +3402,48 @@ func _draw_select(fnt: Font) -> void:
 
 	# ⚠플테 전용: 전체 해금이 켜져 있으면 명시(진짜 진행과 안 헷갈리게). '0'키로 토글.
 	if dev_unlock_all:
-		_draw_text_outlined(fnt, Vector2(SEL_X, 200.0), _t("dev_unlock"), 16, Color(1.0, 0.55, 0.3))
+		var du: String = _t("dev_unlock")
+		var duw: float = fnt.get_string_size(du, HORIZONTAL_ALIGNMENT_LEFT, -1, 16).x
+		_draw_text_outlined(fnt, Vector2(400.0 - duw * 0.5, 196.0), du, 16, Color(1.0, 0.55, 0.3))
 
-	var cur: int = _current_stage()
+	# 번호 그리드. 다 깬 진열장이라 이름·태그·설명 없이 번호만 — 고른 타일이 하단 버튼으로 실행된다.
 	for i in range(STAGES.size()):
-		var sd: Dictionary = STAGES[i]
 		var r: Rect2 = _stage_rect(i)
 		var done: bool = bool(cleared.get(i, false))
 		var open: bool = _is_unlocked(i)
-		var hot: bool = (i == hover_stage) and open
-		var accent: Color = Color(0.28, 0.29, 0.36)          # 잠김
-		if done:
-			accent = Color(0.35, 0.8, 0.5)
-		elif open:
-			accent = C_GOLD if i == cur else Color(0.45, 0.5, 0.68)
-		if hot:
-			accent = C_GOLD
-		draw_rect(r, Color(0.17, 0.17, 0.25) if hot else (Color(0.13, 0.13, 0.2) if open else Color(0.09, 0.09, 0.13)))
-		draw_rect(r, accent, false, 3.0)
+		var picked: bool = (i == sel_stage) and open
+		var hot: bool = (i == hover_stage) and open and not picked
 
-		# 번호 뱃지 (잠김이면 자물쇠)
-		var bx: float = r.position.x + 30.0
-		var by: float = r.position.y + SEL_H * 0.5
-		draw_circle(Vector2(bx, by), 20.0, accent)
+		# 채움: 고른 것만 금빛으로 튀고, 나머지(깬 것)는 차분하게 가라앉힌다.
+		var fill: Color = Color(0.09, 0.09, 0.13)            # 잠김
+		if picked:
+			fill = Color(0.24, 0.20, 0.10)
+		elif open:
+			fill = Color(0.17, 0.17, 0.24) if hot else Color(0.13, 0.14, 0.20)
+		draw_rect(r, fill)
+		var border: Color = Color(0.28, 0.29, 0.36)
+		if picked:
+			border = C_GOLD
+		elif open:
+			border = Color(0.5, 0.55, 0.62) if hot else Color(0.30, 0.33, 0.42)
+		draw_rect(r, border, false, 4.0 if picked else 2.0)
+
+		var cx: float = r.position.x + r.size.x * 0.5
+		var cy: float = r.position.y + r.size.y * 0.5
 		if open:
 			var nstr: String = str(i + 1)
-			var nw: float = fnt.get_string_size(nstr, HORIZONTAL_ALIGNMENT_LEFT, -1, 24).x
-			_draw_text_outlined(fnt, Vector2(bx - nw * 0.5, by + 8.0), nstr, 24, Color(0.08, 0.08, 0.12))
+			var nfs: int = 64
+			var nsz: Vector2 = fnt.get_string_size(nstr, HORIZONTAL_ALIGNMENT_LEFT, -1, nfs)
+			var ncol: Color = Color.WHITE if picked else Color(0.82, 0.85, 0.92)
+			_draw_text_outlined(fnt, Vector2(cx - nsz.x * 0.5, cy + nsz.y * 0.34), nstr, nfs, ncol)
+			# 깬 표식 = 우상단 초록 체크(언어 중립). 고른 타일은 금빛 위계라 체크 생략.
+			if done and not picked:
+				_draw_check(Vector2(r.position.x + r.size.x - 22.0, r.position.y + 22.0), 9.0, Color(0.4, 0.85, 0.55))
 		else:
-			_draw_lock(Vector2(bx, by), 18.0, Color(0.55, 0.57, 0.66))
+			_draw_lock(Vector2(cx, cy), 26.0, Color(0.5, 0.52, 0.6))
 
-		# 이름 + 태그. 잠김이면 내용은 숨기고 해금 조건만 (다음 목표를 명확히)
-		var nx: float = r.position.x + 64.0
-		var name_col: Color = Color.WHITE if open else Color(0.45, 0.46, 0.55)
-		_draw_text_outlined(fnt, Vector2(nx, r.position.y + 28.0), _t(String(sd["name"])), 24, name_col)
-		var line2: String = _t(String(sd["tag"])) if open else _t("unlock_req") % i
-		_draw_text_outlined(fnt, Vector2(nx, r.position.y + 50.0), line2, 15,
-				Color(0.68, 0.7, 0.82) if open else Color(0.4, 0.41, 0.5))
-
-		if done:
-			var ck: String = _t("done_badge")
-			var cw: float = fnt.get_string_size(ck, HORIZONTAL_ALIGNMENT_LEFT, -1, 16).x
-			_draw_text_outlined(fnt, Vector2(r.position.x + SEL_W - cw - 16.0, r.position.y + 40.0), ck, 16, Color(0.4, 0.9, 0.58))
-
-	_draw_play_button(fnt, cur)
+	_draw_play_button(fnt, sel_stage)
 	_draw_back_button(fnt)
-
-	var hint: String = _t("select_hint")
-	var hw: float = fnt.get_string_size(hint, HORIZONTAL_ALIGNMENT_LEFT, -1, 17).x
-	# y=724는 8번 타일(668~726)과 겹쳤다(C57서 타일을 PLAY_BTN 위로 밀며 힌트 위치를 안 옮김).
-	# PLAY_BTN(742~868) 아래로 내려 메뉴 힌트(y=910) 리듬과 맞춘다.
-	_draw_text_outlined(fnt, Vector2(400.0 - hw * 0.5, 908.0), hint, 17, Color(0.5, 0.52, 0.62))
 
 # 천 단위 콤마 (점수 가독성)
 func _comma(n: int) -> String:
@@ -3453,7 +3457,7 @@ func _comma(n: int) -> String:
 			out = "," + out
 	return out
 
-# 하단 큰 시작 버튼 — 지금 도전할 스테이지를 크게 적는다(Toon Blast의 "Level N" 버튼)
+# 하단 큰 시작 버튼 — 고른 스테이지 번호를 크게 적는다(Toon Blast의 "Level N" 버튼)
 func _draw_play_button(fnt: Font, cur: int) -> void:
 	var hot: bool = _play_hover
 	var r: Rect2 = PLAY_BTN
@@ -3470,11 +3474,20 @@ func _draw_play_button(fnt: Font, cur: int) -> void:
 	var bw: float = fnt.get_string_size(big, HORIZONTAL_ALIGNMENT_LEFT, -1, bfs).x
 	_draw_text_outlined(fnt, Vector2(400.0 - bw * 0.5, r.position.y + 62.0), big, bfs, Color.WHITE,
 			Color(0.10, 0.28, 0.14, 0.95))
-	var nm: String = _t("all_cleared") if _all_cleared() else _t(String(sd["name"]))
+	var nm: String = _t(String(sd["name"]))   # 고른 스테이지 이름(선택화면은 전부 깬 뒤라 이름=고른 것)
 	var nfs: int = 22
 	var nw: float = fnt.get_string_size(nm, HORIZONTAL_ALIGNMENT_LEFT, -1, nfs).x
 	_draw_text_outlined(fnt, Vector2(400.0 - nw * 0.5, r.position.y + 98.0), nm, nfs, Color(0.92, 1.0, 0.88),
 			Color(0.10, 0.28, 0.14, 0.95))
+
+# 체크 표식(절차적) — 깬 스테이지 우상단. 언어 중립(도감/글자 대신 기호)
+func _draw_check(c: Vector2, s: float, col: Color) -> void:
+	var pts: PackedVector2Array = PackedVector2Array([
+		Vector2(c.x - s, c.y),
+		Vector2(c.x - s * 0.3, c.y + s * 0.7),
+		Vector2(c.x + s, c.y - s * 0.7),
+	])
+	draw_polyline(pts, col, 3.0, true)
 
 # 자물쇠 아이콘(절차적) — 잠긴 스테이지 표시
 func _draw_lock(c: Vector2, s: float, col: Color) -> void:
