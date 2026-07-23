@@ -2892,25 +2892,6 @@ func _fail_headline() -> String:
 		return _t("fail_near")
 	return _t("fail_far")
 
-# 스테이지 진행 pip 줄 — 캠페인 클리어 팝업에서 '어디까지 왔나'를 한 줄로(깔때기 연결).
-#   깬 판=금색 점, 방금 깬 판=밝은 코어+바깥 링(이번 판의 피크를 콕 집음), 남은 판=흐린 점.
-#   개수 무관 자동 폭(gap로 파생) — 스테이지가 늘어도 안 깨진다.
-func _draw_stage_pips(cx: float, y: float) -> void:
-	var n: int = STAGES.size()
-	var done: int = _cleared_count()
-	var gap: float = 30.0
-	var r: float = 8.0
-	var x0: float = cx - (n - 1) * gap * 0.5
-	for i in range(n):
-		var px: float = x0 + i * gap
-		if i == stage_idx:
-			draw_circle(Vector2(px, y), r + 5.0, Color(1.0, 0.86, 0.35, 0.35))   # 바깥 글로우 링
-			draw_circle(Vector2(px, y), r + 1.0, Color(1.0, 0.93, 0.55))         # 밝은 코어
-		elif i < done:
-			draw_circle(Vector2(px, y), r, C_GOLD)
-		else:
-			draw_circle(Vector2(px, y), r - 1.0, Color(0.34, 0.35, 0.44))
-
 func _draw_result(fnt: Font) -> void:
 	# 스크림 — 팝업 뒤의 보드를 '멈춘 배경'으로 눌러둔다(모달 표시)
 	draw_rect(Rect2(-20, -20, VW_BASE + 40.0, vh + 40.0), Color(0.0, 0.0, 0.0, 0.68))
@@ -3001,15 +2982,15 @@ func _draw_result(fnt: Font) -> void:
 		var bnw: float = fnt.get_string_size(bnum, HORIZONTAL_ALIGNMENT_LEFT, -1, bnum_fs).x
 		_draw_text_outlined(fnt, Vector2(cx - bnw * 0.5, p.position.y + 238.0), bnum, bnum_fs,
 				C_GOLD if endless_new_best else Color(0.85, 0.85, 0.95))
-	elif game_over:
-		# 실패: 남긴 적 수(HUD 목표 카드와 같은 정의 total-killed-leaked) — '얼마나 샜나'가 사유.
+	else:
+		# 정의는 HUD 목표 카드와 동일(total - killed - leaked) → 게임 중 보던 그 숫자가 그대로.
 		var remaining: int = maxi(0, director.enemy_total() - killed - leaked)
-		var cap: String = _t("result_remaining")
+		var cap: String = _t("result_remaining") if game_over else _t("result_killed")
 		var cap_fs: int = 18
 		var cw: float = fnt.get_string_size(cap, HORIZONTAL_ALIGNMENT_LEFT, -1, cap_fs).x
 		_draw_text_outlined(fnt, Vector2(cx - cw * 0.5, p.position.y + 176.0), cap, cap_fs, Color(0.95, 0.85, 0.5))
 
-		var num: String = str(remaining)
+		var num: String = str(remaining if game_over else killed)
 		var num_fs: int = 52
 		var icon_s: float = 44.0
 		var nw2: float = fnt.get_string_size(num, HORIZONTAL_ALIGNMENT_LEFT, -1, num_fs).x
@@ -3017,15 +2998,8 @@ func _draw_result(fnt: Font) -> void:
 		var grp_l: float = cx - grp_w * 0.5
 		var row_y: float = p.position.y + 222.0
 		_draw_enemy_icon(Vector2(grp_l + icon_s * 0.5, row_y), icon_s)
-		_draw_text_outlined(fnt, Vector2(grp_l + icon_s + 12.0, row_y + 16.0), num, num_fs, Color(1.0, 0.55, 0.5))
-	else:
-		# 캠페인 클리어: 처치 수(사유는 이미 sub 줄이 말함)는 중복 → '어디까지 왔나'를 조용히 얹는다.
-		#   숫자 하나로 끝나던 피크에 여정 맥락(진행 표시 N/8)을 준다. 다음 예고 카드는 없음(주CTA가 '다음').
-		var pcap: String = _t("cleared_count") % [_cleared_count(), STAGES.size()]
-		var pcap_fs: int = 18
-		var pcw: float = fnt.get_string_size(pcap, HORIZONTAL_ALIGNMENT_LEFT, -1, pcap_fs).x
-		_draw_text_outlined(fnt, Vector2(cx - pcw * 0.5, p.position.y + 176.0), pcap, pcap_fs, C_GOLD)
-		_draw_stage_pips(cx, p.position.y + 224.0)
+		_draw_text_outlined(fnt, Vector2(grp_l + icon_s + 12.0, row_y + 16.0), num, num_fs,
+				Color(1.0, 0.55, 0.5) if game_over else Color(0.55, 0.95, 0.65))
 
 	# ── 광고 이어하기 버튼 (부활 가능할 때만 — 주 착지점, 금색 3D로 재도전 초록과 구분)
 	#    F2P의 심장: 아까운 실패를 광고 한 편으로 이어받는다. 광고임을 'AD' 배지로 명시(정직).
