@@ -36,6 +36,10 @@ const STR: Dictionary = {
 		"st7_tag": "They split — take them high",
 		"st8_name": "Last Line",
 		"st8_tag": "Everything comes — and it splits",
+		"st9_name": "Gem Rush",
+		"st9_tag": "Catch the falling gems — enemies are just the risk",
+		"st10_name": "Two Colors",
+		"st10_tag": "Two gem colors now — fill both, pick your shots",
 		# ── 설정 모달 ──
 		"settings": "Settings",
 		"sound": "Sound",
@@ -59,6 +63,7 @@ const STR: Dictionary = {
 		"new_record": "🏆 New best! +%s",
 		"best": "Best",
 		"result_remaining": "Enemies left",
+		"result_gems": "Gems left",
 		"result_killed": "Killed",
 		"continue": "Continue",
 		"retry": "Retry",
@@ -93,6 +98,11 @@ const STR: Dictionary = {
 		"hud_enemies": "Enemies",    # 목표 카드 캡션(해골 아이콘 옆, 짧게)
 		"advance": "Advance",
 		"turns": "turns",
+		# ── 보스(감시자) 스테이지 ──
+		"boss": "Warden",
+		"debris": "Debris",
+		"collect": "Collect",
+		"callout_gem": "Gems! — catch them, don't just clear",
 		# ── 거점(보드 하단 방어선) ──
 		"core_hp": "Core  %d / %d",
 		# ── 게임플레이 콜아웃/tell(원래 영어로 authored — 값 동일, 로케일 확장용으로만 키화) ──
@@ -132,6 +142,10 @@ const STR: Dictionary = {
 		"st7_tag": "갈라진다 — 높이 있을 때 잡아라",
 		"st8_name": "최종 방어선",
 		"st8_tag": "전부 온다 — 그리고 갈라진다",
+		"st9_name": "보석 러시",
+		"st9_tag": "떨어지는 보석을 낚아채라 — 적은 위험일 뿐",
+		"st10_name": "두 색",
+		"st10_tag": "이제 보석 두 색 — 둘 다 채워라, 골라 쏴라",
 		"settings": "설정",
 		"sound": "소리",
 		"music": "배경음",
@@ -153,6 +167,7 @@ const STR: Dictionary = {
 		"new_record": "🏆 신기록! +%s",
 		"best": "최고",
 		"result_remaining": "남은 적",
+		"result_gems": "남은 보석",
 		"result_killed": "처치",
 		"continue": "이어하기",
 		"retry": "재도전",
@@ -184,6 +199,10 @@ const STR: Dictionary = {
 		"hud_enemies": "남은 적",
 		"advance": "적 이동",
 		"turns": "턴",
+		"boss": "감시자",
+		"debris": "잔해",
+		"collect": "수집",
+		"callout_gem": "보석! — 그냥 치우지 말고 낚아채라",
 		"core_hp": "거점  %d / %d",
 		# ⚠아래 콜아웃/tell·온보딩의 한국어는 초안(원문이 영어라 대응 한글이 없었음). 검수/조정 여지.
 		"ll_double": "더블!",
