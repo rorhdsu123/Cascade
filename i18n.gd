@@ -101,6 +101,7 @@ const STR: Dictionary = {
 		"combo": "Combo x%d",
 		"leaderboard": "Leaderboard",   # 메뉴 우상단 진입 버튼
 		"new_best_live": "New best!",
+		"new_best_ribbon": "NEW BEST",   # PB 판전체 폭발 리본 배너 라벨(C90)
 		"score": "Score",
 		"depth": "Depth %d",
 		"goal": "Goal",
@@ -211,6 +212,7 @@ const STR: Dictionary = {
 		"combo": "콤보 x%d",
 		"leaderboard": "리더보드",
 		"new_best_live": "최고 갱신!",
+		"new_best_ribbon": "신기록",   # PB 판전체 폭발 리본 배너 라벨(C90)
 		"score": "점수",
 		"depth": "깊이 %d",
 		"goal": "목표",

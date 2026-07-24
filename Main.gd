@@ -514,7 +514,7 @@ var confetti: Array = []       # [{pos, vel, life, max, color, rot, spin, w, h, 
 var impacts: Array = []        # [{pos, life, max, color, radius}] 빔 임팩트/탱크 막음 링
 var kill_pulse: float = 0.0    # 킬 순간 ENEMIES LEFT 헤드라인 펄스
 var pb_pop_t: float = -1.0     # PB 돌파 '순간' 버스트 타이머(방사광+스티커 팝인). <0=대기. (스티커 자체는 이후에도 상주)
-const PB_POP_DUR: float = 1.15 # 순간 버스트 길이(팝인·방사광). 스티커는 이 뒤로도 판 끝까지 붙어 있음.
+const PB_POP_DUR: float = 1.6  # PB 판전체 폭발 길이(C90: 1.15→1.6, 리본 스윕+홀드가 숨쉴 시간). 스티커는 이 뒤로도 상주.
 var zone_index: int = 0        # 현재 절대점수 존(0=base·1~4·그 위 프리스티지). 전이 엣지로만 상승.
 var zone_mix: float = 0.0      # base→존색 존재감(존≥1서 1로 이징).
 var zone_col: Color = C_BG_PB  # 현재 존 배경색. 존 바뀌면 목표 존색으로 짧게 이징(전이 순간의 이산 스텝).
@@ -2701,7 +2701,8 @@ func _process(delta: float) -> void:
 		endless_score_shown = minf(endless_score_shown + _sstep, float(endless_score))
 		if endless_best > 0 and not endless_beat_best and endless_score_shown > float(endless_best):
 			endless_beat_best = true
-			pb_pop_t = PB_POP_DUR   # 방사광+스티커 팝인 — 표시 숫자가 크라운을 넘는 그 순간.
+			pb_pop_t = PB_POP_DUR   # 판전체 폭발 팝인 — 표시 숫자가 크라운을 넘는 그 순간.
+			_spawn_confetti()       # 산개 컨페티(C90) — 폭발과 함께 쏟아짐
 	if outline_timer > 0.0:
 		outline_timer = maxf(0.0, outline_timer - delta)
 	if red_flash > 0.0:
@@ -3068,6 +3069,7 @@ func _draw() -> void:
 	# PB 돌파 — 순간 버스트(방사광+링, 1회)는 pb_pop_t 창에서만. 스티커는 넘은 뒤 판 끝까지 상주(계속 갱신 중).
 	if pb_pop_t >= 0.0:
 		_draw_pb_burst()
+		_draw_pb_ribbon(fnt)    # 리본 배너(돌파 점수) — 폭발 위
 	if endless_beat_best:
 		_draw_pb_sticker(fnt)   # 버스트 위(최상단 헤드라인)
 
@@ -3097,29 +3099,80 @@ func _zone_flash() -> float:
 	var p: float = 1.0 - zone_trans_t / ZONE_TRANS_DUR
 	return clampf(1.0 - p / 0.3, 0.0, 1.0) * 0.22
 
-# PB 돌파 순간 버스트 — 방사광+shockwave 링(1회). 시선을 '점수' 카드로 끌어당긴다. 전부 오버레이(기본 UI 무간섭).
+# PB 돌파 판전체 폭발(C90) — 코너 속삭임을 판 전체 이벤트로 승격. 전부 오버레이(HUD 카드 무간섭).
+#   레이어: ① 보드 테두리 네온 플래시 ② 중심 갓레이 ③ 코어 플래시 (+리본은 _draw_pb_ribbon).
 func _draw_pb_burst() -> void:
 	var p: float = clampf(1.0 - pb_pop_t / PB_POP_DUR, 0.0, 1.0)   # 진행 0→1
-	var a: float = 1.0
-	if p < 0.06:
-		a = p / 0.06
-	elif p > 0.7:
-		a = clampf((1.0 - p) / 0.3, 0.0, 1.0)
-	var cc: Vector2 = Vector2((800.0 - 464.0) * 0.5 + 125.0, 56.0 + safe_top)   # 점수 카드 중심 (293,56)
-	# ① shockwave 링 — 시선 유도. 옆 '적 이동' 카드(좌단 x=442) 안 넘게 반경 제한.
-	for k in range(2):
-		var rk: float = clampf((p - float(k) * 0.14) / 0.6, 0.0, 1.0)
-		if rk <= 0.0 or rk >= 1.0:
-			continue
-		draw_arc(cc, lerp(28.0, 128.0 + float(k) * 34.0, rk), 0.0, TAU, 40,
-				Color(1.0, 0.92, 0.6, a * (1.0 - rk) * 0.55), 3.0)
-	# ② 방사광 — 더 밝게·짧게(near-white, 길이 42→84 → x최대 377 < 442). 피크 p≈0.1 뒤 빠르게 사그라듦(펀치).
-	var ray_a: float = a * clampf(1.0 - absf(p - 0.1) / 0.18, 0.0, 1.0) * 0.85
+	var bx: float = float(BOARD_X)
+	var by: float = float(board_y)
+	var bw: float = float(COLS * CELL)
+	var bh: float = float(ROWS * CELL)
+	var cx: float = bx + bw * 0.5
+	var emb: Vector2 = Vector2(cx, by + bh * 0.30)   # 엠블럼 앵커(상단 1/3) — 칭찬 단어(중심)·리본(하단)과 세로 스택
+	var gold: Color = Color(1.0, 0.85, 0.35)
+	# ① 보드 테두리 네온 플래시 — 밝게 확 떴다 페이드(앞 55%). 여러 겹 = 글로우.
+	var edge_a: float = clampf(1.0 - p / 0.55, 0.0, 1.0)
+	if edge_a > 0.01:
+		var rect: Rect2 = Rect2(bx, by, bw, bh)
+		for g in range(4):
+			draw_rect(rect.grow(float(g) * 3.0), Color(gold.r, gold.g, gold.b, edge_a * (0.55 - float(g) * 0.12)), false, 4.0)
+	# ② 갓레이 — 왕관 뒤에서 방사(피크 p≈0.12 뒤 사그라듦). 밝은 골드.
+	var ray_a: float = clampf(1.0 - absf(p - 0.12) / 0.24, 0.0, 1.0) * 0.7
 	if ray_a > 0.01:
-		for i in range(12):
-			var ang: float = p * 0.35 + float(i) * TAU / 12.0
-			var dir: Vector2 = Vector2(cos(ang), sin(ang))
-			draw_line(cc + dir * 40.0, cc + dir * 84.0, Color(1.0, 0.98, 0.82, ray_a), 5.0)
+		var n: int = 16
+		var outer: float = lerp(90.0, bw * 0.42, clampf(p / 0.45, 0.0, 1.0))
+		for i in range(n):
+			var ang: float = p * 0.16 + float(i) * TAU / float(n)
+			var d: Vector2 = Vector2(cos(ang), sin(ang))
+			draw_line(emb + d * 40.0, emb + d * outer, Color(1.0, 0.95, 0.65, ray_a), 6.0)
+	# ③ 코어 플래시 — 짧은 흰 광폭발(왕관 자리).
+	var core_a: float = clampf(1.0 - p / 0.28, 0.0, 1.0) * 0.6
+	if core_a > 0.01:
+		draw_circle(emb, lerp(20.0, 78.0, clampf(p / 0.28, 0.0, 1.0)), Color(1.0, 0.98, 0.85, core_a))
+	# ④ 왕관 — 엠블럼 앵커에 오버슛 팝인(갓레이가 뒤에서 뻗는 BB 구도). 이모지(_font OS 폴백).
+	var cr_ip: float = clampf(p / 0.14, 0.0, 1.0)
+	var cr_scale: float = (1.0 - pow(1.0 - cr_ip, 2.0)) + sin(clampf(cr_ip, 0.0, 1.0) * PI) * 0.16
+	var cr_a: float = 1.0
+	if p > 0.75:
+		cr_a = clampf((1.0 - p) / 0.25, 0.0, 1.0)
+	if cr_a > 0.01 and _font != null:
+		var cfs: int = int(88.0 * cr_scale)
+		if cfs > 6:
+			var crw: float = _font.get_string_size("👑", HORIZONTAL_ALIGNMENT_LEFT, -1, cfs).x
+			draw_string(_font, emb + Vector2(-crw * 0.5, float(cfs) * 0.34), "👑", HORIZONTAL_ALIGNMENT_LEFT, -1, cfs, Color(1.0, 1.0, 1.0, cr_a))
+
+# PB 리본 배너(C90) — 보드 하단 1/3에 "NEW BEST + 돌파 점수" 띠. 스윕인→홀드→페이드. BB 시그니처.
+#   칭찬 단어는 보드 중심 → 리본은 그 아래라 겹치지 않음(스택). 전부 오버레이.
+func _draw_pb_ribbon(fnt: Font) -> void:
+	var p: float = clampf(1.0 - pb_pop_t / PB_POP_DUR, 0.0, 1.0)
+	var by: float = float(board_y)
+	var bh: float = float(ROWS * CELL)
+	var bw: float = float(COLS * CELL)
+	var cx: float = float(BOARD_X) + bw * 0.5
+	var ry: float = by + bh * 0.66
+	var sweep: float = clampf(p / 0.16, 0.0, 1.0)          # 앞 0.16에 좌우 확장
+	var ease: float = 1.0 - pow(1.0 - sweep, 3.0)
+	var rib_a: float = 1.0
+	if p > 0.72:
+		rib_a = clampf((1.0 - p) / 0.28, 0.0, 1.0)         # 뒤 0.28에 페이드
+	if rib_a <= 0.01:
+		return
+	var half: float = bw * 0.5 * ease
+	var rh: float = 74.0
+	# 띠 — 레드 리본(BB) + 상/하 골드 테두리 + 상단 하이라이트
+	draw_rect(Rect2(cx - half, ry - rh * 0.5, half * 2.0, rh), Color(0.86, 0.15, 0.24, 0.93 * rib_a))
+	draw_rect(Rect2(cx - half, ry - rh * 0.5, half * 2.0, 4.0), Color(1.0, 0.86, 0.4, 0.9 * rib_a))
+	draw_rect(Rect2(cx - half, ry + rh * 0.5 - 4.0, half * 2.0, 4.0), Color(0.7, 0.09, 0.14, rib_a))
+	# 텍스트 — 스윕 끝나며 등장(디스플레이 폰트). "NEW BEST" 작게 위 + 점수 크게 아래.
+	var txt_a: float = clampf((sweep - 0.45) / 0.55, 0.0, 1.0) * rib_a
+	if txt_a > 0.01:
+		var dfnt: Font = _font_display if _font_display != null else fnt
+		var lbl: String = _t("new_best_ribbon")
+		var lw: float = dfnt.get_string_size(lbl, HORIZONTAL_ALIGNMENT_LEFT, -1, 22).x
+		_draw_text_outlined(dfnt, Vector2(cx - lw * 0.5, ry - 12.0), lbl, 22, Color(1.0, 0.88, 0.4, txt_a), Color(0.4, 0.03, 0.06, 0.9 * txt_a))
+		var sc: String = _comma(roundi(endless_score_shown))
+		var sw2: float = dfnt.get_string_size(sc, HORIZONTAL_ALIGNMENT_LEFT, -1, 40).x
+		_draw_text_outlined(dfnt, Vector2(cx - sw2 * 0.5, ry + 26.0), sc, 40, Color(1.0, 1.0, 1.0, txt_a), Color(0.4, 0.03, 0.06, 0.9 * txt_a))
 
 # "👑 신기록!" 스티커 — 넘은 순간 카드 상단에 비스듬히 '붙어' 판 끝까지 상주(계속 갱신 중이라 안 뗀다).
 #   팝인만 오버슛 원샷(pb_pop_t 창), 이후 고정. 기본 UI('점수' 라벨)를 '가릴' 뿐 안 바꾼다(occlude-don't-mutate).
@@ -4400,7 +4453,14 @@ func _draw_tut_target() -> void:
 			Color(col.r, col.g, col.b, 0.45 + 0.45 * pulse), false, 3.0)
 
 func _draw_board(fnt: Font) -> void:
-	draw_rect(Rect2(BOARD_X - 2, board_y - 2, COLS * CELL + 4, ROWS * CELL + 4), C_BORD, false)
+	# 보드 외곽 프레임. 기록 영역(endless_beat_best)에선 골드 유지(C90) — PB 폭발이 '찰나'로 끝나 그 뒤가 밋밋했다.
+	#   "지금부터 최고 갱신 중"을 판 전체가 계속 신호(색으로, [[hud-signal-by-color-not-text]]). 폭발의 밝은 플래시가 이 지속 골드로 정착.
+	if endless_beat_best:
+		var gp: float = 0.5 + 0.5 * sin(anim_t * 2.2)   # 은은한 맥동(살아있게, 느림)
+		var gcol: Color = Color(0.92, 0.70, 0.20).lerp(Color(1.0, 0.90, 0.5), gp)
+		draw_rect(Rect2(BOARD_X - 3, board_y - 3, COLS * CELL + 6, ROWS * CELL + 6), Color(gcol.r, gcol.g, gcol.b, 0.92), false, 3.0)
+	else:
+		draw_rect(Rect2(BOARD_X - 2, board_y - 2, COLS * CELL + 4, ROWS * CELL + 4), C_BORD, false)
 	# 충전 중인 셀. 그리드 위에 따로 그린다(부푼 블록이 옆 셀 배경에 잘리지 않게).
 	var charging: Dictionary = {}
 	var chg: float = 0.0
