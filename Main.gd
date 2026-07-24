@@ -26,6 +26,12 @@ const SPLIT_ROW: int = 5
 const SLIDE_SPEED: float = 8.0   # 적 전진 표시 이징 속도(칸/초)
 const ROCKET_DUR: float = 0.16  # 로켓 비행 지속(빠르게 질주)
 const CALLOUT_DUR: float = 1.6  # 첫 등장 콜아웃 배너 지속
+# 스테이지 인트로 카드 — 캠페인 진입 시 중앙 팝업(이름·태그·목표)이 떠서 잠깐 머물다 상단
+# 목표 카드로 축소·이동하며 녹아든다(BlockBlast 목표 배너 관찰). 탭하면 즉시 스킵.
+const INTRO_APPEAR: float = 0.28
+const INTRO_HOLD: float = 0.50    # BlockBlast 배너 실측 홀드 ~0.55s에 맞춤(1.2s는 정적 늘어짐)
+const INTRO_DOCK: float = 0.35    # 상단 도킹 = 빠르게 톡(느리면 늘어진다)
+const INTRO_TOTAL: float = 1.13   # APPEAR+HOLD+DOCK
 
 # 라인클리어 폭발
 const LINE_BASE: int = 120
@@ -140,6 +146,17 @@ const STAGES: Array = [
 		"spawn_every": 2, "step_every": 3, "onboard": 3, "floor": 5, "surge_at": 0.80,
 		"weights": {"basic": 55, "fast": 0, "tank": 0, "swarm": 45, "split": 0}, "pool": POOL_LEAN,
 	},
+	# ── 변주 슬롯 ①: 첫 보석 수집(S5) — 코어 방어 학습(S1~4) 직후 동사 전환('처치'→'수집'). ──
+	#   ⚠name 키는 위치가 아니라 안정 ID(추가 순서). 이 판은 st9_* 문자열을 쓰지만 배열 위치는 5번.
+	#   collect 기전 상세 주석은 하단 두 번째 보석판(Two Colors) 위 참조.
+	{
+		# 1종 수집. 보석이 전경이 되도록 튜닝: 보석 두껍게(gem_every 2) + 적 얇게(spawn_every 3·floor 2) = 적은 '가끔 끼는 세금'.
+		# gem_fast=보석이 위협보다 한 단계 빨리 떨어져 데드라인 조임(전용 클리어 강제). 목표 15개(공급이 두꺼워 grind 아님).
+		"name": "st9_name", "tag": "st9_tag", "collect": true, "collect_targets": [15], "gem_every": 2, "gem_fast": true,
+		"total": 300, "core_hp": 3, "base_hp": 30, "hp_ramp": 0.2, "tank_mult": 2.5,
+		"spawn_every": 3, "step_every": 3, "onboard": 3, "floor": 2, "surge_at": 0.0,
+		"weights": {"basic": 50, "fast": 50, "tank": 0, "swarm": 0, "split": 0}, "pool": POOL_STD,
+	},
 	{
 		# tank HP를 콤보3(240) 구간에 앉힌다: base 44~50 × 4.5 = 198~227 → 콤보2(180)로는 안 뚫림.
 		"name": "st5_name", "tag": "st5_tag",
@@ -174,6 +191,19 @@ const STAGES: Array = [
 		"total": 56, "core_hp": 2, "base_hp": 50, "hp_ramp": 0.4, "tank_mult": 4.2,
 		"spawn_every": 2, "step_every": 3, "onboard": 2, "floor": 6, "surge_at": 0.78,
 		"weights": {"basic": 15, "fast": 25, "tank": 20, "swarm": 15, "split": 25}, "pool": POOL_STD,
+	},
+	# ── 변주 슬롯 ②: 두 번째 보석 수집(S10, 프런티어) — 보석 사다리 G2. 첫 보석판(S5)과 떨어뜨려 배치. ──
+	# 받기형 수집 기전(C81, 첫 보석판과 공유): 보석(gem)이 적들 사이로 같이 내려온다. 블라스트가 닿으면 획득(collected++),
+	#   거점 밑으로 빠지면 사라짐(거점 무피해). 적은 순수 위협(그리디의 비용) — 안 막으면 거점사. 다 잡을 필요 없음.
+	# 승리 = 보석 collect_target개 수집. 실패 = 거점사. 새 결정 = "이 클리어를 보석에 쓸까 적에 쓸까"(주의 배분).
+	#   긴장 급소: 보석과 적이 다른 열/타이밍에 오게 → 한 클리어로 둘 다 못 하게. gem_every 배치마다 보석 1개.
+	{
+		# 2종 수집(G2 심화). 보석은 S5처럼 전경(gem_every 2·floor 2)이되, 사다리는 물량이 아니라 '필요한 색 고르기 + tank 방어압'으로.
+		# 두 색 quota 8+8을 동시에 채워야 = 아무 보석이나 못 줍고 '필요한 색'을 골라 조준(새 결정 深). tank↑로 질(質)의 압박.
+		"name": "st10_name", "tag": "st10_tag", "collect": true, "collect_targets": [8, 8], "gem_every": 2, "gem_fast": true,
+		"total": 300, "core_hp": 3, "base_hp": 32, "hp_ramp": 0.2, "tank_mult": 3.0,
+		"spawn_every": 3, "step_every": 3, "onboard": 2, "floor": 2, "surge_at": 0.0,
+		"weights": {"basic": 45, "fast": 40, "tank": 15, "swarm": 0, "split": 0}, "pool": POOL_STD,
 	},
 ]
 
@@ -268,6 +298,16 @@ const C_E_TANK_DK := Color("#2f3b4d")   # 이음선·하단 그림자
 const C_E_RIVET   := Color("#d7dee8")   # 코너 리벳
 const C_E_SWARM := Color("#a3e635")   # 라임
 const C_E_SPLIT := Color("#60a5fa")   # 파랑 — 로스터에서 유일한 한색(빨강 회피). 시안(fast)보다 확연히 파랑
+
+# 잔해(감시자가 뻗는 뿌리 셀 "#") — 무채색 강철회색. 조각 3색·적 색과 모두 분리(죽은 칸임을 색으로 말함).
+const C_DEBRIS := Color("#4a4a55")
+# 감시자 머리 셀 "H" — 딥 바이올렛(보스 전용). 어두운 외곽선을 둘러 '보드 위 생명체'로 읽힌다(적 언어 재사용).
+const C_BOSS := Color("#7c3aed")
+# 보석(수집물) — 따뜻한 금빛 다이아. 위협색(바이올렛·강철·라임)·조각색(빨·파·노)과 분리 = '착한 보물'로 읽힘.
+const C_GEM := Color("#ffd76b")
+# 보석 타입별 색 — 다이아 form이 '보석'을 말하니 색은 타입 구분용. 서로 확연히 다른 보석톤(금/로즈/인디고).
+#   타입 수는 스테이지 collect_targets 길이가 정한다(1종→2종→3종 = 난이도 램프).
+const GEM_COLORS: Array = [Color("#ffd76b"), Color("#fb7185"), Color("#818cf8")]
 
 # 적 외곽선 — 적은 언제나 어두운 테두리를 두르고 보드 위에 '떠' 있다.
 # 색만으로 분리를 보장하면 팔레트가 하나 바뀔 때마다 같은 버그가 재발한다(두더지 잡기).
@@ -387,6 +427,11 @@ var _set_bgm_hover: bool = false
 var board: Array = []
 var enemies: Array = []
 var core_hp: int = 0
+var boss_hp: int = 0            # 보스(감시자) 스테이지 전용 — 잔해 낀 줄을 지울 때마다 감소. 0 = 클리어.
+var boss_hp_max: int = 0
+var collected_by_type: Array = []   # 받기형 수집 — 타입별 수집 수(길이=타입 수). 각 collect_targets[i] 도달 = 그 타입 완료, 전부 완료 = 클리어.
+var gem_flights: Array = []          # 잡은 보석이 상단 카운터로 빨려가는 연출 {from,to,t,dur,gtype,color}. 도착 시 카운트+1.
+var collect_pop: Array = []          # 타입별 카운터 도착 팝(스케일 바운스) 타이머
 var place_count: int = 0        # 지금까지 배치 횟수(전진·스폰 스로틀 기준)
 var spawned: int = 0
 var killed: int = 0             # 실제 처치 수 (누수는 포함 안 함 — 진행도 오염 방지)
@@ -476,6 +521,7 @@ var hitstop: float = 0.0       # 명중 순간 순간 멈칫(게임 타이머 �
 var core_hits: Array = []      # [{col, life}] 거점 피격 충격 플래시
 var callout_text: String = ""  # 첫 등장 콜아웃 배너
 var callout_timer: float = 0.0
+var intro_t: float = -1.0  # 스테이지 인트로 카드 진행(초). <0 = 비활성(캠페인 진입에서만 켠다)
 var seen_types: Dictionary = {}  # etype -> 이미 콜아웃 봤나
 var anim_t: float = 0.0        # 깜빡임 등 연출용 누적 시간
 var red_flash: float = 0.0
@@ -762,6 +808,7 @@ func _start_stage(idx: int) -> void:
 	director = StageMode.new(st)
 	mode = "play"
 	_init_game()
+	intro_t = 0.0   # 캠페인 진입에서만 인트로 카드 재생(무한·featured는 _init_game이 -1로 둠)
 
 # 무한모드 시작 — 스테이지 dict 없이 EndlessMode가 깊이로 스케줄. DDA off(리더보드 공정성, C52 ⑦).
 func _start_endless() -> void:
@@ -808,6 +855,16 @@ func _init_game() -> void:
 		board.append(row_arr)
 	enemies = []
 	core_hp = director.core_hp_max()
+	boss_hp = 0
+	boss_hp_max = 0
+	collected_by_type = []
+	collect_pop = []
+	for _gt in range((st.get("collect_targets", []) as Array).size()):
+		collected_by_type.append(0)
+		collect_pop.append(0.0)
+	gem_flights = []
+	if bool(st.get("boss", false)):
+		_setup_boss_head()   # 머리 셀을 board에 심고 boss_hp = 머리 셀 수
 	place_count = 0
 	spawned = 0
 	killed = 0
@@ -859,6 +916,7 @@ func _init_game() -> void:
 	core_hits = []
 	callout_text = ""
 	callout_timer = 0.0
+	intro_t = -1.0   # 기본 off — _start_stage(캠페인)만 켠다
 	seen_types = {}
 	anim_t = 0.0
 	red_flash = 0.0
@@ -898,11 +956,13 @@ func _init_game() -> void:
 		return
 	_refill_tray()
 	# 시작 시 적 몇 마리 배치 — 빈 보드에서 "ENEMIES ADVANCE IN N"이 어색하지 않게(전진 중인 전선처럼).
-	var start_cols: Array = []
-	for c in range(COLS):
-		start_cols.append(c)
-	GameMode.rng_shuffle(start_cols, game_rng)
-	_spawn_one(start_cols[0], "basic")    # 시작 적 1마리(row 0)
+	# 보스 스테이지는 적이 없다(판-정리 격리) → 시작 적·RNG 소비 모두 건너뜀.
+	if not bool(st.get("boss", false)):
+		var start_cols: Array = []
+		for c in range(COLS):
+			start_cols.append(c)
+		GameMode.rng_shuffle(start_cols, game_rng)
+		_spawn_one(start_cols[0], "basic")    # 시작 적 1마리(row 0)
 	if not _has_valid_placement():
 		game_over = true
 		stuck = true
@@ -1240,6 +1300,10 @@ func _color_of(key: String) -> Color:
 			return C_BLUE
 		"Y":
 			return C_YELL
+		"#":
+			return C_DEBRIS   # 뿌리(잠긴 셀) — 충전 연출 경로가 이 색을 읽는다
+		"H":
+			return C_BOSS     # 감시자 머리 셀
 	return Color.WHITE
 
 # 선택 슬롯 offsets을 hover 앵커 기준으로 변환 (빈 슬롯이면 빈 배열)
@@ -1403,12 +1467,15 @@ func _combo_praise(c: int) -> Dictionary:
 		7: return {"text": "FANTASTIC!", "col": Color(0.70, 0.48, 1.0)}  # 보라
 	return {"text": "UNREAL!", "col": Color(0.52, 0.95, 1.0)}           # 청백 백열
 
+# ⚠뿌리("#")는 '벽' — 채운 칸으로 안 쳐서 줄을 완성시키지 않는다. 그래야 (a) 뿌리 옆에 놔도
+#   안 터지고(헷갈림 제거), (b) 보스가 뿌릴수록 네 클리어를 거들지 못한다(압박이 단조로 작동).
+#   머리("H")는 채운 칸으로 쳐서 그 줄을 완성하면 뜯긴다(딜). 빈 칸("")·뿌리("#")만 줄을 끊는다.
 func _full_rows() -> Array:
 	var out: Array = []
 	for r in range(ROWS):
 		var full: bool = true
 		for c in range(COLS):
-			if board[r][c] == "":
+			if board[r][c] == "" or board[r][c] == "#":
 				full = false
 				break
 		if full:
@@ -1420,7 +1487,7 @@ func _full_cols() -> Array:
 	for c in range(COLS):
 		var full: bool = true
 		for r in range(ROWS):
-			if board[r][c] == "":
+			if board[r][c] == "" or board[r][c] == "#":
 				full = false
 				break
 		if full:
@@ -1585,11 +1652,20 @@ func _burst_lines() -> void:
 		return
 	clear_done = true
 	_add_endless_score(director.clear_score(flash_lines))   # 점수는 감독 소유(scored 모드만 >0). 클리어당 기본점=막힘사도 무보상 아니게, C58
+	var head_hit: int = 0   # 이번 클리어로 뜯긴 머리("H") 셀 수 = 보스 피격량(뿌리 "#"는 HP 아님, 자리만)
 	for ci in clear_cells:
 		var cc: Vector2i = ci as Vector2i
+		var mark: String = board[cc.y][cc.x]
+		if mark == "H":
+			head_hit += 1
 		board[cc.y][cc.x] = ""
 		var p: Vector2 = _cell_center(cc.x, cc.y)
-		cell_pops.append({"pos": p, "life": 0.16, "max": 0.16, "color": clear_tint})
+		var pcol: Color = clear_tint            # 기본 = 놓은 조각 색
+		if mark == "H":
+			pcol = C_BOSS                       # 머리는 바이올렛으로 뜯겨나간다
+		elif mark == "#":
+			pcol = C_DEBRIS                     # 뿌리는 강철회색으로 잘려나간다
+		cell_pops.append({"pos": p, "life": 0.16, "max": 0.16, "color": pcol})
 		var dn: int = 3 + mini(flash_combo, 6)   # 콤보↑ = 축포 더 많이
 		for _n in range(dn):
 			var ang: float = randf() * TAU
@@ -1599,8 +1675,16 @@ func _burst_lines() -> void:
 			var dcol: Color = clear_tint.lerp(_combo_heat(randf()), clampf(float(flash_combo - 2) / 5.0, 0.0, 1.0))
 			debris.append({
 				"pos": p, "vel": Vector2(cos(ang), sin(ang)) * spd,
-				"life": life, "max": life, "color": dcol, "size": randf_range(4.0, 9.0),
+				# 보스 셀(머리·뿌리)은 보스 색으로 뜯겨나가고, 일반 클리어는 콤보 열 색으로 축하 번짐.
+				"life": life, "max": life, "color": (pcol if (mark == "H" or mark == "#") else dcol), "size": randf_range(4.0, 9.0),
 			})
+	if head_hit > 0 and boss_hp > 0:
+		boss_hp = maxi(0, boss_hp - head_hit)   # 머리 1칸당 1딜 — 한 줄에 머리 여럿 몰아 뜯으면 복리
+		hitstop = maxf(hitstop, 0.10)           # 보스 피격 손맛(시간 살짝 멎음)
+		shake_timer = maxf(shake_timer, SHAKE_DUR * 0.5)   # 보스가 움찔
+		_recede_tendrils()                      # 피격 반동: 각 촉수 1칸 회수 = 뿌리 제거의 유일한 상시 경로(관리 가능한 압박)
+	if bool(st.get("boss", false)):
+		_retract_dead_mouths()                  # 머리 다 뜯긴 입 열의 촉수 전체 회수(자기-완화)
 	clear_cells = []
 	outline_timer = LINE_OUTLINE_DUR   # ④ 줄 자리에 남는 색 테두리 잔상
 	# 보상 텍스트(COMBO xN)와 섬광은 파괴 순간에. 파괴가 이제 한순간이라 겹치지 않는다.
@@ -1635,9 +1719,20 @@ func _apply_hit(h: Dictionary) -> void:
 		return
 	var e: Dictionary = enemies[found]
 	var etype: String = e["etype"]
+	var ep: Vector2 = _enemy_pos(e["col"], e["row"])
+	# 보석: 블라스트가 닿으면 낚아챈다 = 획득(처치 아님). 카운트는 보석이 상단 그 색 카운터에 '도착'할 때 오른다
+	#   (연출·로직 일치) → 잡는 순간엔 작은 스파크 + 카운터로 빨려가는 비행만 띄운다.
+	if etype == "gem":
+		var gt: int = int(e.get("gtype", 0))
+		var gcol: Color = GEM_COLORS[gt % GEM_COLORS.size()]
+		impacts.append({"pos": ep, "life": 0.20, "max": 0.20, "color": gcol, "radius": CELL * 0.42, "star": true})
+		gem_flights.append({"from": ep, "to": _collect_counter_pos(gt), "t": 0.0, "dur": 0.42, "gtype": gt, "color": gcol})
+		kill_pulse = 0.35
+		hitstop = maxf(hitstop, 0.05)
+		enemies.remove_at(found)
+		return
 	e["hp"] -= h["dmg"]
 	score += h["dmg"]
-	var ep: Vector2 = _enemy_pos(e["col"], e["row"])
 	# ② 로켓 명중 임팩트 버스트 (확 커졌다 꺼지는 별+링)
 	impacts.append({"pos": ep, "life": 0.22, "max": 0.22, "color": Color(1.0, 0.98, 0.7), "radius": CELL * 0.30, "star": true})
 	# 데미지 숫자: 크고 팡 (화면 유일 전투 숫자 — 확실히 보이게)
@@ -1784,12 +1879,96 @@ func _end_turn() -> void:
 		_begin_core_death()
 		fail_streak[stage_idx] = int(fail_streak.get(stage_idx, 0)) + 1   # 연속 실패 → 갓 모드 근접
 		return
+	_boss_foul()             # 보스 스테이지: 감시자가 이번 턴에 잔해를 떨굴 수 있다(막힘 판정 전 = 파울이 스터크 유발 가능)
 	_check_win()
 	if not game_clear and not _has_valid_placement():
 		game_over = true
 		stuck = true
 		_begin_stuck_death()
 		fail_streak[stage_idx] = int(fail_streak.get(stage_idx, 0)) + 1
+
+# 감시자 머리 설치 — head_cols × head_rows 슬래브를 board 상단에 "H"로 심는다. boss_hp = 그 셀 수.
+# ⚠머리가 한 행을 통째로 채우면 배치 순간 자동 클리어된다 → head_cols는 반드시 일부 열만(양옆 빈칸 남김).
+func _setup_boss_head() -> void:
+	var hrows: int = int(st.get("head_rows", 2))
+	var hcols: Array = st.get("head_cols", [])
+	var n: int = 0
+	for c in hcols:
+		var col: int = int(c)
+		if col < 0 or col >= COLS:
+			continue
+		for r in range(mini(hrows, ROWS)):
+			board[r][col] = "H"
+			n += 1
+	boss_hp = n
+	boss_hp_max = n
+
+# 감시자 파울 — 예측가능 직하 드립. debris_every 배치마다, 살아있는 각 '입' 열에서 머리 바로 아래
+# 첫 빈 칸으로 뿌리("#")를 한 칸 뻗는다(촉수가 아래로 자란다). 입(=그 열의 머리 셀)을 뜯으면 그 열은
+# 멈춘다(자기-완화). 무작위 없음 = 방어 계획이 서는 예측가능 압박. 뿌리는 HP가 아니라 자리만 먹는 장애물.
+func _boss_foul() -> void:
+	if not bool(st.get("boss", false)) or boss_hp <= 0:
+		return
+	var every: int = maxi(1, int(st.get("debris_every", 2)))
+	if place_count % every != 0:
+		return
+	var hrows: int = int(st.get("head_rows", 2))
+	var mouths: Array = st.get("mouths", [])
+	var dripped: bool = false
+	for mc in mouths:
+		var col: int = int(mc)
+		if col < 0 or col >= COLS:
+			continue
+		# 입이 살아있나 = 그 열에 머리 셀("H")이 남았나. 다 뜯겼으면 드립 정지(자기-완화).
+		var alive: bool = false
+		for r in range(mini(hrows, ROWS)):
+			if board[r][col] == "H":
+				alive = true
+				break
+		if not alive:
+			continue
+		# 직하: 머리 바로 아래부터 스캔해 첫 빈 칸에 뿌리 한 칸(촉수가 contiguous하게 아래로 자란다)
+		for r in range(hrows, ROWS):
+			if board[r][col] == "":
+				board[r][col] = "#"
+				place_pops.append({"pos": _cell_center(col, r), "life": PLACE_POP_DUR, "max": PLACE_POP_DUR, "color": C_DEBRIS})
+				dripped = true
+				break
+	if dripped:
+		shake_timer = maxf(shake_timer, SHAKE_DUR * 0.5)   # 가벼운 쿵
+
+# 피격 반동 — 머리를 뜯을 때마다 살아있는 각 입 열의 촉수를 맨 아래 한 칸씩 회수한다.
+# 뿌리(벽)를 없애는 유일한 상시 경로 = 진행(딜)에 묶여 있어, 잘 칠수록 숨통이 트인다(자기-균형 압박).
+func _recede_tendrils() -> void:
+	var mouths: Array = st.get("mouths", [])
+	for mc in mouths:
+		var col: int = int(mc)
+		if col < 0 or col >= COLS:
+			continue
+		for r in range(ROWS - 1, -1, -1):   # 아래에서 위로 첫 뿌리 하나 회수(촉수 끝이 딸려 올라감)
+			if board[r][col] == "#":
+				board[r][col] = ""
+				cell_pops.append({"pos": _cell_center(col, r), "life": 0.16, "max": 0.16, "color": C_DEBRIS})
+				break
+
+# 자기-완화 — 머리가 다 뜯긴 입 열은 더 이상 드립 못 하니 남은 촉수를 전부 회수(그 열이 열림).
+func _retract_dead_mouths() -> void:
+	var hrows: int = int(st.get("head_rows", 2))
+	var mouths: Array = st.get("mouths", [])
+	for mc in mouths:
+		var col: int = int(mc)
+		if col < 0 or col >= COLS:
+			continue
+		var alive: bool = false
+		for r in range(mini(hrows, ROWS)):
+			if board[r][col] == "H":
+				alive = true
+				break
+		if alive:
+			continue
+		for r in range(ROWS):
+			if board[r][col] == "#":
+				board[r][col] = ""
 
 # ===== 스텝 진행 =====
 func advance_step() -> void:
@@ -1839,11 +2018,17 @@ func advance_step() -> void:
 	pending_leaks = []
 	while i >= 0:
 		if enemies[i]["row"] >= ROWS:
-			core_hp -= 1                     # 자식도 거점은 깎는다(진짜 위협)
-			if int(enemies[i].get("gen", 0)) == 0:
-				leaked += 1                  # 단 웨이브 카운터엔 gen0(원본)만
-			pending_leaks.append(enemies[i]["col"])
-			enemies.remove_at(i)
+			if enemies[i]["etype"] == "gem":
+				# 보석 놓침 — 거점 무피해, 진행 손해일 뿐. 바닥에서 회색 파프로 '놓쳤다'를 짧게 알림(보석이 중요함을 학습).
+				var gmp: Vector2 = _enemy_pos(int(enemies[i]["col"]), ROWS - 1)
+				impacts.append({"pos": gmp, "life": 0.32, "max": 0.32, "color": Color(0.5, 0.5, 0.56), "radius": CELL * 0.42, "star": false})
+				enemies.remove_at(i)
+			else:
+				core_hp -= 1                 # 자식도 거점은 깎는다(진짜 위협)
+				if int(enemies[i].get("gen", 0)) == 0:
+					leaked += 1              # 단 웨이브 카운터엔 gen0(원본)만
+				pending_leaks.append(enemies[i]["col"])
+				enemies.remove_at(i)
 		i -= 1
 	pending_core_dead = core_hp <= 0
 	if pending_core_dead:
@@ -1865,10 +2050,76 @@ func advance_step() -> void:
 			track_log.append(["S", place_count, int(spec["col"]), spec["etype"]])
 		_spawn_one(spec["col"], spec["etype"], spec["step_override"])
 
+	# 받기형 수집: gem_every 배치마다 보석 1개를 '조용한 열'(다른 유닛 없는 곳)에 떨군다.
+	#   ⚠무작위가 아니라 조용한 열이 핵심 — 보석이 위협과 다른 열에 떠야, 잡기가 '방어와 무관한 전용
+	#   클리어'를 요구한다 → 순수 기회비용(줍기 vs 막기)이 운 아닌 구조로 보장된다. 없으면 우연히 겹쳐 공짜.
+	if bool(st.get("collect", false)):
+		var ge: int = maxi(1, int(st.get("gem_every", 3)))
+		if not _collect_done() and place_count % ge == 0:
+			_spawn_gem(_quiet_gem_col())
+
 # _pick_etype는 StageMode.pick_etype로 이동(감독이 스폰 결정을 소유).
+
+# 타입 i의 '확보량' = 이미 카운트됨 + 아직 카운터로 날아가는 중(곧 카운트됨). 스폰 판단이 이걸 써서 과스폰 방지.
+func _gem_secured(i: int) -> int:
+	var got: int = int(collected_by_type[i]) if i < collected_by_type.size() else 0
+	for gfl in gem_flights:
+		if int(gfl["gtype"]) == i:
+			got += 1
+	return got
+
+# 상단 수집 카드에서 타입 t 카운터의 화면 위치(비행 도착점). _draw_hud/_draw_collect_goal 레이아웃과 동일 산식.
+func _collect_counter_pos(t: int) -> Vector2:
+	var gw: float = 250.0
+	var start_x: float = (VW_BASE - (gw + 190.0 + 24.0)) * 0.5   # _draw_hud의 goal_r.x
+	var n: int = maxi(1, (st.get("collect_targets", [1]) as Array).size())
+	return Vector2(start_x + (gw / float(n)) * (float(t) + 0.5), 14.0 + 56.0)
+
+# 모든 타입 quota를 확보(카운트+비행)했나 = 더 뱉을 필요 없나(스폰 게이트). 실제 승리는 is_cleared(카운트만).
+func _collect_done() -> bool:
+	var tgts: Array = st.get("collect_targets", [])
+	for i in range(tgts.size()):
+		if _gem_secured(i) < int(tgts[i]):
+			return false
+	return true
+
+# 보석 1개 스폰 — 아직 확보 덜 된 타입 중에서 무작위(확보한 타입은 안 뱉음 = 쓸데없는 보석 방지).
+#   gem_fast면 위협보다 한 단계 빨리 하강(데드라인 조임). 첫 등장만 콜아웃.
+func _spawn_gem(col: int) -> void:
+	var tgts: Array = st.get("collect_targets", [])
+	var need: Array = []
+	for i in range(tgts.size()):
+		if _gem_secured(i) < int(tgts[i]):
+			need.append(i)
+	if need.is_empty():
+		return
+	var gt: int = int(need[game_rng.randi() % need.size()])
+	var gstep: int = director.hud_step_every()
+	if bool(st.get("gem_fast", false)):
+		gstep = maxi(1, gstep - 1)
+	enemies.append({"col": col, "row": 0, "vis_row": 0.0, "hp": 1, "maxhp": 1, "etype": "gem", "gtype": gt, "id": enemy_seq, "step_every": gstep})
+	enemy_seq += 1
+	if not seen_types.get("gem", false):
+		seen_types["gem"] = true
+		_set_callout(_t("callout_gem"))
+
+# 보석 스폰 열 고르기 — 현재 유닛(위협·보석)이 없는 '조용한 열'을 우선. 그런 열이 없으면 무작위.
+#   이러면 보석이 방어 전선과 다른 열에 떠서, 잡으려면 그 열에 전용 클리어를 써야 한다(순수 기회비용).
+func _quiet_gem_col() -> int:
+	var busy: Dictionary = {}
+	for e in enemies:
+		busy[int(e["col"])] = true
+	var free: Array = []
+	for c in range(COLS):
+		if not busy.has(c):
+			free.append(c)
+	if free.is_empty():
+		return game_rng.randi() % COLS
+	return int(free[game_rng.randi() % free.size()])
 
 # 적 1마리 스폰 (타입별 HP 배율 적용). step_override>0이면 전진 주기를 강제(무리 desync용)
 func _spawn_one(col: int, etype: String, step_override: int = 0) -> void:
+	# (보석 gem은 _spawn_gem이 따로 처리 — 타입·gem_fast·필요타입 필터가 붙는다)
 	# HP·전진주기는 감독(StageMode)이 소유. spawned = 이 스폰의 인덱스(HP 램프에 사용).
 	#   ctx = run-state(점수·best) — 무한모드 PB 너머 HP 발화가 스폰 시점 점수로 읽는다(다른 모드는 무시).
 	var hp: int = director.enemy_hp(etype, spawned, _director_ctx())
@@ -1925,7 +2176,7 @@ func _set_callout(text: String) -> void:
 func _director_ctx() -> Dictionary:
 	return {
 		"place_count": place_count, "spawned": spawned, "killed": killed, "leaked": leaked,
-		"core_hp": core_hp, "combo": combo, "drought": drought,
+		"core_hp": core_hp, "boss_hp": boss_hp, "collected_by_type": collected_by_type, "combo": combo, "drought": drought,
 		"enemy_count": enemies.size(), "free_cells": _free_cells(),
 		"fail_streak": int(fail_streak.get(stage_idx, 0)),
 		"score": endless_score, "best": endless_best,   # PB 너머 발화 램프(감독이 소유). best>0일 때만 발화.
@@ -2290,6 +2541,14 @@ func _input(event: InputEvent) -> void:
 				mode = _home_mode()
 		return
 
+	# 스테이지 인트로 재생 중 — 아무 입력이나 = 즉시 스킵(도킹 건너뜀). 판 입력은 차단(카드 뒤 오배치 방지).
+	#   (설정 모달은 이미 _input 최상단서 처리 — 여긴 인트로만.)
+	if intro_t >= 0.0:
+		if (event is InputEventMouseButton and (event as InputEventMouseButton).pressed) \
+				or (event is InputEventKey and (event as InputEventKey).pressed):
+			intro_t = -1.0
+		return
+
 	if event is InputEventKey:
 		var pk: InputEventKey = event as InputEventKey
 		if pk.pressed and pk.keycode == KEY_ESCAPE:
@@ -2369,6 +2628,12 @@ func _process(delta: float) -> void:
 	if mode == "menu" or mode == "select" or mode == "leaderboard":
 		queue_redraw()
 		return
+	# 스테이지 인트로 진행(중앙→상단 도킹). 적 전진은 배치 기반이라 인트로 중 판은 정지 상태.
+	if intro_t >= 0.0:
+		intro_t += delta
+		if intro_t >= INTRO_TOTAL:
+			intro_t = -1.0
+		queue_redraw()
 	# 히트스톱: 게임 타이머 전부 정지, 그림만(시간감소라 항상 해제 → 데드락 없음)
 	if hitstop > 0.0:
 		hitstop = maxf(0.0, hitstop - delta)
@@ -2460,6 +2725,25 @@ func _process(delta: float) -> void:
 		if death_flashes[j]["life"] <= 0.0:
 			death_flashes.remove_at(j)
 		j -= 1
+	# 보석 비행: 상단 카운터로 빨려간다. 도착하면 그 타입 카운트+1(cap), 카운터 팝, 마지막이면 클리어 발화.
+	var gf: int = gem_flights.size() - 1
+	while gf >= 0:
+		gem_flights[gf]["t"] += delta
+		if gem_flights[gf]["t"] >= float(gem_flights[gf]["dur"]):
+			var gt2: int = int(gem_flights[gf]["gtype"])
+			var tgts2: Array = st.get("collect_targets", [])
+			if not game_over and gt2 < collected_by_type.size() and gt2 < tgts2.size() and int(collected_by_type[gt2]) < int(tgts2[gt2]):
+				collected_by_type[gt2] += 1
+			if gt2 < collect_pop.size():
+				collect_pop[gt2] = 0.34   # 카운터 톡 튐
+			kill_pulse = 0.35
+			gem_flights.remove_at(gf)
+			if not game_clear and not game_over:
+				_check_win()              # 마지막 보석이 도착하며 클리어
+		gf -= 1
+	for pi in range(collect_pop.size()):
+		if collect_pop[pi] > 0.0:
+			collect_pop[pi] = maxf(0.0, collect_pop[pi] - delta)
 	var cp: int = cell_pops.size() - 1
 	while cp >= 0:
 		cell_pops[cp]["life"] -= delta
@@ -2588,6 +2872,15 @@ func _draw() -> void:
 		var ftw: float = fnt.get_string_size(ftxt, HORIZONTAL_ALIGNMENT_LEFT, -1, fsize).x
 		_draw_text_outlined(fnt, fpos - Vector2(ftw * 0.5, 0.0), ftxt, fsize, fcol)
 
+	# 보석 비행: 잡은 자리 → 상단 그 색 카운터. 가속(빨려감) + 작아짐 + 꼬리광.
+	for gfl in gem_flights:
+		var gft: float = clampf(float(gfl["t"]) / float(gfl["dur"]), 0.0, 1.0)
+		var gpos: Vector2 = (gfl["from"] as Vector2).lerp(gfl["to"] as Vector2, gft * gft)
+		var gsz: float = lerpf(CELL * 0.55, CELL * 0.22, gft)
+		var gfc: Color = gfl["color"]
+		draw_circle(gpos, gsz * 0.5 + 4.0, Color(gfc.r, gfc.g, gfc.b, 0.28 * (1.0 - gft)))
+		_draw_gem_icon(gpos, gsz, int(gfl["gtype"]))
+
 	# 파편 버스트 (타입 색 작은 사각형)
 	for dpart in debris:
 		var dp: float = clampf(dpart["life"] / dpart["max"], 0.0, 1.0)
@@ -2681,6 +2974,10 @@ func _draw() -> void:
 		# 보드 상단에 얹힌다 — board_y 파생(고정 y였을 땐 노치·짧은 창에서 HUD 띠를 파고들었다)
 		draw_rect(Rect2(cbx - 16.0, float(board_y) - 33.0, cow + 32.0, 46.0), Color(0.05, 0.02, 0.08, 0.62 * ca))
 		_draw_text_outlined(fnt, Vector2(cbx, float(board_y)), callout_text, 32, Color(1.0, 0.9, 0.4, ca))
+
+	# 스테이지 인트로 카드 (중앙 팝업 → 상단 목표 카드로 도킹). 캠페인 진입 1회.
+	if intro_t >= 0.0 and not game_over and not game_clear:
+		_draw_stage_intro(fnt)
 
 	# 죽음 연출이 재생 중이면 팝업을 미룬다 — 보드가 메워지는 걸 먼저 보여준다
 	if (game_over or game_clear) and not _death_playing():
@@ -2857,10 +3154,15 @@ func _revive() -> void:
 	else:
 		# 거점 파괴 = 밀물에 밀려 죽었다 → 거점에 임박한 하단 3줄 적만 걷어낸다(즉사 위협 제거).
 		#   위쪽 적은 유지 = 이어하는 밀물(전멸은 너무 관대 + '새 판' 느낌). 보드는 자산이라 유지.
+		# ⚠걷어낸 gen0는 spawned에서 되돌린다 — 안 그러면 웨이브 회계(spawned==killed+leaked+onboard)가
+		#   깨져, spawned가 total에 닿는 순간 스폰 캡이 걸려 '보드 비었는데 새 적 안 옴 + 남은 N 고정'
+		#   소프트락이 된다(부활로 걷어낸 수만큼 remaining이 영영 안 줄어듦). 되돌리면 그만큼 다시 밀려온다.
 		var kept: Array = []
 		for e in enemies:
 			if int(e["row"]) < ROWS - REVIVE_CLEAR_ROWS:
 				kept.append(e)
+			elif int(e.get("gen", 0)) == 0:
+				spawned = maxi(0, spawned - 1)   # 웨이브로 환원(gen1 쌍둥이는 spawned 밖 → 제외)
 		enemies = kept
 	_cont_hover = false
 
@@ -3043,6 +3345,113 @@ func _fail_headline() -> String:
 		return _t("fail_near")
 	return _t("fail_far")
 
+# 스테이지 인트로 카드 — 중앙 큰 팝업(이름·태그·목표)이 떠서 머물다, 상단 목표 카드(goal_r)로
+# 축소·이동하며 알파가 빠져 '녹아든다'. 텍스트는 카드 높이비로 함께 축소 → 도킹 끝에 목표 카드에 안착.
+# BlockBlast의 목표 배너(중앙 등장 → 상단 HUD 도킹) 관찰. 목표는 판마다 같지만(적 N 처치) 이름·태그·수는
+# 판별로 달라 진입 오리엔테이션 + 챕터 비트를 준다. [[transient-celebration-overlay-not-base-ui]] 순수 오버레이.
+func _draw_stage_intro(fnt: Font) -> void:
+	var t: float = intro_t
+	var appear: float = clampf(t / INTRO_APPEAR, 0.0, 1.0)
+	var dock_lin: float = clampf((t - INTRO_APPEAR - INTRO_HOLD) / INTRO_DOCK, 0.0, 1.0)
+	var dock: float = dock_lin * dock_lin * (3.0 - 2.0 * dock_lin)   # smoothstep(부드러운 이징)
+
+	# 밴드는 중앙 고정(이동 안 함) — 도킹 때 제자리에서 페이드. 대신 목표 칩(💀 N)만 상단 목표 카드로
+	# 날아가 녹아든다(BlockBlast 관찰: 배너는 제자리 페이드, 타겟 아이콘만 HUD로 상승). 위협 글리프는
+	# 착지할 자리가 없다(상단 카드는 '전 타입 소탕'이라 타입 중립 해골) → 밴드와 함께 제자리 페이드.
+	var r: Rect2 = Rect2(-6.0, 356.0, 812.0, 188.0)
+	var band_a: float = appear * (1.0 - dock)
+
+	# 스크림·패널: 밴드와 함께 페이드
+	draw_rect(Rect2(-20, -20, VW_BASE + 40.0, vh + 40.0), Color(0.0, 0.0, 0.0, 0.34 * band_a))
+	draw_rect(Rect2(r.position.x + 4.0, r.position.y + 6.0, r.size.x, r.size.y), Color(0.0, 0.0, 0.0, 0.4 * band_a))
+	draw_rect(r, Color(0.14, 0.14, 0.21, band_a))
+	draw_rect(r, Color(0.85, 0.7, 0.3, band_a), false, 3.0)
+
+	# 인트로는 핵심만 — 스테이지 N + 💀 처치 수. 타입(글리프·이름)은 뺐다(수가 목표의 전부).
+	var cx: float = r.position.x + r.size.x * 0.5
+	# ① 스테이지 N (상단, 작게) — 밴드와 함께 제자리 페이드
+	var sn: String = _t("stage_n") % (stage_idx + 1)
+	var sn_w: float = fnt.get_string_size(sn, HORIZONTAL_ALIGNMENT_LEFT, -1, 24).x
+	_draw_text_outlined(fnt, Vector2(cx - sn_w * 0.5, r.position.y + r.size.y * 0.35), sn, 24, Color(0.72, 0.74, 0.9, band_a))
+
+	# 받기형 수집: 💀+적수 대신 '색별 보석 아이콘 + quota'를 선언(도킹은 상단 수집 카드로).
+	if bool(st.get("collect", false)):
+		var ctgts: Array = st.get("collect_targets", [1])
+		var cn: int = maxi(1, ctgts.size())
+		var c_hold: Vector2 = Vector2(cx, r.position.y + r.size.y * 0.62)
+		var c_chip: Vector2 = c_hold.lerp(Vector2(293.0, 66.0), dock)
+		var ccs: float = lerpf(1.0, 0.47, dock)
+		var c_a: float = appear * (1.0 - clampf((dock - 0.72) / 0.28, 0.0, 1.0))
+		var g_icon: float = 52.0 * ccs
+		var g_fs: int = maxi(1, int(56.0 * ccs))
+		var g_gap: float = 32.0 * ccs
+		var g_ws: Array = []
+		var g_total: float = 0.0
+		for gi in range(cn):
+			var gnw: float = fnt.get_string_size(str(int(ctgts[gi])), HORIZONTAL_ALIGNMENT_LEFT, -1, g_fs).x
+			var gw2: float = g_icon + 8.0 * ccs + gnw
+			g_ws.append(gw2)
+			g_total += gw2
+		g_total += g_gap * float(cn - 1)
+		var gx0: float = c_chip.x - g_total * 0.5
+		for gi2 in range(cn):
+			_draw_gem_icon(Vector2(gx0 + g_icon * 0.5, c_chip.y), g_icon, gi2)
+			_draw_text_outlined(fnt, Vector2(gx0 + g_icon + 8.0 * ccs, c_chip.y + float(g_fs) * 0.35), str(int(ctgts[gi2])), g_fs, Color(1.0, 0.92, 0.62, c_a))
+			gx0 += float(g_ws[gi2]) + g_gap
+		return
+
+	# ② 💀 처치 수(히어로) + 작은 '처치' 접미사 — 도킹 동안 중앙 → 상단 목표 카드로 날아가 녹아든다.
+	#    수는 크게(목표의 핵심), 접미사는 작게(무슨 수인지 못 박기). 인트로=목표 선언, HUD=남은 수 추적.
+	var goal_s: String = str(director.enemy_total())
+	var suf: String = _t("intro_kills")
+	var num_fs: int = 60
+	var skull_s: float = 48.0
+	var chip_hold: Vector2 = Vector2(cx, r.position.y + r.size.y * 0.62)
+	var chip_end: Vector2 = Vector2(293.0, 66.0)   # 상단 목표 카드(goal_r) skull+수 그룹
+	var chip: Vector2 = chip_hold.lerp(chip_end, dock)
+	var cs: float = lerpf(1.0, 0.47, dock)           # 60→~28 카드 크기로 축소
+	var chip_a: float = appear * (1.0 - clampf((dock - 0.72) / 0.28, 0.0, 1.0))
+	var nfs: int = maxi(1, int(num_fs * cs))
+	var sfs: int = maxi(1, int(24.0 * cs))
+	var ss: float = skull_s * cs
+	var nw: float = fnt.get_string_size(goal_s, HORIZONTAL_ALIGNMENT_LEFT, -1, nfs).x
+	var sufw: float = fnt.get_string_size(suf, HORIZONTAL_ALIGNMENT_LEFT, -1, sfs).x
+	var baseline: float = chip.y + nfs * 0.35
+	var cgl: float = chip.x - (ss + 12.0 * cs + nw + 8.0 * cs + sufw) * 0.5
+	_draw_enemy_icon(Vector2(cgl + ss * 0.5, chip.y), ss)
+	_draw_text_outlined(fnt, Vector2(cgl + ss + 12.0 * cs, baseline), goal_s, nfs, Color(0.98, 0.88, 0.5, chip_a))
+	_draw_text_outlined(fnt, Vector2(cgl + ss + 12.0 * cs + nw + 8.0 * cs, baseline), suf, sfs, Color(0.86, 0.8, 0.56, chip_a))
+
+# 결과 팝업 — 받기형 수집 지표: 색별 남은 보석(quota−수집). 다 채운 색은 초록, 남은 색은 빨강.
+func _draw_result_collect(fnt: Font, p: Rect2, cx: float) -> void:
+	var cap: String = _t("result_gems")
+	var cap_fs: int = 18
+	var cw: float = fnt.get_string_size(cap, HORIZONTAL_ALIGNMENT_LEFT, -1, cap_fs).x
+	_draw_text_outlined(fnt, Vector2(cx - cw * 0.5, p.position.y + 176.0), cap, cap_fs, Color(0.95, 0.85, 0.5))
+	var tgts: Array = st.get("collect_targets", [1])
+	var n: int = maxi(1, tgts.size())
+	var icon_s: float = 38.0
+	var num_fs: int = 46
+	var gap: float = 24.0
+	var widths: Array = []
+	var total_w: float = 0.0
+	for i in range(n):
+		var got: int = int(collected_by_type[i]) if i < collected_by_type.size() else 0
+		var nw: float = fnt.get_string_size(str(maxi(0, int(tgts[i]) - got)), HORIZONTAL_ALIGNMENT_LEFT, -1, num_fs).x
+		var w: float = icon_s + 8.0 + nw
+		widths.append(w)
+		total_w += w
+	total_w += gap * float(n - 1)
+	var x: float = cx - total_w * 0.5
+	var row_y: float = p.position.y + 222.0
+	for i in range(n):
+		var got2: int = int(collected_by_type[i]) if i < collected_by_type.size() else 0
+		var rem2: int = maxi(0, int(tgts[i]) - got2)
+		_draw_gem_icon(Vector2(x + icon_s * 0.5, row_y), icon_s, i)
+		var col: Color = Color(0.55, 0.95, 0.65) if rem2 <= 0 else Color(1.0, 0.55, 0.5)
+		_draw_text_outlined(fnt, Vector2(x + icon_s + 8.0, row_y + 16.0), str(rem2), num_fs, col)
+		x += float(widths[i]) + gap
+
 func _draw_result(fnt: Font) -> void:
 	# 스크림 — 팝업 뒤의 보드를 '멈춘 배경'으로 눌러둔다(모달 표시)
 	draw_rect(Rect2(-20, -20, VW_BASE + 40.0, vh + 40.0), Color(0.0, 0.0, 0.0, 0.68))
@@ -3133,6 +3542,9 @@ func _draw_result(fnt: Font) -> void:
 		var bnw: float = fnt.get_string_size(bnum, HORIZONTAL_ALIGNMENT_LEFT, -1, bnum_fs).x
 		_draw_text_outlined(fnt, Vector2(cx - bnw * 0.5, p.position.y + 238.0), bnum, bnum_fs,
 				C_GOLD if endless_new_best else Color(0.85, 0.85, 0.95))
+	elif bool(st.get("collect", false)):
+		# 받기형 수집: 남은 적이 아니라 '색별 남은 보석'을 보여준다(게임 중 목표 카드와 같은 언어).
+		_draw_result_collect(fnt, p, cx)
 	else:
 		# 정의는 HUD 목표 카드와 동일(total - killed - leaked) → 게임 중 보던 그 숫자가 그대로.
 		var remaining: int = maxi(0, director.enemy_total() - killed - leaked)
@@ -3698,7 +4110,22 @@ func _draw_hud(fnt: Font) -> void:
 	var box_y: float = sy + maxf(0.0, (float(board_y) - sy - box_h) * 0.5)
 	var goal_r: Rect2 = Rect2((800.0 - gw) * 0.5, box_y, gw, box_h)
 
-	if director.scores():
+	# 보스 스테이지: GOAL=감시자 HP, ADVANCE=다음 잔해 투척 카운트다운. 나머지 HUD(콤보·기어)는 공유.
+	#   ⚠ADVANCE 카드는 보스 전용으로만 남았다 — C88(main)서 일반 스테이지의 글로벌 전진 카드는 폐기됐다
+	#     (적별 step_every desync를 뭉개는 거짓 '턴'). 보스 카드 레이아웃(adv_r)은 잠정값, 보스 기획 시 재설계.
+	if bool(st.get("boss", false)):
+		var aw: float = 190.0
+		var adv_r: Rect2 = Rect2(goal_r.position.x + gw + 14.0, box_y, aw, box_h)
+		_draw_boss_cards(fnt, goal_r, adv_r, gw, aw, box_y)
+		if not game_over and not game_clear:
+			var gcb: Vector2 = gear_rect.position + gear_rect.size * 0.5
+			_draw_gear_icon(gcb, 16.0, Color(0.9, 0.92, 1.0) if _gear_hover else Color(0.55, 0.58, 0.72))
+		return
+
+	# 받기형 수집: GOAL 카드 = 보석 수집(N/K). ADVANCE 카드(적 전진 시계)는 아래서 그대로 유지 — 적이 밀려오니까.
+	if bool(st.get("collect", false)):
+		_draw_collect_goal(fnt, goal_r, gw, box_y)
+	elif director.scores():
 		# 점수 모드: GOAL 카드 = 점수(리더보드 지표). 최고 넘으면 카드·제목·숫자가 금색으로(실시간 갱신 신호).
 		#   깊이·최고는 좌상단, 콤보는 우상단.
 		var beat: bool = endless_beat_best
@@ -3766,6 +4193,101 @@ func _draw_hud(fnt: Font) -> void:
 	if not game_over and not game_clear:
 		var gc: Vector2 = gear_rect.position + gear_rect.size * 0.5
 		_draw_gear_icon(gc, 16.0, Color(0.9, 0.92, 1.0) if _gear_hover else Color(0.55, 0.58, 0.72))
+
+# 보스(감시자) HUD 카드 — GOAL 자리에 보스 HP, ADVANCE 자리에 '다음 잔해까지' 카운트다운.
+# 기존 두-카드 레이아웃/셈을 그대로 재사용(새 위젯 없음). 남은 적 대신 boss_hp, 전진시계 대신 파울시계.
+# 받기형 수집 GOAL 카드 — 보석 아이콘 + "N / K". 목표가 '처치'가 아니라 '수집'임을 금빛 다이아로 말한다.
+func _draw_collect_goal(fnt: Font, goal_r: Rect2, gw: float, box_y: float) -> void:
+	_draw_card(goal_r, C_GEM)
+	var title: String = _t("collect")
+	var t_w: float = fnt.get_string_size(title, HORIZONTAL_ALIGNMENT_LEFT, -1, 16).x
+	_draw_text_outlined(fnt, Vector2(goal_r.position.x + gw * 0.5 - t_w * 0.5, box_y + 24.0), title, 16, Color(1.0, 0.9, 0.6))
+	# 타입별 '남은 개수' 카운터 — 각 슬롯 = 그 타입색 다이아 + 남은 수(quota−수집, 0이면 초록). 전부 0 = 클리어.
+	var tgts: Array = st.get("collect_targets", [1])
+	var n: int = maxi(1, tgts.size())
+	var slot_w: float = gw / float(n)
+	for i in range(n):
+		var got: int = int(collected_by_type[i]) if i < collected_by_type.size() else 0
+		var remaining: int = maxi(0, int(tgts[i]) - got)
+		var gcol: Color = GEM_COLORS[i % GEM_COLORS.size()]
+		var num_str: String = str(remaining)
+		# 보석이 도착하면 그 카운터가 톡 튄다(collect_pop). 스케일 최대 1.4배 → 감쇠.
+		var pop: float = clampf((collect_pop[i] if i < collect_pop.size() else 0.0) / 0.34, 0.0, 1.0)
+		var pop_s: float = 1.0 + 0.4 * pop
+		var icon_s: float = (24.0 if n >= 3 else 28.0) * pop_s
+		var num_fs: int = int((28 if n >= 3 else 34) * pop_s)
+		var num_w: float = fnt.get_string_size(num_str, HORIZONTAL_ALIGNMENT_LEFT, -1, num_fs).x
+		var grp_w: float = icon_s + 6.0 + num_w
+		var cx: float = goal_r.position.x + slot_w * (float(i) + 0.5)
+		var gl: float = cx - grp_w * 0.5
+		_draw_gem_icon(Vector2(gl + icon_s * 0.5, box_y + 56.0), icon_s, i)
+		var done: bool = remaining <= 0
+		var num_col: Color = Color(0.45, 0.85, 0.5) if done else Color.WHITE.lerp(gcol, clampf(kill_pulse / 0.35, 0.0, 1.0))
+		_draw_text_outlined(fnt, Vector2(gl + icon_s + 6.0, box_y + 68.0), num_str, num_fs, num_col)
+
+# 보석 타입별 실루엣 — 0=다이아(4각), 1=육각, 2=5각 별. 색(GEM_COLORS)과 함께 이중 신호(색맹에도 구분).
+func _gem_shape_points(center: Vector2, h: float, shape: int) -> PackedVector2Array:
+	var pts: PackedVector2Array = PackedVector2Array()
+	match shape:
+		1:  # 육각(에메랄드 컷)
+			for k in range(6):
+				var a: float = -PI * 0.5 + float(k) * (TAU / 6.0)
+				pts.append(center + Vector2(cos(a), sin(a)) * h)
+		2:  # 5각 별(뾰족 5 + 안쪽 5)
+			for k in range(10):
+				var a2: float = -PI * 0.5 + float(k) * (TAU / 10.0)
+				var r: float = h if k % 2 == 0 else h * 0.44
+				pts.append(center + Vector2(cos(a2), sin(a2)) * r)
+		_:  # 다이아(회전 사각)
+			pts = PackedVector2Array([
+				center + Vector2(0.0, -h), center + Vector2(h, 0.0),
+				center + Vector2(0.0, h), center + Vector2(-h, 0.0)])
+	return pts
+
+# 보석 아이콘 — gtype이 색(GEM_COLORS)과 모양을 함께 정한다. HUD·보드·비행·결과 공용 form.
+func _draw_gem_icon(center: Vector2, s: float, gtype: int = 0) -> void:
+	var col: Color = GEM_COLORS[gtype % GEM_COLORS.size()]
+	var shape: int = gtype % 3
+	var h: float = s * 0.5
+	var pts: PackedVector2Array = _gem_shape_points(center, h, shape)
+	draw_colored_polygon(pts, col)
+	# 안쪽 흰 하이라이트(같은 모양 축소·위로) = 컷면 반짝
+	draw_colored_polygon(_gem_shape_points(center + Vector2(0.0, -h * 0.12), h * 0.42, shape), Color(1.0, 1.0, 1.0, 0.42))
+	# 어두운 외곽선(닫힌 polyline)
+	var outline: PackedVector2Array = pts.duplicate()
+	outline.append(pts[0])
+	draw_polyline(outline, col.darkened(0.6), 1.5)
+
+func _draw_boss_cards(fnt: Font, goal_r: Rect2, adv_r: Rect2, gw: float, aw: float, box_y: float) -> void:
+	# GOAL 카드 → 감시자 HP (바이올렛 = 보스, 조각 3원색과 분리)
+	_draw_card(goal_r, Color(0.6, 0.35, 0.72))
+	var btitle: String = _t("boss")
+	var bt_w: float = fnt.get_string_size(btitle, HORIZONTAL_ALIGNMENT_LEFT, -1, 16).x
+	_draw_text_outlined(fnt, Vector2(goal_r.position.x + gw * 0.5 - bt_w * 0.5, box_y + 24.0), btitle, 16, Color(0.9, 0.78, 1.0))
+	var hp_str: String = "%d / %d" % [boss_hp, boss_hp_max]
+	var hp_fs: int = 40
+	var hp_w: float = fnt.get_string_size(hp_str, HORIZONTAL_ALIGNMENT_LEFT, -1, hp_fs).x
+	_draw_text_outlined(fnt, Vector2(goal_r.position.x + gw * 0.5 - hp_w * 0.5, box_y + 70.0), hp_str, hp_fs, Color.WHITE)
+
+	# ADVANCE 카드 → 다음 잔해 투척까지 남은 턴(임박=1이면 강조)
+	var every: int = maxi(1, int(st.get("debris_every", 2)))
+	var din: int = every - (place_count % every)
+	var imminent: bool = din <= 1
+	var acc: Color = Color(0.62, 0.4, 0.72) if imminent else Color(0.4, 0.45, 0.6)
+	_draw_card(adv_r, acc)
+	var dlbl: String = _t("debris")
+	var dt_w: float = fnt.get_string_size(dlbl, HORIZONTAL_ALIGNMENT_LEFT, -1, 16).x
+	var dt_col: Color = Color(0.9, 0.8, 1.0) if imminent else Color(0.72, 0.74, 0.86)
+	_draw_text_outlined(fnt, Vector2(adv_r.position.x + aw * 0.5 - dt_w * 0.5, box_y + 24.0), dlbl, 16, dt_col)
+	var dn_str: String = str(din)
+	var dn_fs: int = 44
+	var dn_w: float = fnt.get_string_size(dn_str, HORIZONTAL_ALIGNMENT_LEFT, -1, dn_fs).x
+	var turn_lbl: String = _t("turns")
+	var u_w: float = fnt.get_string_size(turn_lbl, HORIZONTAL_ALIGNMENT_LEFT, -1, 18).x
+	var grp_x: float = adv_r.position.x + aw * 0.5 - (dn_w + 4.0 + u_w) * 0.5
+	var dn_col: Color = Color(1.0, 0.85, 0.6) if imminent else Color(0.92, 0.9, 0.98)
+	_draw_text_outlined(fnt, Vector2(grp_x, box_y + 72.0), dn_str, dn_fs, dn_col)
+	_draw_text_outlined(fnt, Vector2(grp_x + dn_w + 4.0, box_y + 72.0), turn_lbl, 18, Color(0.72, 0.72, 0.8))
 
 # 하트 — HP 게이지가 체력임을 글자 없이 말하는 기호. 원 둘 + 아래로 뾰족한 삼각형.
 # s = 하트의 폭(=높이). center는 하트의 시각적 중심.
@@ -3840,6 +4362,32 @@ func _draw_board(fnt: Font) -> void:
 			# 거점 파괴로 떨어지기 시작한 블록은 여기서 안 그린다 — 하단 패널에 가리지 않게
 			# 위 레이어(_draw_collapse)가 맡는다.
 			if _core_fall_offset(c) > 0.0:
+				continue
+			if board[r][c] == "H":
+				# 감시자 머리 — 바이올렛 블록 + 어두운 외곽선(적 언어 = '보드 위 생명체'). 눈·입으로 얼굴을 만든다.
+				var hrct: Rect2 = Rect2(rx + bpad, ry + bpad, CELL - bpad * 2.0, CELL - bpad * 2.0)
+				draw_rect(hrct, C_BOSS)
+				draw_rect(hrct, Color(0.0, 0.0, 0.0, 0.6), false, 3.0)
+				var hctr: Vector2 = _cell_center(c, r)
+				# 눈: 최상단 행(r==0)의 eyes 열에만. 그 셀이 뜯기면 눈도 사라진다(상해).
+				if r == 0 and st.get("eyes", []).has(c):
+					draw_circle(hctr, CELL * 0.15, Color(0.95, 0.97, 1.0))
+					draw_circle(hctr, CELL * 0.075, Color(0.05, 0.02, 0.1))
+				# 입: 머리 최하단 행의 mouths 열에만 아래로 향한 어두운 삼각(드립 발원지 예고).
+				if r == int(st.get("head_rows", 2)) - 1 and st.get("mouths", []).has(c):
+					var mw: float = CELL * 0.17
+					draw_colored_polygon(PackedVector2Array([
+						Vector2(hctr.x - mw, hctr.y + CELL * 0.10),
+						Vector2(hctr.x + mw, hctr.y + CELL * 0.10),
+						Vector2(hctr.x, hctr.y + CELL * 0.30),
+					]), Color(0.05, 0.02, 0.1, 0.85))
+				continue
+			if board[r][c] == "#":
+				# 뿌리(감시자가 뻗은 잠긴 셀) — 강철회색 블록 + 안쪽 어두운 사각 테두리(잠김 표식).
+				# 조각(3원색·꽉 찬 블록)과 한눈에 구분: 무채색 + '속이 빈' 룩 = 잘라내야 할 죽은 칸.
+				draw_rect(Rect2(rx + bpad, ry + bpad, CELL - bpad * 2.0, CELL - bpad * 2.0), C_DEBRIS)
+				var ins: float = bpad + 6.0
+				draw_rect(Rect2(rx + ins, ry + ins, CELL - ins * 2.0, CELL - ins * 2.0), C_DEBRIS.darkened(0.45), false, 3.0)
 				continue
 			draw_rect(Rect2(rx + bpad, ry + bpad, CELL - bpad * 2.0, CELL - bpad * 2.0),
 					_color_of(board[r][c]))
@@ -4123,6 +4671,13 @@ func _draw_board(fnt: Font) -> void:
 					# 흉터: 짧은 사선 하나(갈라진 흔적, 세로 균열 아님 = 더는 안 쪼개짐)
 					draw_line(Vector2(cx - cr * 0.4, cy - cr * 0.3), Vector2(cx + cr * 0.2, cy + cr * 0.5), C_E_RIM, 2.0)
 					rad = cr
+			"gem":
+				# 보석 = 타입색 다이아 + 맥동 반짝임. 위협(원·블록)과 form이 달라 '착한 보물', 색은 타입 구분.
+				var gcol2: Color = GEM_COLORS[int(e.get("gtype", 0)) % GEM_COLORS.size()]
+				var gpulse: float = 0.5 + 0.5 * sin(anim_t * 5.0)
+				draw_circle(Vector2(cx, cy), CELL * (0.34 + 0.06 * gpulse), Color(gcol2.r, gcol2.g, gcol2.b, 0.20 + 0.15 * gpulse))  # 후광
+				_draw_gem_icon(Vector2(cx, cy), CELL * 0.62, int(e.get("gtype", 0)))
+				rad = CELL * 0.34
 			_:
 				# basic: 바이올렛 원 (hp 비율로 살짝 명암 — 어두워져도 빨강엔 안 닿는다)
 				var bcol: Color = C_E_BASIC.lerp(Color(0.30, 0.10, 0.48), 1.0 - ratio)
@@ -4178,6 +4733,8 @@ func _draw_board(fnt: Font) -> void:
 			draw_rect(frect, C_CELL.lerp(_color_of(stuck_fill[cell]), fa))
 
 func _draw_core(fnt: Font) -> void:
+	if bool(st.get("boss", false)):
+		return   # 보스 스테이지: 방어선 없음(적 없음) → 거점 HP 바 숨김. 보스 HP는 상단 카드가 표시.
 	var strip_h: float = 32.0
 	var sx: float = BOARD_X
 	# 거점 파괴: 띠가 보드보다 먼저 떨어져 나간다. 떨어지는 동안은 _draw_collapse가 그린다

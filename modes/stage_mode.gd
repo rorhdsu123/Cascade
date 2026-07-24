@@ -45,6 +45,17 @@ func allows_dda() -> bool:
 
 # ── 결정 메서드 ──
 func is_cleared(ctx: Dictionary) -> bool:
+	# 받기형 수집: 타입별 quota(collect_targets)를 전부 채우면 승리(웨이브 소탕과 무관 — 적은 순수 위협).
+	if bool(st.get("collect", false)):
+		var cbt: Array = ctx.get("collected_by_type", [])
+		var tgts: Array = st.get("collect_targets", [])
+		for i in range(tgts.size()):
+			if i >= cbt.size() or int(cbt[i]) < int(tgts[i]):
+				return false
+		return true
+	# 보스(감시자) 스테이지: 잔해를 지워 boss_hp를 0으로 만들면 승리(웨이브 소탕 대신).
+	if bool(st.get("boss", false)):
+		return int(ctx.get("boss_hp", 1)) <= 0
 	return int(ctx["killed"]) + int(ctx["leaked"]) >= int(st["total"])
 
 func is_surge_active(ctx: Dictionary) -> bool:

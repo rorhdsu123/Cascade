@@ -61,6 +61,7 @@ func _fill_board() -> void:
 # 스테이지 대표 프레임 구성: 시작 → 적 주입(중반 램프) → 부분 보드 → 시그니처 콜아웃.
 func _stage_frame(idx: int, layout: Array, callout_key: String) -> void:
 	g.call("_start_stage", idx)
+	g.set("intro_t", -1.0)   # 인트로 카드 억제 — 이 probe는 중반 플레이 프레임을 잡는다(진입 아님)
 	await process_frame
 	var st: Dictionary = g.get("st")
 	var total: int = int(st["total"])
