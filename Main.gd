@@ -30,8 +30,10 @@ const CALLOUT_DUR: float = 1.6  # 첫 등장 콜아웃 배너 지속
 # 라인클리어 폭발
 const LINE_BASE: int = 120
 const STREAK_STEP: float = 0.5
-const BLAST_RING_DELAY: float = 0.4   # 링(추가 레인) 간 순차 발사 텀 (물결 확산 속도. 클수록 극적·느림)
+const BLAST_RING_DELAY: float = 0.26  # 링(추가 레인) 간 순차 발사 텀 (물결 확산 속도. 클수록 극적·느림).
+                                      #   0.4→0.26(C83): 콤보2~4 꼬리가 길어 '느린 템포'로 체감 → 조임. 스펙터클은 열색·칭찬·축포가 채움.
 const FLASH_DUR: float = 0.7
+const PRAISE_DUR: float = 1.15   # 칭찬 텍스트 수명 — 섬광(FLASH_DUR)과 분리해 오래 읽히게(팍 등장→유지→페이드)
 # 전멸(클라이맥스) 임계 콤보. COMBO_GRACE 도입으로 스트릭이 실제로 자라기 시작(최대콤보 2.7→5.5)했고,
 # 그 사다리의 꼭대기가 되도록 6에 앉힘 → 판당 1~2회(도달 가능하되 드묾). 유예 없던 시절의 3은
 # 이제 판당 10회가 터져 클라이맥스가 아니게 됨.
@@ -49,9 +51,9 @@ const COMBO_GRACE: int = 1
 # ★ 충전 홀드 = 에스컬레이션 축(Block Blast 실측: 콤보2 ≈0.27s, 콤보4 ≈0.55s).
 #   콤보가 클수록 '더 크게'가 아니라 '더 오래 참는다' — 셰이크를 금지(C24⑦)한 뒤 비어 있던
 #   에스컬레이션 축을 시간이 메운다. 기대가 쌓이는 정지 구간이라, 길수록 터질 때 더 세게 느껴진다.
-const CHARGE_BASE: float = 0.20        # 콤보 1의 홀드
-const CHARGE_PER_COMBO: float = 0.12   # 콤보 1당 추가 홀드 (콤보4 ≈0.56s = BB 실측 0.55s에 맞춤)
-const CHARGE_MAX: float = 0.60         # 홀드 상한(그 이상은 늘어짐)
+const CHARGE_BASE: float = 0.17        # 콤보 1의 홀드 (C83: 0.20→0.17, 템포 조임)
+const CHARGE_PER_COMBO: float = 0.10   # 콤보 1당 추가 홀드 (0.12→0.10). 스펙터클을 열색·칭찬·축포로 옮겨 홀드 의존↓
+const CHARGE_MAX: float = 0.48         # 홀드 상한 (0.60→0.48, 그 이상은 늘어짐)
 # 충전 중 색 통일: 이 비율 지점까지 '원래 색 → 방금 놓은 조각 색'으로 물들고(줄이 한 색이 됨),
 # 나머지 구간에서 흰색으로 달아오른다. Block Blast가 터지는 줄을 놓은 조각 색으로 통일하는 것과 같은 수법 —
 # 알록달록한 보드에서 완성 줄만 도드라지게 하고, 폭발이 '내 조각의 결과'임을 색으로 잇는다.
@@ -205,6 +207,7 @@ const SETTINGS_GEAR := Rect2(748.0, 30.0, 44.0, 44.0)
 const RED_FLASH_DUR: float = 0.35
 const SHAKE_DUR: float = 0.28
 const SHAKE_AMP: float = 9.0
+const STEP_BEAT_DUR: float = 0.22   # 적이 함께 전진한 직후 짧은 공유 박자(동시 행진을 못 박음)
 const FLOAT_DUR: float = 0.6
 
 # '놓을 곳 없음' 죽음 — 빈 칸을 아래에서 위로 블록으로 메운다. 꽉 찬 보드 자체가 패배 사유의 진술이다.
@@ -429,6 +432,8 @@ var flash_label: String = ""
 var flash_lines: int = 0
 var flash_combo: int = 0
 var flash_climax: bool = false      # 화면 전체 도달(전멸) — 라벨 강조용
+var praise_t: float = 0.0           # 칭찬 텍스트 전용 타이머(섬광과 분리 = 오래 읽힘)
+var praise_combo: int = 0
 var climax_pending: float = -1.0    # 전멸 충격파 발사 예약 시각(resolve_timer 기준, -1=없음)
 var surge_active: bool = false      # 후반 서지 중(진행도 > surge_at) — 전진 가속 + 텔레그래프용
 
@@ -469,6 +474,7 @@ var seen_types: Dictionary = {}  # etype -> 이미 콜아웃 봤나
 var anim_t: float = 0.0        # 깜빡임 등 연출용 누적 시간
 var red_flash: float = 0.0
 var shake_timer: float = 0.0
+var step_beat: float = 0.0     # >0이면 방금 스텝(전진)이 있었다 → stepped 적에 밝은 링 박자
 
 # 전투 순차 연출(resolve) — 배치→전진→클리어→빔→넉백→거점을 짧게 순서대로 재생
 var resolving: bool = false
@@ -760,6 +766,8 @@ func _init_game() -> void:
 	flash_label = ""
 	flash_lines = 0
 	flash_combo = 0
+	praise_t = 0.0
+	praise_combo = 0
 	clear_cells = []
 	clear_rows = []
 	clear_cols = []
@@ -793,6 +801,7 @@ func _init_game() -> void:
 	flash_climax = false
 	surge_active = false
 	shake_timer = 0.0
+	step_beat = 0.0
 	dragging = false
 	drag_slot = -1
 	snapback = {}
@@ -1243,6 +1252,30 @@ func _line_label(l: int) -> String:
 		return _t("ll_mega")
 	return ""
 
+# 열(heat) 색 사다리 — 잔불 빨강 → 주황 → 금빛 → 백열. t=0..1(콤보·위치로 올림).
+#   삭제 줄이 '달아오르는' 색(레퍼런스 Block Blast: 삭제 라인이 무지개 열로 빛남 → 우린 어둡고 코지하게 따뜻한 쪽만).
+func _combo_heat(t: float) -> Color:
+	var u: float = clampf(t, 0.0, 1.0) * 3.0
+	if u < 1.0:
+		return Color(0.92, 0.28, 0.14).lerp(Color(1.0, 0.52, 0.14), u)
+	elif u < 2.0:
+		return Color(1.0, 0.52, 0.14).lerp(Color(1.0, 0.82, 0.22), u - 1.0)
+	return Color(1.0, 0.82, 0.22).lerp(Color(1.0, 1.0, 0.94), u - 2.0)
+
+# 콤보(연쇄) 칭찬 사다리 — 숫자 대신 점점 세지는 외침(Block Blast식). 색도 함께 달아오른다.
+#   콤보5+ = 전멸(CLIMAX)과 겹쳐 가장 큰 순간에 가장 센 단어가 실린다.
+func _combo_praise(c: int) -> Dictionary:
+	# 등급마다 확실히 다른 색 = 체감. 열 여정: 노랑→금→주황→핫레드→핑크→보라→청백 백열(초월).
+	#   저·중은 따뜻하게, 최고조(6+)에서만 핑크·보라·청백으로 넘어가 '특별함'을 색으로 못 박는다.
+	match c:
+		2: return {"text": "GOOD!", "col": Color(1.0, 0.88, 0.30)}       # 밝은 노랑
+		3: return {"text": "NICE!", "col": Color(1.0, 0.66, 0.14)}       # 금-주황
+		4: return {"text": "GREAT!", "col": Color(1.0, 0.44, 0.12)}      # 주황
+		5: return {"text": "PERFECT!", "col": Color(1.0, 0.26, 0.20)}    # 핫 레드(전멸 시작점)
+		6: return {"text": "STRONG!", "col": Color(1.0, 0.32, 0.60)}     # 핑크-마젠타
+		7: return {"text": "FANTASTIC!", "col": Color(0.70, 0.48, 1.0)}  # 보라
+	return {"text": "UNREAL!", "col": Color(0.52, 0.95, 1.0)}           # 청백 백열
+
 func _full_rows() -> Array:
 	var out: Array = []
 	for r in range(ROWS):
@@ -1430,19 +1463,31 @@ func _burst_lines() -> void:
 		board[cc.y][cc.x] = ""
 		var p: Vector2 = _cell_center(cc.x, cc.y)
 		cell_pops.append({"pos": p, "life": 0.16, "max": 0.16, "color": clear_tint})
-		for _n in range(3):
+		var dn: int = 3 + mini(flash_combo, 6)   # 콤보↑ = 축포 더 많이
+		for _n in range(dn):
 			var ang: float = randf() * TAU
-			var spd: float = randf_range(60.0, 170.0)
-			var life: float = randf_range(0.22, 0.40)
+			var spd: float = randf_range(60.0, 170.0 + float(mini(flash_combo, 8)) * 18.0)   # 콤보↑ = 더 멀리
+			var life: float = randf_range(0.22, 0.44)
+			# 저콤보 = 내 조각 색(폭발=내 결과 인과 유지) → 고콤보 = 따뜻한 열 색이 섞여 축하로 번진다
+			var dcol: Color = clear_tint.lerp(_combo_heat(randf()), clampf(float(flash_combo - 2) / 5.0, 0.0, 1.0))
 			debris.append({
 				"pos": p, "vel": Vector2(cos(ang), sin(ang)) * spd,
-				"life": life, "max": life, "color": clear_tint, "size": randf_range(4.0, 8.0),
+				"life": life, "max": life, "color": dcol, "size": randf_range(4.0, 9.0),
 			})
 	clear_cells = []
 	outline_timer = LINE_OUTLINE_DUR   # ④ 줄 자리에 남는 색 테두리 잔상
 	# 보상 텍스트(COMBO xN)와 섬광은 파괴 순간에. 파괴가 이제 한순간이라 겹치지 않는다.
 	flash_timer = FLASH_DUR
+	if flash_combo >= 2:                 # 칭찬 텍스트는 섬광보다 오래 산다(읽을 시간 확보)
+		praise_t = PRAISE_DUR
+		praise_combo = flash_combo
 	hitstop = maxf(hitstop, 0.05)
+	# 콤보 높으면 중앙에 황금 링 후광(전멸은 _fire_climax가 더 큰 링을 따로 쏘니 제외 = 꼭대기 구별).
+	if flash_combo >= 3 and not flash_climax:
+		var ctr: Vector2 = Vector2(BOARD_X + COLS * CELL * 0.5, board_y + ROWS * CELL * 0.5)
+		var rr: float = CELL * (0.6 + float(mini(flash_combo, 8)) * 0.3)
+		impacts.append({"pos": ctr, "life": 0.42, "max": 0.42,
+				"color": _combo_heat(clampf(float(flash_combo) / 8.0, 0.35, 1.0)), "radius": rr, "star": false})
 
 # 전멸(화면 전체 청소) 클라이맥스 — 보드 중앙에서 퍼지는 큰 충격파 + 히트스톱(셰이크·전체화면 섬광 없음)
 func _fire_climax() -> void:
@@ -1614,11 +1659,22 @@ func advance_step() -> void:
 	surge_active = director.is_surge_active(ctx)   # 렌더/텔레그래프도 읽는 Main 필드 → 스텝당 1회
 	ctx["surge_active"] = surge_active
 	# 전진 스로틀: step_every 배치마다 1칸. 서지 클램프(하한 2)는 director.effective_step_every가 캡슐화.
+	var any_advanced: bool = false
 	for e in enemies:
 		var base_step: int = e.get("step_every", director.hud_step_every())
 		var step_every: int = director.effective_step_every(base_step, ctx)
 		if place_count % step_every == 0:
 			e["row"] += 1
+			e["stepped"] = true          # 이번 스텝에 전진 → 박자 링
+			any_advanced = true
+		else:
+			e["stepped"] = false
+		# 예비동작 텔레그래프: 다음 배치에 이 적이 전진하나? (draw에서 못 부르는 effective_step_every를 여기서 확정)
+		e["warn_next"] = ((place_count + 1) % step_every == 0)
+	# 동시 행진 박자: 함께 내려온 순간을 소프트 쿵 + 링으로 못 박는다(코지 → 아주 살짝).
+	if any_advanced:
+		step_beat = STEP_BEAT_DUR
+		shake_timer = maxf(shake_timer, SHAKE_DUR * 0.35)
 
 	# 분열: gen0가 분열선(SPLIT_ROW)에 닿는 순간 갈라진다 — 죽여서가 아니라 너무 내려와서.
 	#   부모는 절반 HP로 남아 gen0(=웨이브 카운트 유지)이되 split_done으로 재분열 봉쇄, 인접 열에
@@ -2166,6 +2222,8 @@ func _process(delta: float) -> void:
 
 	if flash_timer > 0.0:
 		flash_timer = maxf(0.0, flash_timer - delta)
+	if praise_t > 0.0:
+		praise_t = maxf(0.0, praise_t - delta)
 	if outline_timer > 0.0:
 		outline_timer = maxf(0.0, outline_timer - delta)
 	if red_flash > 0.0:
@@ -2269,6 +2327,8 @@ func _process(delta: float) -> void:
 		im -= 1
 	if kill_pulse > 0.0:
 		kill_pulse = maxf(0.0, kill_pulse - delta)
+	if step_beat > 0.0:
+		step_beat = maxf(0.0, step_beat - delta)
 	if pb_pop_t >= 0.0:
 		pb_pop_t = maxf(-1.0, pb_pop_t - delta)   # 0 밑으로 떨어지면 대기(-1)로
 	# 절대점수 존 배경 — 존별 이산 밤하늘. 존≥1이면 존재감(zone_mix)→1, 존색은 목표 존색으로 짧게 이징(전이 순간의 스텝).
@@ -2404,22 +2464,27 @@ func _draw() -> void:
 	if flash_timer > 0.0:
 		var t: float = flash_timer / FLASH_DUR
 		# 콤보↑ = 더 밝고 뜨거운 섬광(흰색→따뜻한 주황)
-		var fint: float = 0.14 + 0.05 * float(mini(flash_combo, 6))
-		var fcol: Color = Color(1.0, 1.0, 1.0).lerp(Color(1.0, 0.68, 0.28), clampf(float(flash_combo - 2) / 5.0, 0.0, 1.0))
+		var fint: float = 0.14 + 0.045 * float(mini(flash_combo, 8))
+		var fcol: Color = Color(1.0, 1.0, 1.0).lerp(Color(1.0, 0.66, 0.26), clampf(float(flash_combo - 2) / 5.0, 0.0, 1.0))
 		draw_rect(Rect2(0, 0, VW_BASE, vh), Color(fcol.r, fcol.g, fcol.b, t * fint))
-		if flash_combo >= 2:
-			var cs: String = _t("combo_flash") % flash_combo
-			var cbase: int = 44 + mini(flash_combo, 8) * 8
-			var csz: int = cbase + int(t * 14.0)
-			var cw: float = fnt.get_string_size(cs, HORIZONTAL_ALIGNMENT_LEFT, -1, csz).x
-			var hot: float = clampf(float(flash_combo - 2) / 6.0, 0.0, 1.0)   # 콤보↑ = 골드→핫오렌지
-			var ccol: Color = Color(1.0, 0.82, 0.1, t).lerp(Color(1.0, 0.4, 0.08, t), hot)
-			_draw_text_outlined(fnt, Vector2(400.0 - cw * 0.5, 402.0), cs, csz, ccol)
 		if flash_label != "":
 			var ls: int = 96 if flash_climax else 40 + flash_lines * 6
 			var lcol: Color = Color(1.0, 0.95, 0.5, t) if flash_climax else Color(1.0, 0.85, 0.1, t)
 			var lw: float = fnt.get_string_size(flash_label, HORIZONTAL_ALIGNMENT_LEFT, -1, ls).x
 			_draw_text_outlined(fnt, Vector2(400.0 - lw * 0.5, 458.0), flash_label, ls, lcol)
+
+	# 칭찬 텍스트 — 섬광과 분리된 전용 타이머. 팍 등장(작게→큼) → 유지(풀 알파) → 페이드. 오래 읽힌다.
+	if praise_t > 0.0 and praise_combo >= 2:
+		var r: float = praise_t / PRAISE_DUR                     # 1→0
+		var pa: float = clampf(r / 0.32, 0.0, 1.0)               # 앞 68% 풀 알파 → 뒤 32%만 페이드
+		var appear: float = clampf((1.0 - r) * 7.0, 0.0, 1.0)    # 등장 팝(앞 ~14%): 작게 튀어나옴
+		var pr: Dictionary = _combo_praise(praise_combo)
+		var cs: String = pr["text"]
+		var base_sz: int = 46 + mini(praise_combo, 8) * 8
+		var csz: int = int(float(base_sz) * (0.72 + 0.28 * appear))
+		var cw: float = fnt.get_string_size(cs, HORIZONTAL_ALIGNMENT_LEFT, -1, csz).x
+		var pcol: Color = pr["col"]
+		_draw_text_outlined(fnt, Vector2(400.0 - cw * 0.5, 402.0), cs, csz, Color(pcol.r, pcol.g, pcol.b, pa))
 
 	# 첫 등장 콜아웃 배너 (상단-중앙, 보드 위에 얹힘)
 	if callout_timer > 0.0 and not game_over and not game_clear:
@@ -3539,9 +3604,14 @@ func _draw_board(fnt: Font) -> void:
 		var cc: Vector2i = ci2 as Vector2i
 		var cx0: float = BOARD_X + cc.x * CELL
 		var cy0: float = board_y + cc.y * CELL
-		var bcol: Color = _color_of(board[cc.y][cc.x]).lerp(clear_tint, clampf(chg / CHARGE_TINT, 0.0, 1.0))
+		# 삭제 줄이 '달아오른다' — 콤보 따라 열 색이 오르고(금빛→백열), 줄을 따라 그라디언트로 흐른다.
+		var gpos: float = float(cc.x + cc.y) / float(COLS + ROWS - 2)   # 대각 스윕 좌표
+		# 바닥을 따뜻한 주황에서 시작(저콤보도 칙칙하지 않게) → 콤보·위치로 금빛~백열까지.
+		var heat_t: float = 0.32 + gpos * 0.33 + float(mini(combo, 8)) / 8.0 * 0.35 + sin(anim_t * 6.0) * 0.04
+		var bcol: Color = _color_of(board[cc.y][cc.x]).lerp(_combo_heat(heat_t), clampf(chg / CHARGE_TINT, 0.0, 1.0))
 		var hot: float = clampf((chg - CHARGE_TINT) / (1.0 - CHARGE_TINT), 0.0, 1.0)
-		bcol = bcol.lerp(Color(1.0, 1.0, 1.0), hot * 0.75)
+		var white_amt: float = 0.5 + 0.4 * float(mini(combo, 8)) / 8.0   # 콤보↑ = 더 하얗게 달아오름
+		bcol = bcol.lerp(Color(1.0, 1.0, 1.0), hot * white_amt)
 		var bsz: float = (CELL - bpad * 2.0) * (1.0 + 0.22 * chg)
 		var boff: float = (CELL - bsz) * 0.5
 		draw_rect(Rect2(cx0 + boff, cy0 + boff, bsz, bsz), bcol)
@@ -3681,9 +3751,18 @@ func _draw_board(fnt: Font) -> void:
 			jit = Vector2(randf_range(-jm, jm), randf_range(-jm, jm))
 		# 표시 y는 vis_row(부드러운 이징) — 전진/넉백이 스르륵
 		var vr: float = e.get("vis_row", float(er))
+		# 예비동작: 다음 배치에 전진할 적은 다음 칸 쪽으로 살짝 힘줘 기운다("곧 내려온다").
+		#   신호를 구석 카드가 아니라 적 위에 얹는다([[signal-layer-above-occluders]]·[[hud-signal-by-color-not-text]]).
+		var warn_next: bool = bool(e.get("warn_next", false))
+		var bob: float = (0.5 + 0.5 * sin(anim_t * 5.0)) * CELL * 0.09 if warn_next else 0.0
 		var cx: float = BOARD_X + ec * CELL + CELL * 0.5 + jit.x
 		# 몸통은 셀 중심보다 E_BODY_DY 아래 — 위쪽은 HP 게이지 자리다(_enemy_pos와 같은 셈).
-		var cy: float = board_y + vr * CELL + CELL * 0.5 + E_BODY_DY + jit.y
+		var cy: float = board_y + vr * CELL + CELL * 0.5 + E_BODY_DY + jit.y + bob
+		# 밟고 들어올 다음 칸을 붉게 예고(임박 카드와 같은 색 언어). 정확히 그 적이 갈 자리 = 예측 가능.
+		if warn_next and er + 1 < ROWS:
+			var wp: float = 0.30 + 0.35 * sin(anim_t * 5.0)
+			draw_rect(Rect2(BOARD_X + ec * CELL, board_y + (er + 1) * CELL, CELL, CELL),
+					Color(0.9, 0.35, 0.3, wp), false, 2.5)
 		var ratio: float = clampf(float(e["hp"]) / float(e["maxhp"]), 0.0, 1.0)
 		var etype: String = e["etype"]
 		# 몸통은 셀을 꽉 채운다 — 게이지가 상시로 없으니 자리를 양보할 이유가 없다(C41 복원).
@@ -3772,6 +3851,10 @@ func _draw_board(fnt: Font) -> void:
 				var bcol: Color = C_E_BASIC.lerp(Color(0.30, 0.10, 0.48), 1.0 - ratio)
 				draw_circle(Vector2(cx, cy), rad, bcol)
 				draw_circle(Vector2(cx, cy), rad, C_E_RIM, false, C_E_RIM_W)
+		# 스텝 박자: 방금 함께 전진한 적들이 짧게 밝은 링으로 "동시에 행진했다"를 못 박는다.
+		if step_beat > 0.0 and bool(e.get("stepped", false)):
+			var ba: float = step_beat / STEP_BEAT_DUR
+			draw_circle(Vector2(cx, cy), rad + 3.0, Color(1.0, 0.92, 0.7, 0.85 * ba), false, 3.0)
 		# 피격 흰 플래시 오버레이 (맞은 순간 강조)
 		if flinch > 0.0:
 			draw_circle(Vector2(cx, cy), rad, Color(1.0, 1.0, 1.0, 0.7 * clampf(flinch / 0.22, 0.0, 1.0)))
