@@ -40,6 +40,9 @@ const BLAST_RING_DELAY: float = 0.26  # 링(추가 레인) 간 순차 발사 텀
                                       #   0.4→0.26(C83): 콤보2~4 꼬리가 길어 '느린 템포'로 체감 → 조임. 스펙터클은 열색·칭찬·축포가 채움.
 const FLASH_DUR: float = 0.7
 const PRAISE_DUR: float = 1.15   # 칭찬 텍스트 수명 — 섬광(FLASH_DUR)과 분리해 오래 읽히게(팍 등장→유지→페이드)
+const PRAISE_LEAD: float = 0.09  # 리듬 계단시차(C90): 블록 파괴(t=0) → 이 지연 뒤 칭찬 단어 팝인. 블블 관찰=터짐과 텍스트를 '한 박' 분리(0.06~0.12 튜닝대상).
+const SCORE_ROLL_RATE: float = 9.0    # 점수 롤업(C90) 이징 계수: 남은 차이 비례/초. 클수록 빨리 따라붙음.
+const SCORE_ROLL_MIN: float = 260.0   # 점수 롤업 최소 속도(점/초) — 작은 가산도 또르르(스냅 방지), 큰 점프도 ~0.6s 내 도착.
 # 전멸(클라이맥스) 임계 콤보. COMBO_GRACE 도입으로 스트릭이 실제로 자라기 시작(최대콤보 2.7→5.5)했고,
 # 그 사다리의 꼭대기가 되도록 6에 앉힘 → 판당 1~2회(도달 가능하되 드묾). 유예 없던 시절의 3은
 # 이제 판당 10회가 터져 클라이맥스가 아니게 됨.
@@ -383,6 +386,7 @@ var director: GameMode = null    # 감독(스폰·난이도·종료 결정). _st
 #   재도전·홈복귀는 전부 director.scores()/retry_kind()로 묻는다(C62). `if endless:`를 다시 넣으면 갈라짐.
 var endless: bool = false          # (관측용) 무한/featured 진행 중
 var endless_score: int = 0         # 이번 런 점수 = Σ(줄×기본점 + 처치×콤보×배수), C52+C58
+var endless_score_shown: float = 0.0  # 표시용 롤업 점수(C90): endless_score로 또르르 이징. HUD·크라운·PB돌파 판정이 이 값을 씀(스냅 대신 리듬).
 var endless_best: int = 0          # 로컬 베스트(리더보드 서비스가 소유, 여기선 읽기 캐시로 미러)
 var _leaderboard := LeaderboardService.new()   # 점수 저장·제출 이음새 — 파일/플랫폼 접근을 여기로만 (기획: endless-leaderboard-design)
 var endless_prev_best: int = 0     # 런 시작 시점의 베스트(결과 팝업 델타 표시용)
@@ -485,6 +489,8 @@ var flash_combo: int = 0
 var flash_climax: bool = false      # 화면 전체 도달(전멸) — 라벨 강조용
 var praise_t: float = 0.0           # 칭찬 텍스트 전용 타이머(섬광과 분리 = 오래 읽힘)
 var praise_combo: int = 0
+var praise_delay: float = 0.0       # 리듬 계단시차(C90): 파괴 후 이 시간 지나면 praise_t를 켠다(단어 팝인 지연)
+var praise_pending_combo: int = 0   # 지연 대기 중인 콤보값(_burst_lines가 예약, delay 만료 시 소비)
 var climax_pending: float = -1.0    # 전멸 충격파 발사 예약 시각(resolve_timer 기준, -1=없음)
 var surge_active: bool = false      # 후반 서지 중(진행도 > surge_at) — 전진 가속 + 텔레그래프용
 
@@ -542,6 +548,7 @@ var enemy_seq: int = 0             # 적 고유 id 카운터
 # ===== 초기화 =====
 const I18N = preload("res://i18n.gd")   # UI 로컬라이제이션 테이블(en base + ko). 새 언어=로케일 추가.
 var _font: Font = null
+var _font_display: Font = null   # 축하 텍스트 전용(C90): Baloo2 ExtraBold(통통 라운드) — 어두운 판 위 칭찬 단어 가독성·BB 캔디감. 미로드 시 _font로 폴백.
 var _locale: String = I18N.DEFAULT_LOCALE   # 기기 언어에서 파생(_ready). 미지원이면 en. i18n.gd 참고.
 
 # UI 문자열 조회 단축 헬퍼 — 각 draw 사이트가 이걸로 현재 로케일 문자열을 얻는다.
@@ -599,6 +606,17 @@ func _ready() -> void:
 		_font = noto
 	else:
 		_font = sf   # 번들 로드 실패 시 안전망
+	# 축하 텍스트 전용 디스플레이 폰트(C90) — Baloo2를 ExtraBold(wght 800)로 고정. 미로드 시 _font 폴백.
+	var baloo := load("res://fonts/Baloo2.ttf") as FontFile
+	if baloo != null:
+		baloo.fallbacks = [sf]
+		var fv := FontVariation.new()
+		fv.base_font = baloo
+		var ts := TextServerManager.get_primary_interface()
+		fv.variation_opentype = {ts.name_to_tag("wght"): 800}
+		_font_display = fv
+	else:
+		_font_display = _font
 	_relayout()
 	get_viewport().size_changed.connect(_relayout)
 	mode = "menu"
@@ -709,11 +727,9 @@ func _save_campaign() -> void:
 # 점수 가산 + 판 중 최고 갱신 감지(HUD 실시간 신호). best>0일 때만 = 첫 판(best 0)은 '갱신'이 무의미.
 func _add_endless_score(pts: int) -> void:
 	endless_score += pts
-	# 넘는 '순간'(not-beat → beat 엣지)에 원샷 1회 발화 — 이후 프레임은 이미 beat라 재발화 없음.
-	# ── PB 돌파(상대·정점) = 계단 위로 솟는 크레셴도(크라운 락+버스트). 존 전이보다 크게. ──
-	if endless_best > 0 and not endless_beat_best and endless_score > endless_best:
-		endless_beat_best = true
-		pb_pop_t = PB_POP_DUR   # 순간 버스트(방사광+스티커 팝인).
+	# PB 돌파 발화는 여기(실제 가산)가 아니라 _process의 롤업이 '표시 점수(endless_score_shown)'로
+	#   endless_best를 넘는 순간에 한다(C90). 이유: 점수가 또르르 기어오르다 크라운을 넘는 그 순간에
+	#   폭발이 실려야 '차오름→돌파'가 성립. 여기서 켜면 표시 숫자가 아직 안 넘었는데 터진다.
 	# ── 절대점수 존(스펙터클·매판) = 계단. 존 오르는 '순간' 전이 비트(링+배경 플래시). 배경은 zone_col이 뒤따라 스텝. ──
 	var z: int = _zone_for(endless_score)
 	if z > zone_index:
@@ -871,6 +887,7 @@ func _init_game() -> void:
 	leaked = 0
 	score = 0
 	endless_score = 0
+	endless_score_shown = 0.0
 	endless_prev_best = endless_best   # 판 시작 시점 베스트 스냅샷(결과 델타)
 	endless_beat_best = false
 	combo = 0
@@ -890,6 +907,8 @@ func _init_game() -> void:
 	flash_combo = 0
 	praise_t = 0.0
 	praise_combo = 0
+	praise_delay = 0.0
+	praise_pending_combo = 0
 	clear_cells = []
 	clear_rows = []
 	clear_cols = []
@@ -1456,16 +1475,17 @@ func _combo_heat(t: float) -> Color:
 # 콤보(연쇄) 칭찬 사다리 — 숫자 대신 점점 세지는 외침(Block Blast식). 색도 함께 달아오른다.
 #   콤보5+ = 전멸(CLIMAX)과 겹쳐 가장 큰 순간에 가장 센 단어가 실린다.
 func _combo_praise(c: int) -> Dictionary:
-	# 등급마다 확실히 다른 색 = 체감. 열 여정: 노랑→금→주황→핫레드→핑크→보라→청백 백열(초월).
-	#   저·중은 따뜻하게, 최고조(6+)에서만 핑크·보라·청백으로 넘어가 '특별함'을 색으로 못 박는다.
+	# 등급마다 확실히 다른 색 = 체감. 열 여정: 리치골드→금→주황→핫레드→핑크→보라→일렉트릭블루(초월).
+	#   ⚠색은 흰 아웃라인 위에서 대비가 나야 한다(C90): GOOD 밝은노랑·UNREAL 청백은 흰 테두리에 묻혀
+	#   흐렸다 → 둘 다 밝기를 낮춰 대비 확보(hue는 노랑·시안 계열 유지). 중간 등급은 원래 잘 읽혀 유지.
 	match c:
-		2: return {"text": "GOOD!", "col": Color(1.0, 0.88, 0.30)}       # 밝은 노랑
+		2: return {"text": "GOOD!", "col": Color(1.0, 0.72, 0.06)}       # 리치골드(구 밝은노랑=흰테두리에 묻힘)
 		3: return {"text": "NICE!", "col": Color(1.0, 0.66, 0.14)}       # 금-주황
 		4: return {"text": "GREAT!", "col": Color(1.0, 0.44, 0.12)}      # 주황
 		5: return {"text": "PERFECT!", "col": Color(1.0, 0.26, 0.20)}    # 핫 레드(전멸 시작점)
 		6: return {"text": "STRONG!", "col": Color(1.0, 0.32, 0.60)}     # 핑크-마젠타
 		7: return {"text": "FANTASTIC!", "col": Color(0.70, 0.48, 1.0)}  # 보라
-	return {"text": "UNREAL!", "col": Color(0.52, 0.95, 1.0)}           # 청백 백열
+	return {"text": "UNREAL!", "col": Color(0.24, 0.68, 1.0)}           # 일렉트릭블루(구 청백=흰테두리에 묻힘)
 
 # ⚠뿌리("#")는 '벽' — 채운 칸으로 안 쳐서 줄을 완성시키지 않는다. 그래야 (a) 뿌리 옆에 놔도
 #   안 터지고(헷갈림 제거), (b) 보스가 뿌릴수록 네 클리어를 거들지 못한다(압박이 단조로 작동).
@@ -1687,11 +1707,11 @@ func _burst_lines() -> void:
 		_retract_dead_mouths()                  # 머리 다 뜯긴 입 열의 촉수 전체 회수(자기-완화)
 	clear_cells = []
 	outline_timer = LINE_OUTLINE_DUR   # ④ 줄 자리에 남는 색 테두리 잔상
-	# 보상 텍스트(COMBO xN)와 섬광은 파괴 순간에. 파괴가 이제 한순간이라 겹치지 않는다.
+	# 섬광은 파괴 순간(t=0)에. 칭찬 단어는 PRAISE_LEAD 뒤에 팝인 — '터짐→단어'를 한 박 분리(C90 리듬 계단시차, 블블 관찰).
 	flash_timer = FLASH_DUR
 	if flash_combo >= 2:                 # 칭찬 텍스트는 섬광보다 오래 산다(읽을 시간 확보)
-		praise_t = PRAISE_DUR
-		praise_combo = flash_combo
+		praise_delay = PRAISE_LEAD       # 지금 켜지 않고 예약 — _process가 만료 시 praise_t를 켠다
+		praise_pending_combo = flash_combo
 	hitstop = maxf(hitstop, 0.05)
 	# 콤보 높으면 중앙에 황금 링 후광(전멸은 _fire_climax가 더 큰 링을 따로 쏘니 제외 = 꼭대기 구별).
 	if flash_combo >= 3 and not flash_climax:
@@ -2667,6 +2687,21 @@ func _process(delta: float) -> void:
 		flash_timer = maxf(0.0, flash_timer - delta)
 	if praise_t > 0.0:
 		praise_t = maxf(0.0, praise_t - delta)
+	# 리듬 계단시차(C90): 파괴 후 PRAISE_LEAD 만료 시 칭찬 단어를 팝인(터짐→단어 한 박 뒤).
+	if praise_delay > 0.0:
+		praise_delay = maxf(0.0, praise_delay - delta)
+		if praise_delay == 0.0 and praise_pending_combo >= 2:
+			praise_t = PRAISE_DUR
+			praise_combo = praise_pending_combo
+			praise_pending_combo = 0
+	# 점수 롤업(C90): 표시 점수가 실제로 또르르. 표시가 최고를 '넘는 순간' PB 판전체 폭발 1회 발화(차오름→돌파).
+	if endless_score_shown < float(endless_score):
+		var _sdiff: float = float(endless_score) - endless_score_shown
+		var _sstep: float = maxf(_sdiff * SCORE_ROLL_RATE, SCORE_ROLL_MIN) * delta
+		endless_score_shown = minf(endless_score_shown + _sstep, float(endless_score))
+		if endless_best > 0 and not endless_beat_best and endless_score_shown > float(endless_best):
+			endless_beat_best = true
+			pb_pop_t = PB_POP_DUR   # 방사광+스티커 팝인 — 표시 숫자가 크라운을 넘는 그 순간.
 	if outline_timer > 0.0:
 		outline_timer = maxf(0.0, outline_timer - delta)
 	if red_flash > 0.0:
@@ -2955,16 +2990,39 @@ func _draw() -> void:
 
 	# 칭찬 텍스트 — 섬광과 분리된 전용 타이머. 팍 등장(작게→큼) → 유지(풀 알파) → 페이드. 오래 읽힌다.
 	if praise_t > 0.0 and praise_combo >= 2:
+		var dfnt: Font = _font_display if _font_display != null else fnt   # 축하 전용 디스플레이 폰트(Baloo2)
 		var r: float = praise_t / PRAISE_DUR                     # 1→0
+		var prog: float = 1.0 - r                                # 등장 진행 0→1
 		var pa: float = clampf(r / 0.32, 0.0, 1.0)               # 앞 68% 풀 알파 → 뒤 32%만 페이드
-		var appear: float = clampf((1.0 - r) * 7.0, 0.0, 1.0)    # 등장 팝(앞 ~14%): 작게 튀어나옴
+		# 등장 펀치(C90): 오버슛 스냅(0.55→~1.1→1.0) — 슬쩍 자람 대신 '팍' 튀고 정착. 전용 오버레이라 바운스 OK.
+		var ip: float = clampf(prog / 0.14, 0.0, 1.0)            # 앞 ~14%(≈0.16s)에 걸쳐 등장
+		var scl: float = 0.55 + (1.0 - pow(1.0 - ip, 3.0)) * 0.45 + sin(ip * PI) * 0.15
+		# 흰빛 펀치: 첫 ~0.07s는 흰색에 가깝게 → 등급색으로 가라앉음(밝은 "팡"). 색-변화가 리듬을 눈에 박는다.
+		var flash: float = clampf(1.0 - prog / 0.06, 0.0, 1.0)
 		var pr: Dictionary = _combo_praise(praise_combo)
 		var cs: String = pr["text"]
 		var base_sz: int = 46 + mini(praise_combo, 8) * 8
-		var csz: int = int(float(base_sz) * (0.72 + 0.28 * appear))
-		var cw: float = fnt.get_string_size(cs, HORIZONTAL_ALIGNMENT_LEFT, -1, csz).x
-		var pcol: Color = pr["col"]
-		_draw_text_outlined(fnt, Vector2(400.0 - cw * 0.5, 402.0), cs, csz, Color(pcol.r, pcol.g, pcol.b, pa))
+		var csz: int = int(float(base_sz) * scl)
+		var cw: float = dfnt.get_string_size(cs, HORIZONTAL_ALIGNMENT_LEFT, -1, csz).x
+		var pcol: Color = (pr["col"] as Color).lerp(Color(1.0, 1.0, 1.0), flash)
+		# 보드 세로 정중앙(board_y 파생 = 반응형 안전). BB는 칭찬 텍스트를 보드 중심에 띄운다(원본 프레임 확인). 402 고정 폐기.
+		var py: float = float(board_y) + float(ROWS * CELL) * 0.5
+		var tp: Vector2 = Vector2(400.0 - cw * 0.5, py)
+		# BB식 '스티커' 렌더 — 이중 아웃라인(어두운 겹 + 흰 겹)으로 어떤 배경에서도 대비 확보.
+		#   텍스트가 보드 중심=황금 후광 링과 겹치는데, 흰 아웃라인만으론 '밝은 링 위에서' 흰색이 묻힌다.
+		#   → 흰 테두리 밑에 어두운 테두리를 한 겹 더 깔아 어두운 판·밝은 링 양쪽 다 분리(C90).
+		var ow: float = maxf(3.0, float(csz) * 0.07)   # 흰 아웃라인 두께 = 크기 비례
+		draw_string(dfnt, tp + Vector2(0.0, ow + 5.0), cs, HORIZONTAL_ALIGNMENT_LEFT, -1, csz, Color(0.0, 0.0, 0.0, 0.4 * pa))   # 드롭섀도(살짝 아래, 입체)
+		var darkc: Color = Color(0.05, 0.03, 0.09, 0.96 * pa)   # 어두운 겹
+		var owc: Color = Color(1.0, 1.0, 1.0, pa)               # 흰 겹
+		for k in range(16):
+			var oa: float = float(k) / 16.0 * TAU
+			var dir: Vector2 = Vector2(cos(oa), sin(oa))
+			draw_string(dfnt, tp + dir * (ow + 3.0), cs, HORIZONTAL_ALIGNMENT_LEFT, -1, csz, darkc)   # ① 어두운 겹(더 큼)
+		for k2 in range(16):
+			var oa2: float = float(k2) / 16.0 * TAU
+			draw_string(dfnt, tp + Vector2(cos(oa2), sin(oa2)) * ow, cs, HORIZONTAL_ALIGNMENT_LEFT, -1, csz, owc)   # ② 흰 겹
+		draw_string(dfnt, tp, cs, HORIZONTAL_ALIGNMENT_LEFT, -1, csz, Color(pcol.r, pcol.g, pcol.b, pa))            # ③ 색 채움
 
 	# 첫 등장 콜아웃 배너 (상단-중앙, 보드 위에 얹힘)
 	if callout_timer > 0.0 and not game_over and not game_clear:
@@ -4136,7 +4194,7 @@ func _draw_hud(fnt: Font) -> void:
 		var pt_w: float = fnt.get_string_size(ptitle, HORIZONTAL_ALIGNMENT_LEFT, -1, 20).x
 		_draw_text_outlined(fnt, Vector2(goal_r.position.x + gw * 0.5 - pt_w * 0.5, box_y + 30.0), ptitle, 20,
 				Color(0.82, 0.78, 1.0))
-		var sc_str: String = _comma(endless_score)
+		var sc_str: String = _comma(roundi(endless_score_shown))   # 롤업 표시(C90): 스냅 대신 또르르
 		var sc_fs: int = 50
 		var sc_w: float = fnt.get_string_size(sc_str, HORIZONTAL_ALIGNMENT_LEFT, -1, sc_fs).x
 		var sc_col: Color = Color.WHITE.lerp(C_GOLD, kp)
@@ -4149,7 +4207,7 @@ func _draw_hud(fnt: Font) -> void:
 			var rec_lbl: String
 			var rec_col: Color
 			if beat:
-				rec_lbl = "👑 %s" % _comma(maxi(endless_best, endless_score))
+				rec_lbl = "👑 %s" % _comma(maxi(endless_best, roundi(endless_score_shown)))   # 크라운도 롤업과 동기(C90)
 				rec_col = C_GOLD.lerp(Color.WHITE, kp * 0.6)   # 처치마다 흰빛 반짝 = 기록이 실시간으로 새로 쓰인다
 			else:
 				rec_lbl = _t("best_score") % _comma(endless_best)
