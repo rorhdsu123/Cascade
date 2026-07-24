@@ -144,6 +144,17 @@ const STAGES: Array = [
 		"spawn_every": 2, "step_every": 3, "onboard": 3, "floor": 5, "surge_at": 0.80,
 		"weights": {"basic": 55, "fast": 0, "tank": 0, "swarm": 45, "split": 0}, "pool": POOL_LEAN,
 	},
+	# ── 변주 슬롯 ①: 첫 보석 수집(S5) — 코어 방어 학습(S1~4) 직후 동사 전환('처치'→'수집'). ──
+	#   ⚠name 키는 위치가 아니라 안정 ID(추가 순서). 이 판은 st9_* 문자열을 쓰지만 배열 위치는 5번.
+	#   collect 기전 상세 주석은 하단 두 번째 보석판(Two Colors) 위 참조.
+	{
+		# 1종 수집. 보석이 전경이 되도록 튜닝: 보석 두껍게(gem_every 2) + 적 얇게(spawn_every 3·floor 2) = 적은 '가끔 끼는 세금'.
+		# gem_fast=보석이 위협보다 한 단계 빨리 떨어져 데드라인 조임(전용 클리어 강제). 목표 15개(공급이 두꺼워 grind 아님).
+		"name": "st9_name", "tag": "st9_tag", "collect": true, "collect_targets": [15], "gem_every": 2, "gem_fast": true,
+		"total": 300, "core_hp": 3, "base_hp": 30, "hp_ramp": 0.2, "tank_mult": 2.5,
+		"spawn_every": 3, "step_every": 3, "onboard": 3, "floor": 2, "surge_at": 0.0,
+		"weights": {"basic": 50, "fast": 50, "tank": 0, "swarm": 0, "split": 0}, "pool": POOL_STD,
+	},
 	{
 		# tank HP를 콤보3(240) 구간에 앉힌다: base 44~50 × 4.5 = 198~227 → 콤보2(180)로는 안 뚫림.
 		"name": "st5_name", "tag": "st5_tag",
@@ -179,24 +190,18 @@ const STAGES: Array = [
 		"spawn_every": 2, "step_every": 3, "onboard": 2, "floor": 6, "surge_at": 0.78,
 		"weights": {"basic": 15, "fast": 25, "tank": 20, "swarm": 15, "split": 25}, "pool": POOL_STD,
 	},
-	# ── 받기형 수집 테스트(끝에 append, C81): 새 목표 = 처치가 아니라 '수집'. ──
-	# 보석(gem)이 적들 사이로 같이 내려온다. 블라스트가 닿으면 획득(collected++), 거점 밑으로 빠지면 사라짐(거점 무피해).
-	# 적은 순수 위협(그리디의 비용) — 안 막으면 거점사. 다 잡을 필요 없음.
+	# ── 변주 슬롯 ②: 두 번째 보석 수집(S10, 프런티어) — 보석 사다리 G2. 첫 보석판(S5)과 떨어뜨려 배치. ──
+	# 받기형 수집 기전(C81, 첫 보석판과 공유): 보석(gem)이 적들 사이로 같이 내려온다. 블라스트가 닿으면 획득(collected++),
+	#   거점 밑으로 빠지면 사라짐(거점 무피해). 적은 순수 위협(그리디의 비용) — 안 막으면 거점사. 다 잡을 필요 없음.
 	# 승리 = 보석 collect_target개 수집. 실패 = 거점사. 새 결정 = "이 클리어를 보석에 쓸까 적에 쓸까"(주의 배분).
 	#   긴장 급소: 보석과 적이 다른 열/타이밍에 오게 → 한 클리어로 둘 다 못 하게. gem_every 배치마다 보석 1개.
 	{
-		# 1종 수집. collect_targets 길이=1. gem_fast=보석이 위협보다 한 단계 빨리 떨어져 데드라인 조임(전용 클리어 강제).
-		"name": "st9_name", "tag": "st9_tag", "collect": true, "collect_targets": [10], "gem_every": 3, "gem_fast": true,
-		"total": 300, "core_hp": 3, "base_hp": 30, "hp_ramp": 0.2, "tank_mult": 2.5,
-		"spawn_every": 2, "step_every": 3, "onboard": 3, "floor": 4, "surge_at": 0.0,
-		"weights": {"basic": 50, "fast": 50, "tank": 0, "swarm": 0, "split": 0}, "pool": POOL_STD,
-	},
-	{
-		# 2종 수집(램프). 두 색 quota를 동시에 채워야 = 아무 보석이나 못 줍고 '필요한 색'을 골라 조준(새 결정 深). tank 소량 섞어 방어압 ↑.
-		"name": "st10_name", "tag": "st10_tag", "collect": true, "collect_targets": [5, 5], "gem_every": 3, "gem_fast": true,
+		# 2종 수집(G2 심화). 보석은 S5처럼 전경(gem_every 2·floor 2)이되, 사다리는 물량이 아니라 '필요한 색 고르기 + tank 방어압'으로.
+		# 두 색 quota 8+8을 동시에 채워야 = 아무 보석이나 못 줍고 '필요한 색'을 골라 조준(새 결정 深). tank↑로 질(質)의 압박.
+		"name": "st10_name", "tag": "st10_tag", "collect": true, "collect_targets": [8, 8], "gem_every": 2, "gem_fast": true,
 		"total": 300, "core_hp": 3, "base_hp": 32, "hp_ramp": 0.2, "tank_mult": 3.0,
-		"spawn_every": 2, "step_every": 3, "onboard": 2, "floor": 4, "surge_at": 0.0,
-		"weights": {"basic": 45, "fast": 45, "tank": 10, "swarm": 0, "split": 0}, "pool": POOL_STD,
+		"spawn_every": 3, "step_every": 3, "onboard": 2, "floor": 2, "surge_at": 0.0,
+		"weights": {"basic": 45, "fast": 40, "tank": 15, "swarm": 0, "split": 0}, "pool": POOL_STD,
 	},
 ]
 
