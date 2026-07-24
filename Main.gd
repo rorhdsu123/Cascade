@@ -1813,8 +1813,10 @@ func advance_step() -> void:
 			any_advanced = true
 		else:
 			e["stepped"] = false
-		# 예비동작 텔레그래프: 다음 배치에 이 적이 전진하나? (draw에서 못 부르는 effective_step_every를 여기서 확정)
-		e["warn_next"] = ((place_count + 1) % step_every == 0)
+		# 예비동작 텔레그래프: 이 적이 몇 배치 뒤에 전진하나(remain). draw가 못 부르는 effective_step_every를
+		#   여기서 확정해 적별 '자기 시계'로 저장한다. remain==1=다음 배치·2=곧. 방금 스텝했으면 remain=step_every.
+		#   글로벌 카드 대신 적 자세(전역)와 붉은 착지칸(바닥 게이팅)이 이 값을 읽는다.
+		e["remain"] = step_every - (place_count % step_every)
 	# 동시 행진 박자: 함께 내려온 순간을 소프트 쿵 + 링으로 못 박는다(코지 → 아주 살짝).
 	if any_advanced:
 		step_beat = STEP_BEAT_DUR
@@ -3681,23 +3683,20 @@ func _draw_hud(fnt: Font) -> void:
 	# CORE HP는 보드 하단 방어선(_draw_core)에만 표시 — 상단 중복 제거.
 	# 콤보 상시 카운터는 카드 아래에 그린다(아래 참조) — 노치·기어 다툼과 위계 반대를 피해.
 
-	var step_every: int = director.hud_step_every()
-	var remain: int = step_every - (place_count % step_every)
-	var imminent: bool = remain <= 1
 	# 남은 적 = 아직 처리 안 된 적(스폰 예정 + 보드 위). 누수분은 '더 이상 안 오니' 빠지지만
 	# 그 대가는 거점 HP로 이미 치렀다.
 	var remaining: int = director.enemy_total() - killed - leaked
 	var kp: float = clampf(kill_pulse / 0.35, 0.0, 1.0)
 
-	# ── 두 카드: GOAL(남은 적=클리어 목표) + ADVANCE(적 전진 시계) ──
-	var box_y: float = 14.0 + sy
-	var box_h: float = 84.0
-	var gw: float = 250.0
-	var aw: float = 190.0
-	var gap: float = 24.0
-	var start_x: float = (800.0 - (gw + aw + gap)) * 0.5
-	var goal_r: Rect2 = Rect2(start_x, box_y, gw, box_h)
-	var adv_r: Rect2 = Rect2(start_x + gw + gap, box_y, aw, box_h)
+	# ── GOAL 카드 단독(중앙). '적 전진 시계' 카드는 제거했다 — 단일 글로벌 카운트다운은
+	#   적마다 다른 step_every(swarm desync)를 뭉개 거짓 '턴'이었다. 전진 타이밍은 이제 전부
+	#   보드가 말한다: 적 자세(lean, 전역·조용) + 붉은 착지칸(바닥 게이팅·시끄러움). _draw_enemies 참조.
+	var box_h: float = 104.0
+	var gw: float = 310.0
+	# 세로 중앙: 헤더 top(노치 아래 sy) ~ 보드 top(board_y) 구간 정중앙에 카드를 놓는다.
+	#   예전엔 sy+14 고정이라 밴드~보드 사이 갭 위쪽으로 쏠렸다. 콤보는 box_y 파생이라 함께 따라온다.
+	var box_y: float = sy + maxf(0.0, (float(board_y) - sy - box_h) * 0.5)
+	var goal_r: Rect2 = Rect2((800.0 - gw) * 0.5, box_y, gw, box_h)
 
 	if director.scores():
 		# 점수 모드: GOAL 카드 = 점수(리더보드 지표). 최고 넘으면 카드·제목·숫자가 금색으로(실시간 갱신 신호).
@@ -3707,14 +3706,14 @@ func _draw_hud(fnt: Font) -> void:
 		#   (카드까지 금색이면 금색 4중이라 위계가 뭉갠다.) 기본 UI 텍스트/크기/색 불변(kill-pulse 반짝만 유지).
 		_draw_card(goal_r, Color(0.5, 0.42, 0.78))
 		var ptitle: String = _t("score")
-		var pt_w: float = fnt.get_string_size(ptitle, HORIZONTAL_ALIGNMENT_LEFT, -1, 16).x
-		_draw_text_outlined(fnt, Vector2(goal_r.position.x + gw * 0.5 - pt_w * 0.5, box_y + 24.0), ptitle, 16,
+		var pt_w: float = fnt.get_string_size(ptitle, HORIZONTAL_ALIGNMENT_LEFT, -1, 20).x
+		_draw_text_outlined(fnt, Vector2(goal_r.position.x + gw * 0.5 - pt_w * 0.5, box_y + 30.0), ptitle, 20,
 				Color(0.82, 0.78, 1.0))
 		var sc_str: String = _comma(endless_score)
-		var sc_fs: int = 40
+		var sc_fs: int = 50
 		var sc_w: float = fnt.get_string_size(sc_str, HORIZONTAL_ALIGNMENT_LEFT, -1, sc_fs).x
 		var sc_col: Color = Color.WHITE.lerp(C_GOLD, kp)
-		_draw_text_outlined(fnt, Vector2(goal_r.position.x + gw * 0.5 - sc_w * 0.5, box_y + 70.0), sc_str, sc_fs, sc_col)
+		_draw_text_outlined(fnt, Vector2(goal_r.position.x + gw * 0.5 - sc_w * 0.5, box_y + 87.0), sc_str, sc_fs, sc_col)
 		# 좌상단: 깊이 + 크라운 락(BlockBlast 관찰). 넘기 전 = 옛 최고(추격 기준선, 회색). 넘은 뒤 = 👑 라이브
 		#   신기록(점수에 잠겨 매 처치마다 상승, kp로 반짝) — "지금부터 전부 신기록". 이 숫자가 곧 발화선(적 HP 램프):
 		#   영광과 벼랑이 같은 숫자다(endless_mode.gd '내 실력의 끝단이 늘 벼랑').
@@ -3733,42 +3732,23 @@ func _draw_hud(fnt: Font) -> void:
 		# GOAL 카드 — 제목 "목표" + 내용 "💀 남은 적 N"(전 타입 소탕이 목표라 타입 중립 해골).
 		_draw_card(goal_r, Color(0.85, 0.7, 0.3))
 		var goal_lbl: String = _t("goal")
-		var gt_w: float = fnt.get_string_size(goal_lbl, HORIZONTAL_ALIGNMENT_LEFT, -1, 16).x
-		_draw_text_outlined(fnt, Vector2(goal_r.position.x + gw * 0.5 - gt_w * 0.5, box_y + 24.0), goal_lbl, 16, Color(0.95, 0.85, 0.5))
+		var gt_w: float = fnt.get_string_size(goal_lbl, HORIZONTAL_ALIGNMENT_LEFT, -1, 20).x
+		_draw_text_outlined(fnt, Vector2(goal_r.position.x + gw * 0.5 - gt_w * 0.5, box_y + 30.0), goal_lbl, 20, Color(0.95, 0.85, 0.5))
 		var rem_str: String = str(remaining)
-		var rem_fs: int = 40
-		var cap_fs: int = 18
-		var icon_s: float = 34.0
+		var rem_fs: int = 50
+		var cap_fs: int = 22
+		var icon_s: float = 42.0
 		var enemies_lbl: String = _t("hud_enemies")
 		var cap_w: float = fnt.get_string_size(enemies_lbl, HORIZONTAL_ALIGNMENT_LEFT, -1, cap_fs).x
 		var rem_w: float = fnt.get_string_size(rem_str, HORIZONTAL_ALIGNMENT_LEFT, -1, rem_fs).x
-		var grp_w: float = icon_s + 8.0 + cap_w + 8.0 + rem_w
+		var grp_w: float = icon_s + 10.0 + cap_w + 10.0 + rem_w
 		var grp_l: float = goal_r.position.x + gw * 0.5 - grp_w * 0.5
-		_draw_enemy_icon(Vector2(grp_l + icon_s * 0.5, box_y + 56.0), icon_s)
-		_draw_text_outlined(fnt, Vector2(grp_l + icon_s + 8.0, box_y + 62.0), enemies_lbl, cap_fs, Color(0.95, 0.85, 0.5))
+		_draw_enemy_icon(Vector2(grp_l + icon_s * 0.5, box_y + 69.0), icon_s)
+		_draw_text_outlined(fnt, Vector2(grp_l + icon_s + 10.0, box_y + 77.0), enemies_lbl, cap_fs, Color(0.95, 0.85, 0.5))
 		var rem_col: Color = Color.WHITE.lerp(C_GOLD, kp)
-		_draw_text_outlined(fnt, Vector2(grp_l + icon_s + 8.0 + cap_w + 8.0, box_y + 70.0), rem_str, rem_fs, rem_col)
+		_draw_text_outlined(fnt, Vector2(grp_l + icon_s + 10.0 + cap_w + 10.0, box_y + 87.0), rem_str, rem_fs, rem_col)
 
-	# ADVANCE 카드 — 적 전진 카운트다운(임박 시 붉은 강조). 제목·숫자 중앙정렬
-	var acc: Color = Color(0.85, 0.3, 0.28) if imminent else Color(0.4, 0.45, 0.6)
-	_draw_card(adv_r, acc)
-	var adv_tc: Color = Color(1.0, 0.6, 0.5) if imminent else Color(0.72, 0.74, 0.86)
-	var adv_lbl: String = _t("advance")
-	var at_w: float = fnt.get_string_size(adv_lbl, HORIZONTAL_ALIGNMENT_LEFT, -1, 16).x
-	_draw_text_outlined(fnt, Vector2(adv_r.position.x + aw * 0.5 - at_w * 0.5, box_y + 24.0), adv_lbl, 16, adv_tc)
-	# 큰 숫자 + 작은 "턴" 을 한 덩어리로 중앙 정렬
-	var n_str: String = str(remain)
-	var n_fs: int = 44
-	var u_fs: int = 18
-	var n_col: Color = Color(1.0, 0.55, 0.3) if imminent else Color(0.9, 0.9, 0.95)
-	var n_w: float = fnt.get_string_size(n_str, HORIZONTAL_ALIGNMENT_LEFT, -1, n_fs).x
-	var turn_lbl: String = _t("turn_1") if remain == 1 else _t("turns")   # '1 turns' 복수 오류 방지
-	var u_w: float = fnt.get_string_size(turn_lbl, HORIZONTAL_ALIGNMENT_LEFT, -1, u_fs).x
-	var grp_x: float = adv_r.position.x + aw * 0.5 - (n_w + 4.0 + u_w) * 0.5
-	_draw_text_outlined(fnt, Vector2(grp_x, box_y + 72.0), n_str, n_fs, n_col)
-	_draw_text_outlined(fnt, Vector2(grp_x + n_w + 4.0, box_y + 72.0), turn_lbl, u_fs, Color(0.72, 0.72, 0.8))
-
-	# ── 콤보 상시 카운터 — 카드 '아래·우측'에 종속 배치(대형 축하는 중앙 flash가 담당).
+	# ── 콤보 상시 카운터 — GOAL 카드 '아래·우측'에 종속 배치(대형 축하는 중앙 flash가 담당).
 	#   예전엔 최상단 우측(노치·기어와 다툼 + 1차 정보 카드보다 위 = 위계 반대)이었다. 유예 중이면
 	#   경고색으로만(다음 헛수에 끊긴다는 신호, 텍스트 안 붙임). [[hud-signal-by-color-not-text]]
 	if combo >= 2:
@@ -3776,7 +3756,7 @@ func _draw_hud(fnt: Font) -> void:
 		var st_fs: int = 20
 		var stw: float = fnt.get_string_size(streak, HORIZONTAL_ALIGNMENT_LEFT, -1, st_fs).x
 		var scol: Color = Color(1.0, 0.45, 0.3) if combo_miss > 0 else C_GOLD
-		_draw_text_outlined(fnt, Vector2(adv_r.position.x + aw - stw, box_y + box_h + 26.0), streak, st_fs, scol)
+		_draw_text_outlined(fnt, Vector2(goal_r.position.x + gw - stw, box_y + box_h + 26.0), streak, st_fs, scol)
 
 	# 처치 진행바는 제거했다 — 빨강/초록 가로 막대라 거점 HP 바(진짜 체력)와 색 언어가 겹쳐
 	# 'HP가 바닥났다'로 오독됐다. 목표 카드의 '남은 적' 숫자만으로 진행도는 충분히 읽힌다.
@@ -4037,18 +4017,29 @@ func _draw_board(fnt: Font) -> void:
 			jit = Vector2(randf_range(-jm, jm), randf_range(-jm, jm))
 		# 표시 y는 vis_row(부드러운 이징) — 전진/넉백이 스르륵
 		var vr: float = e.get("vis_row", float(er))
-		# 예비동작: 다음 배치에 전진할 적은 다음 칸 쪽으로 살짝 힘줘 기운다("곧 내려온다").
+		# ── 전진 텔레그래프 = 두 채널(글로벌 카드 대체). remain = 이 적이 몇 배치 뒤 전진하나(자기 시계).
 		#   신호를 구석 카드가 아니라 적 위에 얹는다([[signal-layer-above-occluders]]·[[hud-signal-by-color-not-text]]).
-		var warn_next: bool = bool(e.get("warn_next", false))
-		var bob: float = (0.5 + 0.5 * sin(anim_t * 5.0)) * CELL * 0.09 if warn_next else 0.0
+		var remain: int = int(e.get("remain", 99))
+		# 채널 A — 자세(lean): 전역·조용. 아래(다음 칸) 쪽으로 기울어 "곧 내려간다"를 몸으로.
+		#   ⚠몸의 꿈틀 = "다음 배치에 이동" 약속이다. remain==1일 때만 켠다. 예전엔 remain==2에도 살짝
+		#   꿈틀댔는데, 실제론 안 움직이는데 움직일 것처럼 읽혀 약속을 어겼다(유저 확인) → 제거.
+		#   '곧'의 예고는 몸이 아니라 붉은 착지칸(채널 B)이 바닥 밴드에서만 맡는다.
+		var lean_amt: float = 1.0 if remain == 1 else 0.0
+		var bob: float = lean_amt * (0.6 + 0.4 * sin(anim_t * 5.0)) * CELL * 0.16
 		var cx: float = BOARD_X + ec * CELL + CELL * 0.5 + jit.x
 		# 몸통은 셀 중심보다 E_BODY_DY 아래 — 위쪽은 HP 게이지 자리다(_enemy_pos와 같은 셈).
 		var cy: float = board_y + vr * CELL + CELL * 0.5 + E_BODY_DY + jit.y + bob
-		# 밟고 들어올 다음 칸을 붉게 예고(임박 카드와 같은 색 언어). 정확히 그 적이 갈 자리 = 예측 가능.
-		if warn_next and er + 1 < ROWS:
-			var wp: float = 0.30 + 0.35 * sin(anim_t * 5.0)
-			draw_rect(Rect2(BOARD_X + ec * CELL, board_y + (er + 1) * CELL, CELL, CELL),
-					Color(0.9, 0.35, 0.3, wp), false, 2.5)
+		# 채널 B — 붉은 착지칸: 시끄럽지만 '깊이(누수까지)'로 게이팅. 상단(depth≈0)엔 안 뜨고 바닥으로
+		#   내려올수록 차오른다 → 위협 있는 곳에서만 정확한 착지점. 전 깊이 알람(구 방식)의 정신없음을 없앰.
+		#   depth: row4=0 → row7=1 완만 램프. imm: remain 1=꽉, 2=먼저 흐리게(와인드업).
+		if er + 1 < ROWS:
+			var depth: float = clampf((float(er) - 4.0) / 3.0, 0.0, 1.0)
+			var imm: float = (1.0 if remain == 1 else (0.5 if remain == 2 else 0.0))
+			var box_a: float = depth * imm
+			if box_a > 0.02:
+				var wp: float = box_a * (0.30 + 0.35 * sin(anim_t * 5.0))
+				draw_rect(Rect2(BOARD_X + ec * CELL, board_y + (er + 1) * CELL, CELL, CELL),
+						Color(0.9, 0.35, 0.3, wp), false, 2.5)
 		var ratio: float = clampf(float(e["hp"]) / float(e["maxhp"]), 0.0, 1.0)
 		var etype: String = e["etype"]
 		# 몸통은 셀을 꽉 채운다 — 게이지가 상시로 없으니 자리를 양보할 이유가 없다(C41 복원).
