@@ -30,8 +30,10 @@ const CALLOUT_DUR: float = 1.6  # 첫 등장 콜아웃 배너 지속
 # 라인클리어 폭발
 const LINE_BASE: int = 120
 const STREAK_STEP: float = 0.5
-const BLAST_RING_DELAY: float = 0.4   # 링(추가 레인) 간 순차 발사 텀 (물결 확산 속도. 클수록 극적·느림)
+const BLAST_RING_DELAY: float = 0.26  # 링(추가 레인) 간 순차 발사 텀 (물결 확산 속도. 클수록 극적·느림).
+                                      #   0.4→0.26(C83): 콤보2~4 꼬리가 길어 '느린 템포'로 체감 → 조임. 스펙터클은 열색·칭찬·축포가 채움.
 const FLASH_DUR: float = 0.7
+const PRAISE_DUR: float = 1.15   # 칭찬 텍스트 수명 — 섬광(FLASH_DUR)과 분리해 오래 읽히게(팍 등장→유지→페이드)
 # 전멸(클라이맥스) 임계 콤보. COMBO_GRACE 도입으로 스트릭이 실제로 자라기 시작(최대콤보 2.7→5.5)했고,
 # 그 사다리의 꼭대기가 되도록 6에 앉힘 → 판당 1~2회(도달 가능하되 드묾). 유예 없던 시절의 3은
 # 이제 판당 10회가 터져 클라이맥스가 아니게 됨.
@@ -49,9 +51,9 @@ const COMBO_GRACE: int = 1
 # ★ 충전 홀드 = 에스컬레이션 축(Block Blast 실측: 콤보2 ≈0.27s, 콤보4 ≈0.55s).
 #   콤보가 클수록 '더 크게'가 아니라 '더 오래 참는다' — 셰이크를 금지(C24⑦)한 뒤 비어 있던
 #   에스컬레이션 축을 시간이 메운다. 기대가 쌓이는 정지 구간이라, 길수록 터질 때 더 세게 느껴진다.
-const CHARGE_BASE: float = 0.20        # 콤보 1의 홀드
-const CHARGE_PER_COMBO: float = 0.12   # 콤보 1당 추가 홀드 (콤보4 ≈0.56s = BB 실측 0.55s에 맞춤)
-const CHARGE_MAX: float = 0.60         # 홀드 상한(그 이상은 늘어짐)
+const CHARGE_BASE: float = 0.17        # 콤보 1의 홀드 (C83: 0.20→0.17, 템포 조임)
+const CHARGE_PER_COMBO: float = 0.10   # 콤보 1당 추가 홀드 (0.12→0.10). 스펙터클을 열색·칭찬·축포로 옮겨 홀드 의존↓
+const CHARGE_MAX: float = 0.48         # 홀드 상한 (0.60→0.48, 그 이상은 늘어짐)
 # 충전 중 색 통일: 이 비율 지점까지 '원래 색 → 방금 놓은 조각 색'으로 물들고(줄이 한 색이 됨),
 # 나머지 구간에서 흰색으로 달아오른다. Block Blast가 터지는 줄을 놓은 조각 색으로 통일하는 것과 같은 수법 —
 # 알록달록한 보드에서 완성 줄만 도드라지게 하고, 폭발이 '내 조각의 결과'임을 색으로 잇는다.
@@ -210,6 +212,7 @@ var safe_debug: Vector2 = Vector2(-1.0, -1.0)
 const RED_FLASH_DUR: float = 0.35
 const SHAKE_DUR: float = 0.28
 const SHAKE_AMP: float = 9.0
+const STEP_BEAT_DUR: float = 0.22   # 적이 함께 전진한 직후 짧은 공유 박자(동시 행진을 못 박음)
 const FLOAT_DUR: float = 0.6
 
 # '놓을 곳 없음' 죽음 — 빈 칸을 아래에서 위로 블록으로 메운다. 꽉 찬 보드 자체가 패배 사유의 진술이다.
@@ -235,7 +238,13 @@ const C_RED  := Color("#e5484d")
 const C_BLUE := Color("#3b82f6")
 const C_YELL := Color("#eab308")
 const C_BG   := Color("#0d0d1a")
-const C_BG_PB := Color("#2a2470")     # 넘음 배경 — 여백·상단바·하단바를 '한 색'으로 통일(밝은 인디고). 8×8 보드 셀은 원색 유지(다크 아일랜드).
+const C_BG_PB := Color("#2a2470")     # 존1(밝은 인디고). 여백·상하단바가 절대점수 존마다 이 계열로 이산 전환. 8×8 셀은 원색 유지(다크 아일랜드).
+# ── 절대점수 존 = '밤하늘 상승'(이산 단계, 매 판) ── 난이도(PB 너머, 개인축)와 분리한 '스펙터클' 축(절대점수).
+#   매 판(첫 판 포함) 점수 오르며 계단을 밟는다. 연속 크리프(안 보임)를 폐기하고 전이 순간에만 툭 바뀜(지각됨).
+#   PB 돌파(상대·정점)는 이 계단 '위'로 솟는 크레셴도(크라운 락)로 별도 유지. 값은 튜닝 대상(사람 플테).
+const ZONE_SCORES: Array = [4000, 12000, 30000, 65000]   # 존 1~4 진입 점수. 그 위는 프리스티지(PRESTIGE_STEP마다 전이 비트만 재발화, 새 아트 없음).
+const PRESTIGE_STEP: int = 65000
+const ZONE_BG: Array = [Color("#2a2470"), Color("#382178"), Color("#481f7a"), Color("#5a1d78")]  # 존1~4 밤하늘: 인디고→보라→퍼플→마젠타퍼플(점점 진하고 vivid=상승감). 렌더로 튜닝.
 const C_CELL := Color("#111122")
 const C_GRID := Color(0.28, 0.28, 0.38, 0.55)
 const C_HUD  := Color(0.06, 0.06, 0.12)
@@ -429,6 +438,8 @@ var flash_label: String = ""
 var flash_lines: int = 0
 var flash_combo: int = 0
 var flash_climax: bool = false      # 화면 전체 도달(전멸) — 라벨 강조용
+var praise_t: float = 0.0           # 칭찬 텍스트 전용 타이머(섬광과 분리 = 오래 읽힘)
+var praise_combo: int = 0
 var climax_pending: float = -1.0    # 전멸 충격파 발사 예약 시각(resolve_timer 기준, -1=없음)
 var surge_active: bool = false      # 후반 서지 중(진행도 > surge_at) — 전진 가속 + 텔레그래프용
 
@@ -453,7 +464,11 @@ var impacts: Array = []        # [{pos, life, max, color, radius}] 빔 임팩트
 var kill_pulse: float = 0.0    # 킬 순간 ENEMIES LEFT 헤드라인 펄스
 var pb_pop_t: float = -1.0     # PB 돌파 '순간' 버스트 타이머(방사광+스티커 팝인). <0=대기. (스티커 자체는 이후에도 상주)
 const PB_POP_DUR: float = 1.15 # 순간 버스트 길이(팝인·방사광). 스티커는 이 뒤로도 판 끝까지 붙어 있음.
-var pb_bg_mix: float = 0.0     # 넘음 배경 전환 0→1(부드럽게 이징, 판 종료까지 지속). 넘으면 플레이씬 배경이 '기록 구간' 색으로.
+var zone_index: int = 0        # 현재 절대점수 존(0=base·1~4·그 위 프리스티지). 전이 엣지로만 상승.
+var zone_mix: float = 0.0      # base→존색 존재감(존≥1서 1로 이징).
+var zone_col: Color = C_BG_PB  # 현재 존 배경색. 존 바뀌면 목표 존색으로 짧게 이징(전이 순간의 이산 스텝).
+var zone_trans_t: float = -1.0 # 존 전이 원샷 비트 타이머(링 + 배경 밝기 플래시). <0=대기.
+const ZONE_TRANS_DUR: float = 1.3
 var push_streaks: Array = []   # [{from, to, life, max}] 넉백 잔상
 var aim_marks: Array = []      # [{c, r}] 조준 프리뷰 링 — 들고 있는 조각 '위'에 최상단 오버레이로 그린다
 var rockets: Array = []        # [{dir, idx, t, dur, combo, ended}] 라인 따라 질주하는 로켓
@@ -465,6 +480,7 @@ var seen_types: Dictionary = {}  # etype -> 이미 콜아웃 봤나
 var anim_t: float = 0.0        # 깜빡임 등 연출용 누적 시간
 var red_flash: float = 0.0
 var shake_timer: float = 0.0
+var step_beat: float = 0.0     # >0이면 방금 스텝(전진)이 있었다 → stepped 적에 밝은 링 박자
 
 # 전투 순차 연출(resolve) — 배치→전진→클리어→빔→넉백→거점을 짧게 순서대로 재생
 var resolving: bool = false
@@ -648,9 +664,40 @@ func _save_campaign() -> void:
 func _add_endless_score(pts: int) -> void:
 	endless_score += pts
 	# 넘는 '순간'(not-beat → beat 엣지)에 원샷 1회 발화 — 이후 프레임은 이미 beat라 재발화 없음.
+	# ── PB 돌파(상대·정점) = 계단 위로 솟는 크레셴도(크라운 락+버스트). 존 전이보다 크게. ──
 	if endless_best > 0 and not endless_beat_best and endless_score > endless_best:
 		endless_beat_best = true
-		pb_pop_t = PB_POP_DUR   # 순간 버스트(방사광+스티커 팝인). 배경 전환은 pb_bg_mix가 이후 부드럽게.
+		pb_pop_t = PB_POP_DUR   # 순간 버스트(방사광+스티커 팝인).
+	# ── 절대점수 존(스펙터클·매판) = 계단. 존 오르는 '순간' 전이 비트(링+배경 플래시). 배경은 zone_col이 뒤따라 스텝. ──
+	var z: int = _zone_for(endless_score)
+	if z > zone_index:
+		zone_index = z
+		zone_trans_t = ZONE_TRANS_DUR
+
+# 존 틴트 — base(여백/상·하단 바)를 현재 존 배경색으로 lerp. 세 표면이 한 함수를 공유(C31: 값 두 곳 금지).
+#   전이 순간엔 존색을 쿨하게 살짝 밝혀(_zone_flash) 스텝을 주변부에서도 지각되게.
+func _zone_tint(base: Color) -> Color:
+	var c: Color = zone_col
+	var fl: float = _zone_flash()
+	if fl > 0.0:
+		c = c.lerp(Color(0.66, 0.72, 1.0), fl)
+	return base.lerp(c, zone_mix)
+
+# 절대점수 → 존 인덱스(0=base, 1~4, 그 위 프리스티지). 전이 엣지 감지와 배경 목표색이 공유.
+func _zone_for(sc: int) -> int:
+	var z: int = 0
+	for i in range(ZONE_SCORES.size()):
+		if sc >= int(ZONE_SCORES[i]):
+			z = i + 1
+	if z >= ZONE_SCORES.size():   # 천장 도달 → 프리스티지(간격 반복, 배경은 존4서 포화·전이 비트만 재발화)
+		var top: int = int(ZONE_SCORES[ZONE_SCORES.size() - 1])
+		z = ZONE_SCORES.size() + (sc - top) / PRESTIGE_STEP
+	return z
+
+# 현재 존의 배경 목표색(존4서 포화 — 프리스티지는 색 안 바뀌고 전이 비트만).
+func _zone_bg_target() -> Color:
+	var i: int = clampi(zone_index - 1, 0, ZONE_BG.size() - 1)
+	return ZONE_BG[i]
 
 # 선형 해금: 1스테이지는 항상 열려 있고, 그다음부턴 직전 스테이지를 깨야 열린다
 func _is_unlocked(i: int) -> bool:
@@ -784,6 +831,8 @@ func _init_game() -> void:
 	flash_label = ""
 	flash_lines = 0
 	flash_combo = 0
+	praise_t = 0.0
+	praise_combo = 0
 	clear_cells = []
 	clear_rows = []
 	clear_cols = []
@@ -800,7 +849,10 @@ func _init_game() -> void:
 	impacts = []
 	kill_pulse = 0.0
 	pb_pop_t = -1.0
-	pb_bg_mix = 0.0
+	zone_index = 0
+	zone_mix = 0.0
+	zone_col = C_BG_PB
+	zone_trans_t = -1.0
 	push_streaks = []
 	rockets = []
 	hitstop = 0.0
@@ -814,6 +866,7 @@ func _init_game() -> void:
 	flash_climax = false
 	surge_active = false
 	shake_timer = 0.0
+	step_beat = 0.0
 	dragging = false
 	drag_slot = -1
 	snapback = {}
@@ -1326,6 +1379,30 @@ func _line_label(l: int) -> String:
 		return _t("ll_mega")
 	return ""
 
+# 열(heat) 색 사다리 — 잔불 빨강 → 주황 → 금빛 → 백열. t=0..1(콤보·위치로 올림).
+#   삭제 줄이 '달아오르는' 색(레퍼런스 Block Blast: 삭제 라인이 무지개 열로 빛남 → 우린 어둡고 코지하게 따뜻한 쪽만).
+func _combo_heat(t: float) -> Color:
+	var u: float = clampf(t, 0.0, 1.0) * 3.0
+	if u < 1.0:
+		return Color(0.92, 0.28, 0.14).lerp(Color(1.0, 0.52, 0.14), u)
+	elif u < 2.0:
+		return Color(1.0, 0.52, 0.14).lerp(Color(1.0, 0.82, 0.22), u - 1.0)
+	return Color(1.0, 0.82, 0.22).lerp(Color(1.0, 1.0, 0.94), u - 2.0)
+
+# 콤보(연쇄) 칭찬 사다리 — 숫자 대신 점점 세지는 외침(Block Blast식). 색도 함께 달아오른다.
+#   콤보5+ = 전멸(CLIMAX)과 겹쳐 가장 큰 순간에 가장 센 단어가 실린다.
+func _combo_praise(c: int) -> Dictionary:
+	# 등급마다 확실히 다른 색 = 체감. 열 여정: 노랑→금→주황→핫레드→핑크→보라→청백 백열(초월).
+	#   저·중은 따뜻하게, 최고조(6+)에서만 핑크·보라·청백으로 넘어가 '특별함'을 색으로 못 박는다.
+	match c:
+		2: return {"text": "GOOD!", "col": Color(1.0, 0.88, 0.30)}       # 밝은 노랑
+		3: return {"text": "NICE!", "col": Color(1.0, 0.66, 0.14)}       # 금-주황
+		4: return {"text": "GREAT!", "col": Color(1.0, 0.44, 0.12)}      # 주황
+		5: return {"text": "PERFECT!", "col": Color(1.0, 0.26, 0.20)}    # 핫 레드(전멸 시작점)
+		6: return {"text": "STRONG!", "col": Color(1.0, 0.32, 0.60)}     # 핑크-마젠타
+		7: return {"text": "FANTASTIC!", "col": Color(0.70, 0.48, 1.0)}  # 보라
+	return {"text": "UNREAL!", "col": Color(0.52, 0.95, 1.0)}           # 청백 백열
+
 func _full_rows() -> Array:
 	var out: Array = []
 	for r in range(ROWS):
@@ -1513,19 +1590,31 @@ func _burst_lines() -> void:
 		board[cc.y][cc.x] = ""
 		var p: Vector2 = _cell_center(cc.x, cc.y)
 		cell_pops.append({"pos": p, "life": 0.16, "max": 0.16, "color": clear_tint})
-		for _n in range(3):
+		var dn: int = 3 + mini(flash_combo, 6)   # 콤보↑ = 축포 더 많이
+		for _n in range(dn):
 			var ang: float = randf() * TAU
-			var spd: float = randf_range(60.0, 170.0)
-			var life: float = randf_range(0.22, 0.40)
+			var spd: float = randf_range(60.0, 170.0 + float(mini(flash_combo, 8)) * 18.0)   # 콤보↑ = 더 멀리
+			var life: float = randf_range(0.22, 0.44)
+			# 저콤보 = 내 조각 색(폭발=내 결과 인과 유지) → 고콤보 = 따뜻한 열 색이 섞여 축하로 번진다
+			var dcol: Color = clear_tint.lerp(_combo_heat(randf()), clampf(float(flash_combo - 2) / 5.0, 0.0, 1.0))
 			debris.append({
 				"pos": p, "vel": Vector2(cos(ang), sin(ang)) * spd,
-				"life": life, "max": life, "color": clear_tint, "size": randf_range(4.0, 8.0),
+				"life": life, "max": life, "color": dcol, "size": randf_range(4.0, 9.0),
 			})
 	clear_cells = []
 	outline_timer = LINE_OUTLINE_DUR   # ④ 줄 자리에 남는 색 테두리 잔상
 	# 보상 텍스트(COMBO xN)와 섬광은 파괴 순간에. 파괴가 이제 한순간이라 겹치지 않는다.
 	flash_timer = FLASH_DUR
+	if flash_combo >= 2:                 # 칭찬 텍스트는 섬광보다 오래 산다(읽을 시간 확보)
+		praise_t = PRAISE_DUR
+		praise_combo = flash_combo
 	hitstop = maxf(hitstop, 0.05)
+	# 콤보 높으면 중앙에 황금 링 후광(전멸은 _fire_climax가 더 큰 링을 따로 쏘니 제외 = 꼭대기 구별).
+	if flash_combo >= 3 and not flash_climax:
+		var ctr: Vector2 = Vector2(BOARD_X + COLS * CELL * 0.5, board_y + ROWS * CELL * 0.5)
+		var rr: float = CELL * (0.6 + float(mini(flash_combo, 8)) * 0.3)
+		impacts.append({"pos": ctr, "life": 0.42, "max": 0.42,
+				"color": _combo_heat(clampf(float(flash_combo) / 8.0, 0.35, 1.0)), "radius": rr, "star": false})
 
 # 전멸(화면 전체 청소) 클라이맥스 — 보드 중앙에서 퍼지는 큰 충격파 + 히트스톱(셰이크·전체화면 섬광 없음)
 func _fire_climax() -> void:
@@ -1714,11 +1803,22 @@ func advance_step() -> void:
 	surge_active = director.is_surge_active(ctx)   # 렌더/텔레그래프도 읽는 Main 필드 → 스텝당 1회
 	ctx["surge_active"] = surge_active
 	# 전진 스로틀: step_every 배치마다 1칸. 서지 클램프(하한 2)는 director.effective_step_every가 캡슐화.
+	var any_advanced: bool = false
 	for e in enemies:
 		var base_step: int = e.get("step_every", director.hud_step_every())
 		var step_every: int = director.effective_step_every(base_step, ctx)
 		if place_count % step_every == 0:
 			e["row"] += 1
+			e["stepped"] = true          # 이번 스텝에 전진 → 박자 링
+			any_advanced = true
+		else:
+			e["stepped"] = false
+		# 예비동작 텔레그래프: 다음 배치에 이 적이 전진하나? (draw에서 못 부르는 effective_step_every를 여기서 확정)
+		e["warn_next"] = ((place_count + 1) % step_every == 0)
+	# 동시 행진 박자: 함께 내려온 순간을 소프트 쿵 + 링으로 못 박는다(코지 → 아주 살짝).
+	if any_advanced:
+		step_beat = STEP_BEAT_DUR
+		shake_timer = maxf(shake_timer, SHAKE_DUR * 0.35)
 
 	# 분열: gen0가 분열선(SPLIT_ROW)에 닿는 순간 갈라진다 — 죽여서가 아니라 너무 내려와서.
 	#   부모는 절반 HP로 남아 gen0(=웨이브 카운트 유지)이되 split_done으로 재분열 봉쇄, 인접 열에
@@ -2193,6 +2293,12 @@ func _input(event: InputEvent) -> void:
 		if pk.pressed and pk.keycode == KEY_ESCAPE:
 			mode = _home_mode()  # 플레이 중 포기 → 홈(허브)으로
 			return
+		# ⚠플테 전용 DEV: '9'키 = 점수 +10,000. PB 너머 심화(bf 3~6)를 자연 그라인드 없이 눈으로 보기 위함.
+		#   실제 _add_endless_score를 태워 넘김 엣지·발화·심화 파이프라인 그대로 재현. 출시 전 제거.
+		if pk.pressed and pk.keycode == KEY_9 and endless:
+			_add_endless_score(10000)
+			queue_redraw()
+			return
 
 	# resolve 재생 중에는 배치/선택 입력 정지 (연출 끝나면 자동 복귀)
 	if resolving:
@@ -2292,6 +2398,8 @@ func _process(delta: float) -> void:
 
 	if flash_timer > 0.0:
 		flash_timer = maxf(0.0, flash_timer - delta)
+	if praise_t > 0.0:
+		praise_t = maxf(0.0, praise_t - delta)
 	if outline_timer > 0.0:
 		outline_timer = maxf(0.0, outline_timer - delta)
 	if red_flash > 0.0:
@@ -2397,10 +2505,17 @@ func _process(delta: float) -> void:
 		im -= 1
 	if kill_pulse > 0.0:
 		kill_pulse = maxf(0.0, kill_pulse - delta)
+	if step_beat > 0.0:
+		step_beat = maxf(0.0, step_beat - delta)
 	if pb_pop_t >= 0.0:
 		pb_pop_t = maxf(-1.0, pb_pop_t - delta)   # 0 밑으로 떨어지면 대기(-1)로
-	# 넘음 배경 전환 — beat면 1로, 아니면 0으로 0.6초에 걸쳐 이징(판 끝까지 지속). 죽음 연출 중엔 얼리지 않음.
-	pb_bg_mix = move_toward(pb_bg_mix, 1.0 if endless_beat_best else 0.0, delta / 0.6)
+	# 절대점수 존 배경 — 존별 이산 밤하늘. 존≥1이면 존재감(zone_mix)→1, 존색은 목표 존색으로 짧게 이징(전이 순간의 스텝).
+	#   전이는 zone_index가 _add_endless_score에서 엣지로 올라갈 때 발화(zone_trans_t). 여긴 색만 따라감.
+	zone_mix = move_toward(zone_mix, 1.0 if zone_index >= 1 else 0.0, delta / 0.5)
+	if zone_index >= 1:
+		zone_col = zone_col.lerp(_zone_bg_target(), clampf(delta / 0.4, 0.0, 1.0))
+	if zone_trans_t >= 0.0:
+		zone_trans_t = maxf(-1.0, zone_trans_t - delta)
 	# 적 flinch 감쇠 + 전진/넉백 표시(vis_row) 부드럽게 이징
 	for e in enemies:
 		if e.get("flinch", 0.0) > 0.0:
@@ -2445,7 +2560,7 @@ func _draw() -> void:
 	# 넘음 배경(여백) — 개인기록 넘으면 warm 플럼으로 solid 전환(pb_bg_mix 이징, 판 끝까지). 상·하단 바·셀도 같은
 	#   방식으로 함께 전환(아래) → 화면 전체가 한 색으로 통일 + 반투명 veil 없어 haze 0. 어둠 유지로 대비 보존.
 	#   폭·높이는 반응형(VW_BASE 고정폭 + vh)이라 긴 폰에서도 여백이 남지 않는다.
-	draw_rect(Rect2(-20, -20, VW_BASE + 40.0, vh + 40.0), C_BG.lerp(C_BG_PB, pb_bg_mix))
+	draw_rect(Rect2(-20, -20, VW_BASE + 40.0, vh + 40.0), _zone_tint(C_BG))
 
 	_draw_hud(fnt)
 	_draw_board(fnt)
@@ -2534,22 +2649,27 @@ func _draw() -> void:
 	if flash_timer > 0.0:
 		var t: float = flash_timer / FLASH_DUR
 		# 콤보↑ = 더 밝고 뜨거운 섬광(흰색→따뜻한 주황)
-		var fint: float = 0.14 + 0.05 * float(mini(flash_combo, 6))
-		var fcol: Color = Color(1.0, 1.0, 1.0).lerp(Color(1.0, 0.68, 0.28), clampf(float(flash_combo - 2) / 5.0, 0.0, 1.0))
+		var fint: float = 0.14 + 0.045 * float(mini(flash_combo, 8))
+		var fcol: Color = Color(1.0, 1.0, 1.0).lerp(Color(1.0, 0.66, 0.26), clampf(float(flash_combo - 2) / 5.0, 0.0, 1.0))
 		draw_rect(Rect2(0, 0, VW_BASE, vh), Color(fcol.r, fcol.g, fcol.b, t * fint))
-		if flash_combo >= 2:
-			var cs: String = _t("combo_flash") % flash_combo
-			var cbase: int = 44 + mini(flash_combo, 8) * 8
-			var csz: int = cbase + int(t * 14.0)
-			var cw: float = fnt.get_string_size(cs, HORIZONTAL_ALIGNMENT_LEFT, -1, csz).x
-			var hot: float = clampf(float(flash_combo - 2) / 6.0, 0.0, 1.0)   # 콤보↑ = 골드→핫오렌지
-			var ccol: Color = Color(1.0, 0.82, 0.1, t).lerp(Color(1.0, 0.4, 0.08, t), hot)
-			_draw_text_outlined(fnt, Vector2(400.0 - cw * 0.5, 402.0), cs, csz, ccol)
 		if flash_label != "":
 			var ls: int = 96 if flash_climax else 40 + flash_lines * 6
 			var lcol: Color = Color(1.0, 0.95, 0.5, t) if flash_climax else Color(1.0, 0.85, 0.1, t)
 			var lw: float = fnt.get_string_size(flash_label, HORIZONTAL_ALIGNMENT_LEFT, -1, ls).x
 			_draw_text_outlined(fnt, Vector2(400.0 - lw * 0.5, 458.0), flash_label, ls, lcol)
+
+	# 칭찬 텍스트 — 섬광과 분리된 전용 타이머. 팍 등장(작게→큼) → 유지(풀 알파) → 페이드. 오래 읽힌다.
+	if praise_t > 0.0 and praise_combo >= 2:
+		var r: float = praise_t / PRAISE_DUR                     # 1→0
+		var pa: float = clampf(r / 0.32, 0.0, 1.0)               # 앞 68% 풀 알파 → 뒤 32%만 페이드
+		var appear: float = clampf((1.0 - r) * 7.0, 0.0, 1.0)    # 등장 팝(앞 ~14%): 작게 튀어나옴
+		var pr: Dictionary = _combo_praise(praise_combo)
+		var cs: String = pr["text"]
+		var base_sz: int = 46 + mini(praise_combo, 8) * 8
+		var csz: int = int(float(base_sz) * (0.72 + 0.28 * appear))
+		var cw: float = fnt.get_string_size(cs, HORIZONTAL_ALIGNMENT_LEFT, -1, csz).x
+		var pcol: Color = pr["col"]
+		_draw_text_outlined(fnt, Vector2(400.0 - cw * 0.5, 402.0), cs, csz, Color(pcol.r, pcol.g, pcol.b, pa))
 
 	# 첫 등장 콜아웃 배너 (상단-중앙, 보드 위에 얹힘)
 	if callout_timer > 0.0 and not game_over and not game_clear:
@@ -2585,11 +2705,40 @@ func _draw() -> void:
 			cpos + Vector2(-hw * ca - hh * sa, -hw * sa + hh * ca),
 		]), col)
 
+	# 존 전이 비트(계단) — PB 크레셴도 '아래'에 먼저 그려 PB가 위로 솟게(위계: 존 전이 < PB 돌파).
+	if zone_trans_t >= 0.0:
+		_draw_zone_trans()
 	# PB 돌파 — 순간 버스트(방사광+링, 1회)는 pb_pop_t 창에서만. 스티커는 넘은 뒤 판 끝까지 상주(계속 갱신 중).
 	if pb_pop_t >= 0.0:
 		_draw_pb_burst()
 	if endless_beat_best:
 		_draw_pb_sticker(fnt)   # 버스트 위(최상단 헤드라인)
+
+# 존 전이 원샷(계단 비트) — 점수 카드에서 부드러운 링(존색 쿨). 배경 밝기 플래시(_zone_flash)와 한 쌍.
+#   숫자는 안 띄운다(라이브 점수 카드와 중복). PB 버스트보다 작게 = 위계. 코지(셰이크·흰섬광 없음). 전부 오버레이.
+func _draw_zone_trans() -> void:
+	var p: float = clampf(1.0 - zone_trans_t / ZONE_TRANS_DUR, 0.0, 1.0)   # 0→1
+	var cc: Vector2 = Vector2(293.0, 56.0)   # 점수 카드 중심
+	var a: float = 1.0
+	if p < 0.06:
+		a = p / 0.06
+	elif p > 0.55:
+		a = clampf((1.0 - p) / 0.45, 0.0, 1.0)
+	var ring: Color = zone_col.lerp(Color(0.72, 0.8, 1.0), 0.6)   # 존색+쿨 살짝
+	for k in range(2):
+		var rr: float = clampf((p - float(k) * 0.12) / 0.55, 0.0, 1.0)
+		if rr <= 0.0 or rr >= 1.0:
+			continue
+		draw_arc(cc, lerp(20.0, 92.0 + float(k) * 18.0, rr), 0.0, TAU, 40,
+				Color(ring.r, ring.g, ring.b, a * (1.0 - rr) * 0.5), 2.5)
+
+# 전이 순간 배경 밝기 플래시 계수(0~) — 존 넘는 초반 0.3s만 쿨하게 밝아졌다 사그라듦.
+#   여백·상하단바가 한 박자 '휙' 밝아지며 새 존색으로 정착 = 이산 스텝이 주변부에서도 확실히 지각됨.
+func _zone_flash() -> float:
+	if zone_trans_t < 0.0:
+		return 0.0
+	var p: float = 1.0 - zone_trans_t / ZONE_TRANS_DUR
+	return clampf(1.0 - p / 0.3, 0.0, 1.0) * 0.22
 
 # PB 돌파 순간 버스트 — 방사광+shockwave 링(1회). 시선을 '점수' 카드로 끌어당긴다. 전부 오버레이(기본 UI 무간섭).
 func _draw_pb_burst() -> void:
@@ -3526,9 +3675,9 @@ func _draw_enemy_icon(center: Vector2, s: float) -> void:
 		draw_rect(Rect2(tx - s * 0.015, cy + s * 0.22, s * 0.03, s * 0.16), dark)
 
 func _draw_hud(fnt: Font) -> void:
-	# 띠는 노치를 덮도록 safe_top만큼 두껍게, 내용은 그만큼 아래에서 시작(sy).
+	# 띠는 노치를 덮도록 safe_top만큼 두껍게, 내용은 그만큼 아래에서 시작(sy). 색은 밤하늘 존색으로(C75).
 	var sy: float = safe_top
-	draw_rect(Rect2(0, 0, 800, 144.0 + sy), C_HUD.lerp(C_BG_PB, pb_bg_mix))   # 넘음: 상단 바도 여백과 '같은' warm 플럼으로(통일)
+	draw_rect(Rect2(0, 0, 800, 144.0 + sy), _zone_tint(C_HUD))   # 존: 상단 바도 여백과 '같은' 존색으로(통일)
 	# CORE HP는 보드 하단 방어선(_draw_core)에만 표시 — 상단 중복 제거.
 	# 콤보 상시 카운터는 카드 아래에 그린다(아래 참조) — 노치·기어 다툼과 위계 반대를 피해.
 
@@ -3741,9 +3890,14 @@ func _draw_board(fnt: Font) -> void:
 		var cc: Vector2i = ci2 as Vector2i
 		var cx0: float = BOARD_X + cc.x * CELL
 		var cy0: float = board_y + cc.y * CELL
-		var bcol: Color = _color_of(board[cc.y][cc.x]).lerp(clear_tint, clampf(chg / CHARGE_TINT, 0.0, 1.0))
+		# 삭제 줄이 '달아오른다' — 콤보 따라 열 색이 오르고(금빛→백열), 줄을 따라 그라디언트로 흐른다.
+		var gpos: float = float(cc.x + cc.y) / float(COLS + ROWS - 2)   # 대각 스윕 좌표
+		# 바닥을 따뜻한 주황에서 시작(저콤보도 칙칙하지 않게) → 콤보·위치로 금빛~백열까지.
+		var heat_t: float = 0.32 + gpos * 0.33 + float(mini(combo, 8)) / 8.0 * 0.35 + sin(anim_t * 6.0) * 0.04
+		var bcol: Color = _color_of(board[cc.y][cc.x]).lerp(_combo_heat(heat_t), clampf(chg / CHARGE_TINT, 0.0, 1.0))
 		var hot: float = clampf((chg - CHARGE_TINT) / (1.0 - CHARGE_TINT), 0.0, 1.0)
-		bcol = bcol.lerp(Color(1.0, 1.0, 1.0), hot * 0.75)
+		var white_amt: float = 0.5 + 0.4 * float(mini(combo, 8)) / 8.0   # 콤보↑ = 더 하얗게 달아오름
+		bcol = bcol.lerp(Color(1.0, 1.0, 1.0), hot * white_amt)
 		var bsz: float = (CELL - bpad * 2.0) * (1.0 + 0.22 * chg)
 		var boff: float = (CELL - bsz) * 0.5
 		draw_rect(Rect2(cx0 + boff, cy0 + boff, bsz, bsz), bcol)
@@ -3883,9 +4037,18 @@ func _draw_board(fnt: Font) -> void:
 			jit = Vector2(randf_range(-jm, jm), randf_range(-jm, jm))
 		# 표시 y는 vis_row(부드러운 이징) — 전진/넉백이 스르륵
 		var vr: float = e.get("vis_row", float(er))
+		# 예비동작: 다음 배치에 전진할 적은 다음 칸 쪽으로 살짝 힘줘 기운다("곧 내려온다").
+		#   신호를 구석 카드가 아니라 적 위에 얹는다([[signal-layer-above-occluders]]·[[hud-signal-by-color-not-text]]).
+		var warn_next: bool = bool(e.get("warn_next", false))
+		var bob: float = (0.5 + 0.5 * sin(anim_t * 5.0)) * CELL * 0.09 if warn_next else 0.0
 		var cx: float = BOARD_X + ec * CELL + CELL * 0.5 + jit.x
 		# 몸통은 셀 중심보다 E_BODY_DY 아래 — 위쪽은 HP 게이지 자리다(_enemy_pos와 같은 셈).
-		var cy: float = board_y + vr * CELL + CELL * 0.5 + E_BODY_DY + jit.y
+		var cy: float = board_y + vr * CELL + CELL * 0.5 + E_BODY_DY + jit.y + bob
+		# 밟고 들어올 다음 칸을 붉게 예고(임박 카드와 같은 색 언어). 정확히 그 적이 갈 자리 = 예측 가능.
+		if warn_next and er + 1 < ROWS:
+			var wp: float = 0.30 + 0.35 * sin(anim_t * 5.0)
+			draw_rect(Rect2(BOARD_X + ec * CELL, board_y + (er + 1) * CELL, CELL, CELL),
+					Color(0.9, 0.35, 0.3, wp), false, 2.5)
 		var ratio: float = clampf(float(e["hp"]) / float(e["maxhp"]), 0.0, 1.0)
 		var etype: String = e["etype"]
 		# 몸통은 셀을 꽉 채운다 — 게이지가 상시로 없으니 자리를 양보할 이유가 없다(C41 복원).
@@ -3974,6 +4137,10 @@ func _draw_board(fnt: Font) -> void:
 				var bcol: Color = C_E_BASIC.lerp(Color(0.30, 0.10, 0.48), 1.0 - ratio)
 				draw_circle(Vector2(cx, cy), rad, bcol)
 				draw_circle(Vector2(cx, cy), rad, C_E_RIM, false, C_E_RIM_W)
+		# 스텝 박자: 방금 함께 전진한 적들이 짧게 밝은 링으로 "동시에 행진했다"를 못 박는다.
+		if step_beat > 0.0 and bool(e.get("stepped", false)):
+			var ba: float = step_beat / STEP_BEAT_DUR
+			draw_circle(Vector2(cx, cy), rad + 3.0, Color(1.0, 0.92, 0.7, 0.85 * ba), false, 3.0)
 		# 피격 흰 플래시 오버레이 (맞은 순간 강조)
 		if flinch > 0.0:
 			draw_circle(Vector2(cx, cy), rad, Color(1.0, 1.0, 1.0, 0.7 * clampf(flinch / 0.22, 0.0, 1.0)))
@@ -4139,7 +4306,7 @@ func _draw_collapse() -> void:
 					CELL - bpad * 2.0, CELL - bpad * 2.0), _color_of(board[r][c]))
 
 func _draw_bottom(fnt: Font) -> void:
-	draw_rect(Rect2(0, bot_y, VW_BASE, vh - float(bot_y)), C_HUD.lerp(C_BG_PB, pb_bg_mix))   # 넘음: 하단 바도 여백과 '같은' warm 플럼으로(통일)
+	draw_rect(Rect2(0, bot_y, VW_BASE, vh - float(bot_y)), _zone_tint(C_HUD))   # 존: 하단 바도 여백과 '같은' 존색으로(통일)
 
 	# 3슬롯 트레이
 	for i in range(3):
