@@ -2819,10 +2819,15 @@ func _revive() -> void:
 	else:
 		# 거점 파괴 = 밀물에 밀려 죽었다 → 거점에 임박한 하단 3줄 적만 걷어낸다(즉사 위협 제거).
 		#   위쪽 적은 유지 = 이어하는 밀물(전멸은 너무 관대 + '새 판' 느낌). 보드는 자산이라 유지.
+		# ⚠걷어낸 gen0는 spawned에서 되돌린다 — 안 그러면 웨이브 회계(spawned==killed+leaked+onboard)가
+		#   깨져, spawned가 total에 닿는 순간 스폰 캡이 걸려 '보드 비었는데 새 적 안 옴 + 남은 N 고정'
+		#   소프트락이 된다(부활로 걷어낸 수만큼 remaining이 영영 안 줄어듦). 되돌리면 그만큼 다시 밀려온다.
 		var kept: Array = []
 		for e in enemies:
 			if int(e["row"]) < ROWS - REVIVE_CLEAR_ROWS:
 				kept.append(e)
+			elif int(e.get("gen", 0)) == 0:
+				spawned = maxi(0, spawned - 1)   # 웨이브로 환원(gen1 쌍둥이는 spawned 밖 → 제외)
 		enemies = kept
 	_cont_hover = false
 
