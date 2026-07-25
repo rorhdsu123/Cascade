@@ -1723,10 +1723,32 @@ func _burst_lines() -> void:
 # 전멸(화면 전체 청소) 클라이맥스 — 보드 중앙에서 퍼지는 큰 충격파 + 히트스톱(셰이크·전체화면 섬광 없음)
 func _fire_climax() -> void:
 	var ctr: Vector2 = Vector2(BOARD_X + COLS * CELL * 0.5, board_y + ROWS * CELL * 0.5)
-	hitstop = maxf(hitstop, 0.12)
-	impacts.append({"pos": ctr, "life": 1.0, "max": 1.0, "color": Color(1.0, 0.97, 0.65), "radius": CELL * 1.6, "star": true})
-	impacts.append({"pos": ctr, "life": 0.85, "max": 0.85, "color": Color(1.0, 0.82, 0.32), "radius": CELL * 2.8, "star": false})
-	impacts.append({"pos": ctr, "life": 0.7, "max": 0.7, "color": Color(1.0, 1.0, 0.92), "radius": CELL * 3.8, "star": false})
+	hitstop = maxf(hitstop, 0.14)   # 멈칫→릴리스가 '팍'의 절반. 살짝 강화.
+	# '한 방' 펀치(C90 D 튜닝) — 잔잔한 확장 링(파동)을 없애고, 순간 밝은 플래시 + 전부 동시 폭발 + 빠르게 사그라듦.
+	#   전역 randf = 연출 스트림(game_rng 무관 → 회귀 무영향).
+	# 중앙: 채워진 순간 플래시(확장 링 아님) — 확 떴다 즉시 꺼짐.
+	impacts.append({"pos": ctr, "life": 0.18, "max": 0.18, "color": Color(1.0, 1.0, 0.92), "radius": CELL * 1.5, "flash": true})
+	var warm: Array = [Color(1.0, 0.85, 0.35), Color(1.0, 0.5, 0.62), Color(0.68, 0.85, 1.0), Color(1.0, 0.95, 0.6), Color(0.8, 0.7, 1.0), Color(0.55, 0.95, 0.7)]
+	var bl: float = float(BOARD_X)
+	var bt: float = float(board_y)
+	var bwd: float = float(COLS * CELL)
+	var bht: float = float(ROWS * CELL)
+	# 산개 불꽃 6발 — 전부 '동시', 각 점 = 채워진 플래시 + 빠른 방사 스파크. 링 없음 = 파동 없음, 한 방.
+	for i in range(6):
+		var fp: Vector2 = Vector2(bl + randf_range(CELL * 0.7, bwd - CELL * 0.7), bt + randf_range(CELL * 0.7, bht - CELL * 0.7))
+		var fcol: Color = warm[i % warm.size()]
+		impacts.append({"pos": fp, "life": 0.15, "max": 0.15, "color": fcol, "radius": CELL * 0.5, "flash": true})   # 채워진 플래시(링 아님)
+		var spk: int = 20 + (randi() % 5)
+		for s in range(spk):
+			var ang: float = randf() * TAU
+			var spd: float = randf_range(320.0, 620.0)   # 빠르게 확 퍼짐
+			var dl: float = randf_range(0.26, 0.44)       # 짧게 = 여운 안 남김
+			debris.append({"pos": fp, "vel": Vector2(cos(ang), sin(ang)) * spd, "life": dl, "max": dl, "color": fcol, "size": randf_range(4.0, 8.5)})
+	# 판 전역 앰비언트 스파클 — 작은 별(트윙클), 짧고 거의 동시.
+	for j in range(12):
+		var sp: Vector2 = Vector2(bl + randf_range(0.0, bwd), bt + randf_range(0.0, bht))
+		var sl: float = randf_range(0.14, 0.26)
+		impacts.append({"pos": sp, "life": sl, "max": sl, "color": Color(1.0, 1.0, 0.85), "radius": CELL * randf_range(0.08, 0.14), "star": true, "delay": randf_range(0.0, 0.12)})
 
 # 예약된 한 hit를 실제 반영 (그 시점에 데미지·floater·사망/넉백)
 func _apply_hit(h: Dictionary) -> void:
@@ -2580,6 +2602,16 @@ func _input(event: InputEvent) -> void:
 			_add_endless_score(10000)
 			queue_redraw()
 			return
+		# ⚠플테 전용 DEV: '8'키 = 콤보5 전멸 '전체 시퀀스' 강제(충전→순차파괴→로켓→적 피격→충격파+산개불꽃→적 전진).
+		#   바닥 위 한 줄을 채우고 combo=5로 실제 _begin_resolve를 태운다 = 진짜 전멸 그대로. 출시 전 제거.
+		if pk.pressed and pk.keycode == KEY_8 and not resolving:
+			var dev_row: int = ROWS - 2
+			for dev_c in range(COLS):
+				board[dev_row][dev_c] = COLORS[dev_c % COLORS.size()]
+			last_color = COLORS[0]
+			combo = 5
+			_begin_resolve([dev_row], [])
+			return
 
 	# resolve 재생 중에는 배치/선택 입력 정지 (연출 끝나면 자동 복귀)
 	if resolving:
@@ -2821,9 +2853,12 @@ func _process(delta: float) -> void:
 	# 임팩트/막음 링 감쇠
 	var im: int = impacts.size() - 1
 	while im >= 0:
-		impacts[im]["life"] -= delta
-		if impacts[im]["life"] <= 0.0:
-			impacts.remove_at(im)
+		if impacts[im].get("delay", 0.0) > 0.0:
+			impacts[im]["delay"] -= delta          # 시차 발화(C90 산개 불꽃) — delay 소진 전엔 아직 안 태어남
+		else:
+			impacts[im]["life"] -= delta
+			if impacts[im]["life"] <= 0.0:
+				impacts.remove_at(im)
 		im -= 1
 	if kill_pulse > 0.0:
 		kill_pulse = maxf(0.0, kill_pulse - delta)
@@ -2958,7 +2993,15 @@ func _draw() -> void:
 
 	# 타격 임팩트 (팽창 링 + 별 버스트 마크) / 탱크 막음 링
 	for imp in impacts:
+		if imp.get("delay", 0.0) > 0.0:
+			continue                               # 시차 발화 대기 중 — 아직 안 그림
 		var ip: float = clampf(imp["life"] / imp["max"], 0.0, 1.0)
+		if imp.get("flash", false):
+			# 채워진 순간 플래시(C90) — 확장 링(파동) 아님. 밝게 떴다 빠르게 꺼짐 = '팍'.
+			var fc: Color = imp["color"]
+			fc.a = ip * ip                         # 제곱 페이드(초반 밝고 끝 빠르게)
+			draw_circle(imp["pos"], imp["radius"] * (0.85 + (1.0 - ip) * 0.25), fc)
+			continue
 		var irr: float = imp["radius"] * (1.0 + (1.0 - ip) * 0.9)
 		var icol: Color = imp["color"]
 		icol.a = ip
