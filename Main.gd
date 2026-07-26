@@ -483,8 +483,7 @@ var click_mode: bool = false
 
 # 연출 타이머
 var flash_timer: float = 0.0
-var flash_label: String = ""
-var flash_lines: int = 0
+var flash_lines: int = 0             # 이번 클리어 줄 수 — 점수 계산용(라벨 아님)
 var flash_combo: int = 0
 var flash_climax: bool = false      # 화면 전체 도달(전멸) — 라벨 강조용
 var praise_t: float = 0.0           # 칭찬 텍스트 전용 타이머(섬광과 분리 = 오래 읽힘)
@@ -902,7 +901,6 @@ func _init_game() -> void:
 	revive_used = false
 	stuck = false
 	flash_timer = 0.0
-	flash_label = ""
 	flash_lines = 0
 	flash_combo = 0
 	praise_t = 0.0
@@ -1450,18 +1448,6 @@ func _simul_mult(l: int) -> float:
 func _streak_mult(streak: int) -> float:
 	return 1.0 + STREAK_STEP * float(streak - 1)
 
-func _line_label(l: int) -> String:
-	match l:
-		2:
-			return _t("ll_double")
-		3:
-			return _t("ll_triple")
-		4:
-			return _t("ll_tetris")
-	if l >= 5:
-		return _t("ll_mega")
-	return ""
-
 # 열(heat) 색 사다리 — 잔불 빨강 → 주황 → 금빛 → 백열. t=0..1(콤보·위치로 올림).
 #   삭제 줄이 '달아오르는' 색(레퍼런스 Block Blast: 삭제 라인이 무지개 열로 빛남 → 우린 어둡고 코지하게 따뜻한 쪽만).
 func _combo_heat(t: float) -> Color:
@@ -1654,13 +1640,12 @@ func _begin_resolve(rows: Array, cols: Array) -> void:
 		blast_len = clampf(maxf(max_at + 0.28, visual_end), fire_t + 0.30, fire_t + 3.2)
 		if full_board:
 			blast_len = maxf(blast_len, fire_t + 1.35)   # 전멸은 세계 이동 전에 충격파가 충분히 breathe
-		# COMBO xN 라벨용 (중앙 큰 숫자는 제거, 라벨만).
+		# 점수·콤보 연출 입력값(중앙 텍스트는 콤보 칭찬어 하나만 — 줄수 라벨 double/triple은 폐기, C90).
 		# flash_timer는 여기서 켜지 않는다 — 블록이 실제로 소멸하는 순간(_burst_lines)에 켠다.
 		# 충전 중에 미리 번쩍이면 원인 없는 섬광이 된다.
 		flash_lines = l
 		flash_combo = combo
 		flash_climax = full_board
-		flash_label = "" if full_board else _line_label(l)   # 전멸은 텍스트 없이 연출만
 
 	# 공격만 재생. 적 이동·누수·스폰은 시퀀스가 끝난 뒤 _end_turn에서.
 	resolve_total = blast_len
@@ -3026,11 +3011,6 @@ func _draw() -> void:
 		var fint: float = 0.14 + 0.045 * float(mini(flash_combo, 8))
 		var fcol: Color = Color(1.0, 1.0, 1.0).lerp(Color(1.0, 0.66, 0.26), clampf(float(flash_combo - 2) / 5.0, 0.0, 1.0))
 		draw_rect(Rect2(0, 0, VW_BASE, vh), Color(fcol.r, fcol.g, fcol.b, t * fint))
-		if flash_label != "":
-			var ls: int = 96 if flash_climax else 40 + flash_lines * 6
-			var lcol: Color = Color(1.0, 0.95, 0.5, t) if flash_climax else Color(1.0, 0.85, 0.1, t)
-			var lw: float = fnt.get_string_size(flash_label, HORIZONTAL_ALIGNMENT_LEFT, -1, ls).x
-			_draw_text_outlined(fnt, Vector2(400.0 - lw * 0.5, 458.0), flash_label, ls, lcol)
 
 	# 칭찬 텍스트 — 섬광과 분리된 전용 타이머. 팍 등장(작게→큼) → 유지(풀 알파) → 페이드. 오래 읽힌다.
 	if praise_t > 0.0 and praise_combo >= 2:
