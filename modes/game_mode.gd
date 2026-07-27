@@ -29,6 +29,28 @@ func enemy_hp(_etype: String, _spawn_index: int, _ctx: Dictionary = {}) -> int:
 func enemy_step(_etype: String) -> int:
 	return 1
 
+# 폭탄 설정 — 베이스는 무해 기본값(StageMode만 st에서 실값). bomb_dmg=1이면 일반 누수와 동일(안전).
+func bomb_fuse() -> int:
+	return 6
+
+func bomb_dmg() -> int:
+	return 1
+
+func bomb_junk() -> int:
+	return 0
+
+func bomb_chain() -> bool:
+	return false
+
+# 도둑(Protect) 설정 — 베이스는 무해 기본값(StageMode만 st에서 실값).
+# steal_amount=한 번 훔칠 때 금고 감소량. thief_carry_step=물고 도망칠 때 전진 주기(0=하강과 동일).
+#   R1은 carry_step을 크게(느리게) 잡아 회수를 쉽게 = 안전 학습.
+func steal_amount() -> int:
+	return 1
+
+func thief_carry_step() -> int:
+	return 0   # 0 = 하강 주기와 동일(도망 속도 = 접근 속도)
+
 # DDA(동적 난이도) 허용? 기본 = false(무한꼴: 랭크 공정성). StageMode만 true(캠페인 구제).
 func allows_dda() -> bool:
 	return false

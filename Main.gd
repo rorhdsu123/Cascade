@@ -14,9 +14,12 @@ const HUD_H: float = 144.0      # 상단 HUD 띠 높이(상단 고정)
 const TRAY_PANEL_H: float = 300.0  # 하단 트레이 패널 높이(하단 고정) = 원본 1000-700
 const CORE_BLOCK_H: float = 758.0  # 보드(720=ROWS*CELL)+거점 띠(strip 32+여백 6) = board_y부터 tray까지 확보할 세로
 
-# 적 타입 (basic/fast/tank/swarm/split)
-# ⚠split은 반드시 배열 끝 — pick_etype iteration 순서가 회귀 시드에 물려 있다(끝+weight0 = 무영향).
-const ENEMY_TYPES: Array = ["basic", "fast", "tank", "swarm", "split"]
+# 적 타입 (basic/fast/tank/swarm/split/bomb/thief)
+# ⚠신규 타입은 반드시 배열 끝 — pick_etype iteration 순서가 회귀 시드에 물려 있다(끝+weight0/키없음 = 무영향).
+#   bomb=Defuse 동사(점화 적, 도화선=남은 배치 수, 0이면 제자리 폭발로 거점 큰 피해). 걷어내면 해체=깨끗한 승리 길.
+#   thief=Protect 동사(도둑). 거점 도달 시 거점을 안 때리고 금고(vault)서 훔쳐 되돌아 위로 도망 → 위로 탈출 시 영구 손실.
+#     뺏기 전 처치=완전 저지 · 물고 도망칠 때 처치=회수(금고로 되돌림). 금고 0이면 패(거점사와 별개 상실축).
+const ENEMY_TYPES: Array = ["basic", "fast", "tank", "swarm", "split", "bomb", "thief"]
 # 분열 자식 HP = 부모 maxhp × 이 비율(결정적 — randi 안 씀). 손자 없음(gen1은 안 쪼개짐).
 const SPLIT_CHILD_FRAC: float = 0.5
 # 분열선: gen0가 이 행에 닿으면 '죽여서'가 아니라 '너무 내려와서' 저절로 쪼개진다.
@@ -160,6 +163,16 @@ const STAGES: Array = [
 		"spawn_every": 3, "step_every": 3, "onboard": 3, "floor": 2, "surge_at": 0.0,
 		"weights": {"basic": 50, "fast": 50, "tank": 0, "swarm": 0, "split": 0}, "pool": POOL_STD,
 	},
+	# ── Defuse R1 도입(S6): 코어 방어(S1~4)+수집(S5) 배운 직후 새 동사. 격리(basic↔bomb)라 난이도가 전적으로 새 기전에서. ──
+	# 점화 적(bomb)이 도화선(bomb_fuse=남은 배치 수)을 달고 온다. 0이 되기 전에 걷어내면 해체(깨끗한 처치),
+	#   놓치면 제자리서 터져 거점 bomb_dmg 피해(일반 누수 -1보다 큼) = 데드라인 위협. 새 결정 = "이 라인을 폭탄에 쓸까".
+	# 격리 도입(basic↔bomb만) = 난이도가 전적으로 새 기전에서(split 도입판 S7과 동형). core_hp 4 = 한두 번 실수 여유.
+	{
+		"name": "st11_name", "tag": "st11_tag", "bomb_fuse": 8, "bomb_dmg": 2,
+		"total": 26, "core_hp": 6, "base_hp": 30, "hp_ramp": 0.2, "tank_mult": 2.5,
+		"spawn_every": 3, "step_every": 3, "onboard": 3, "floor": 2, "surge_at": 0.80,
+		"weights": {"basic": 85, "bomb": 15}, "pool": POOL_STD,
+	},
 	{
 		# tank HP를 콤보3(240) 구간에 앉힌다: base 44~50 × 4.5 = 198~227 → 콤보2(180)로는 안 뚫림.
 		"name": "st5_name", "tag": "st5_tag",
@@ -207,6 +220,40 @@ const STAGES: Array = [
 		"total": 300, "core_hp": 3, "base_hp": 32, "hp_ramp": 0.2, "tank_mult": 3.0,
 		"spawn_every": 3, "step_every": 3, "onboard": 2, "floor": 2, "surge_at": 0.0,
 		"weights": {"basic": 45, "fast": 40, "tank": 15, "swarm": 0, "split": 0}, "pool": POOL_STD,
+	},
+	# ── Defuse R2: 통합 + 트리아지 — 폭탄이 방어 로스터(속공·무리)와 섞이고 밀도↑로 가끔 두 폭탄이 동시에 탄다. ──
+	#   새 결정: ①클리어를 폭탄에 쓸까 밀려오는 적에 쓸까(위협 경제 합류) ②둘 다 못 잡을 때 어느 폭탄부터(트리아지).
+	#   격리(R1)보다 fuse 조이고(7) spawn_every 2로 동시성↑. 2번째 rung이라 목표 승률 R1(71%)보다 낮게(~55%).
+	{
+		"name": "st12_name", "tag": "st12_tag", "bomb_fuse": 8, "bomb_dmg": 2,
+		"total": 32, "core_hp": 6, "base_hp": 30, "hp_ramp": 0.25, "tank_mult": 2.5,
+		"spawn_every": 2, "step_every": 3, "onboard": 3, "floor": 3, "surge_at": 0.80,
+		"weights": {"basic": 47, "fast": 20, "swarm": 15, "bomb": 18}, "pool": POOL_STD,
+	},
+	# ── Defuse R3: 연쇄 폭탄(bomb_chain) — 하나가 터지면 인접 폭탄(8방)도 도미노 폭발, HP 벌 합산 = 큰 한 방. ──
+	#   새 결정: R1(제때 닿나)·R2(어느 걸 먼저)와 달리, "연쇄를 끊는 linchpin(임박한 하나)을 먼저 해체해 도미노를 막아라".
+	#   폭탄 밀도↑(뭉쳐서 연쇄 성립)·spawn_every 2로 인접 유도. 연쇄가 -HP를 곱하니 core_hp 여유(연쇄 못 끊으면 급사).
+	{
+		"name": "st13_name", "tag": "st13_tag", "bomb_fuse": 8, "bomb_dmg": 2, "bomb_chain": true,
+		"total": 32, "core_hp": 7, "base_hp": 30, "hp_ramp": 0.2, "tank_mult": 2.5,
+		"spawn_every": 2, "step_every": 3, "onboard": 3, "floor": 3, "surge_at": 0.80,
+		"weights": {"basic": 62, "bomb": 38}, "pool": POOL_STD,
+	},
+	# ── Protect R1 도입: 도둑(thief) 동사 = 상실(loss aversion). 거점 도달 시 거점을 안 때리고 금고서 훔쳐 되돌아 위로 도망. ──
+	#   3결과: 뺏기 전 처치=완전 저지 · 물고 도망칠 때 처치=회수(금고로 되돌림) · 위로 탈출=영구 손실.
+	#   승리 = 웨이브 소탕(탈출=leaked로 회계 보존) + 금고>0. 패 = 거점사 or 금고 전소(상실축, 거점사와 별개).
+	# ⚠설계 발견(thief_probe): Defuse식 '무압력 격리 R1'은 Protect엔 불가 — 막기(block)가 일반 클리어와 겹쳐 공짜라
+	#   좋은 봇이 도둑을 거의 다 걷어내 금고가 안 준다(동사가 죽은 리스킨화). 손실이 실제로 나려면 '두 전선 경쟁'이 필수:
+	#   thief_step 1(도둑 blitz하강=대개 막기 불가→낚아채기가 기본)로 낮은 전선을 뚫리게 하고, carry_step 1(빠른 도주)로
+	#   회수 창을 좁혀 도망을 위험케 → 게임이 '거점방어(아래) vs 회수추격(위)'의 공간적 기회비용이 된다. step_every 2(빠른 밀물)가
+	#   그 경쟁 압력. 격리 로스터(basic↔thief)는 유지. thief_hp 저(0.35×)=포지셔닝 위협이지 HP벽 아님(HP↑면 넉백이 하강을 늦춰 오히려 쉬워짐).
+	#   실측(thief_probe N80): 승률 71%·거점사6·금고전소7·막힘10, 금고 4→2.9(판당 −1.1 체감), 낚/회/탈 3.6/2.5/0.8(회수=생존 스킬, load-bearing).
+	{
+		"name": "st14_name", "tag": "st14_tag", "protect": true, "vault_start": 4, "steal": 1,
+		"thief_step": 1, "thief_carry_step": 1, "thief_hp_mult": 0.35,
+		"total": 32, "core_hp": 5, "base_hp": 30, "hp_ramp": 0.2, "tank_mult": 2.5,
+		"spawn_every": 2, "step_every": 2, "onboard": 3, "floor": 2, "surge_at": 0.80,
+		"weights": {"basic": 52, "thief": 48}, "pool": POOL_STD,
 	},
 ]
 
@@ -301,6 +348,14 @@ const C_E_TANK_DK := Color("#2f3b4d")   # 이음선·하단 그림자
 const C_E_RIVET   := Color("#d7dee8")   # 코너 리벳
 const C_E_SWARM := Color("#a3e635")   # 라임
 const C_E_SPLIT := Color("#60a5fa")   # 파랑 — 로스터에서 유일한 한색(빨강 회피). 시안(fast)보다 확연히 파랑
+# 폭탄 = 어두운 숯색 구(로스터서 유일한 검정 계열 = form으로 즉시 구분). 몸은 안 붉게 둔다 — 빨강은
+#   착지칸(누수 경고) 전용 신호라, 폭탄의 긴급색은 몸이 아니라 '타들어가는 도화선 불꽃 + 카운트다운 숫자'가 맡는다.
+const C_E_BOMB := Color("#434a5c")      # 숯색(약간 밝힘 — 어두운 보드서 묻히지 않게, 후광이 주 분리)
+const C_E_BOMB_HI := Color("#6d7688")   # 구 하이라이트(둥근 느낌)
+# 도둑(Protect) = 후드 쓴 도적. 색은 로스터 미사용 마젠타/자홍(basic 바이올렛·gem 로즈와 확연히 다름), form(복면+자루+웅크림)이 '도둑'을 말한다.
+#   훔쳐 도망 중(carrying)엔 자루에 빛나는 보석 + 위로 도망 쉐브론(자가설명). 몸색은 처치 파편/후광에도 재사용.
+const C_E_THIEF := Color("#e879f9")     # 자홍(후드 몸통)
+const C_E_THIEF_DK := Color("#a21caf")  # 후드 그늘·복면 띠
 
 # 잔해(감시자가 뻗는 뿌리 셀 "#") — 무채색 강철회색. 조각 3색·적 색과 모두 분리(죽은 칸임을 색으로 말함).
 const C_DEBRIS := Color("#4a4a55")
@@ -435,7 +490,23 @@ var boss_hp: int = 0            # 보스(감시자) 스테이지 전용 — 잔�
 var boss_hp_max: int = 0
 var collected_by_type: Array = []   # 받기형 수집 — 타입별 수집 수(길이=타입 수). 각 collect_targets[i] 도달 = 그 타입 완료, 전부 완료 = 클리어.
 var gem_flights: Array = []          # 잡은 보석이 상단 카운터로 빨려가는 연출 {from,to,t,dur,gtype,color}. 도착 시 카운트+1.
+# 보호(Protect) — 금고(vault): 도둑이 거점 도달 시 여기서 훔쳐 도망. 0이면 패(상실축, 거점사와 별개).
+#   낚아채기=grab(vault--·carrying=true·바닥 반등 후 상승), 처치 회수=vault++. 승리는 표준(웨이브 소탕, 탈출=leaked)+vault>0.
+var vault: int = 0                   # 현재 금고 잔량
+var vault_max: int = 0               # 시작 잔량(결과 델타·카드 표시용)
+var vault_pop: float = 0.0           # 금고 카운터 변화 시 톡 튐(감소=붉게, 회수=초록)
+var vault_flash: float = 0.0         # 도난/손실 순간 카드 붉은 경보 펄스
+var pending_vault_dead: bool = false # 이번 스텝에 금고가 0이 됨(거점사와 병렬 게임오버 경로)
+var dbg_grab: int = 0                # 프로브 계측 — 낚아채기/회수/탈출 횟수(연출 아님, 튜닝용)
+var dbg_recover: int = 0
+var dbg_escape: int = 0
 var collect_pop: Array = []          # 타입별 카운터 도착 팝(스케일 바운스) 타이머
+# 폭탄 피해 비행(보석 비행의 역방향): 폭발이 뱉은 '깨진 하트 −N' 토큰이 HP 바의 곧-깎일 구간으로 날아가 착지하며 바를 부순다.
+var dmg_flights: Array = []          # [{from,to,t,dur,dmg}] 도착 시 core_hp_vis -= dmg + 바 파쇄
+var core_hp_vis: float = 0.0         # 표시용 HP(논리 core_hp보다 늦음) — 토큰이 착지하는 순간에만 깎여 인과가 읽힌다
+var core_shatter: Array = []         # [{x0,x1,life}] 착지 시 깎여나간 바 구간이 부서지는 플래시
+var boom_queue: Array = []            # [{pos,to_pt,dmg,junk,col,delay}] 연쇄 도미노 순차 재생 — hop별 딜레이 후 발화(연출 전용)
+const CHAIN_STAGGER: float = 0.11     # 연쇄 hop 간 시차(타닥타닥). 클수록 느리게 번짐
 var place_count: int = 0        # 지금까지 배치 횟수(전진·스폰 스로틀 기준)
 var spawned: int = 0
 var killed: int = 0             # 실제 처치 수 (누수는 포함 안 함 — 진행도 오염 방지)
@@ -524,6 +595,8 @@ var aim_marks: Array = []      # [{c, r}] 조준 프리뷰 링 — 들고 있는
 var rockets: Array = []        # [{dir, idx, t, dur, combo, ended}] 라인 따라 질주하는 로켓
 var hitstop: float = 0.0       # 명중 순간 순간 멈칫(게임 타이머 전부 정지)
 var core_hits: Array = []      # [{col, life}] 거점 피격 충격 플래시
+var pending_detonations: Array = []  # [{pos, col, dmg}] 이번 스텝 폭탄 폭발 — 폭발↔거점 인과 연출을 _reveal_detonations가 재생
+var core_flash_t: float = 0.0  # >0이면 거점 바 전체가 붉게 펄스(폭탄 피해를 바에 못 박음)
 var callout_text: String = ""  # 첫 등장 콜아웃 배너
 var callout_timer: float = 0.0
 var intro_t: float = -1.0  # 스테이지 인트로 카드 진행(초). <0 = 비활성(캠페인 진입에서만 켠다)
@@ -546,6 +619,7 @@ var seekers: Array = []              # [{from, to_pos, t, dur}] 유도 로켓(�
 var resolve_fx_done: bool = false    # 로켓 발사 트리거됐나
 var pending_leaks: Array = []      # 이번 스텝 누수 열 목록(공격 뒤 표시)
 var pending_core_dead: bool = false
+var core_death_armed: bool = false  # 폭탄사: 게임오버 확정됐으나 붕괴 연출은 합계 하트가 착지할 때까지 미룬다(인과 순서)
 var enemy_seq: int = 0             # 적 고유 id 카운터
 
 # ===== 초기화 =====
@@ -874,6 +948,11 @@ func _init_game() -> void:
 		board.append(row_arr)
 	enemies = []
 	core_hp = director.core_hp_max()
+	core_hp_vis = float(core_hp)
+	dmg_flights = []
+	core_shatter = []
+	boom_queue = []
+	core_death_armed = false
 	boss_hp = 0
 	boss_hp_max = 0
 	collected_by_type = []
@@ -882,6 +961,14 @@ func _init_game() -> void:
 		collected_by_type.append(0)
 		collect_pop.append(0.0)
 	gem_flights = []
+	vault = int(st.get("vault_start", 0))
+	vault_max = vault
+	vault_pop = 0.0
+	vault_flash = 0.0
+	pending_vault_dead = false
+	dbg_grab = 0
+	dbg_recover = 0
+	dbg_escape = 0
 	if bool(st.get("boss", false)):
 		_setup_boss_head()   # 머리 셀을 board에 심고 boss_hp = 머리 셀 수
 	place_count = 0
@@ -935,6 +1022,8 @@ func _init_game() -> void:
 	rockets = []
 	hitstop = 0.0
 	core_hits = []
+	pending_detonations = []
+	core_flash_t = 0.0
 	callout_text = ""
 	callout_timer = 0.0
 	intro_t = -1.0   # 기본 off — _start_stage(캠페인)만 켠다
@@ -1834,6 +1923,12 @@ func _apply_hit(h: Dictionary) -> void:
 		var is_primary: bool = not (etype == "split" and int(e.get("gen", 0)) == 1)
 		if is_primary:
 			killed += 1
+		# 도둑 회수: 훔쳐 도망치던 놈을 잡으면 금고로 되돌린다(vault++). 뺏기 전 처치는 무손실이라 회수 없음.
+		#   시작 잔량(vault_max) 초과 불가 = '되돌림'이지 증식 아님. 초록 팝으로 만회를 못 박음(연출 확장은 렌더 단계).
+		if etype == "thief" and bool(e.get("carrying", false)):
+			vault = mini(vault_max, vault + director.steal_amount())
+			dbg_recover += 1
+			vault_pop = 0.42
 		_add_endless_score(director.kill_score(combo))   # 처치×콤보(주 지표), 감독 소유. 쌍둥이도 팝하면 보상(잡는 게 이득 = 분열 재설계와 결), C52·C61
 		kill_pulse = 0.35   # ④ 킬 → 헤드라인 펄스
 		hitstop = maxf(hitstop, 0.045)   # 처치 순간 멈칫(손맛)
@@ -1882,6 +1977,8 @@ func _etype_fx_color(etype: String) -> Color:
 			return C_E_SWARM
 		"split":
 			return C_E_SPLIT
+		"bomb":
+			return Color("#f59e0b")   # 해체(처치) 파편은 따뜻한 주황 — 폭발과 결이 같되 몸(숯)과 분리
 	return C_E_BASIC
 
 # 극적 사망 연출: 스케일 팝 + 파편 + 리워드 팝 (타입 flavor)
@@ -1903,6 +2000,11 @@ func _spawn_death(etype: String, ep: Vector2) -> void:
 		"split":
 			pieces = 6                                        # 갈라지며 흩는 느낌(자식은 별도 스폰)
 			fade = 0.30
+		"bomb":
+			# 해체 성공(걷어냄) = 안도의 작은 퍼프 + 청록 안심 링("불 껐다"). 폭발(연출: _spawn_boom)과 정반대 톤.
+			pieces = 7
+			fade = 0.26
+			impacts.append({"pos": ep, "life": 0.30, "max": 0.30, "color": C_E_FAST, "radius": CELL * 0.46})
 	# 스케일 팝 + 밝은 플래시
 	death_flashes.append({"pos": ep, "life": fade, "max": fade, "color": col})
 	# 파편 버스트 (사방으로)
@@ -1914,6 +2016,22 @@ func _spawn_death(etype: String, ep: Vector2) -> void:
 			"pos": ep, "vel": Vector2(cos(ang), sin(ang)) * spd,
 			"life": life, "max": life, "color": col, "size": randf_range(3.0, 6.0),
 		})
+
+# 폭탄 폭발(도화선 소진) 연출 — 데드라인을 놓친 '나쁜' 순간. 해체 퍼프와 정반대로 크고 뜨겁게.
+#   randf는 코스메틱 스트림(게임 rng 아님) = 회귀 무관.
+func _spawn_boom(ep: Vector2) -> void:
+	death_flashes.append({"pos": ep, "life": 0.42, "max": 0.42, "color": Color(1.0, 0.85, 0.5)})
+	impacts.append({"pos": ep, "life": 0.42, "max": 0.42, "color": Color("#f97316"), "radius": CELL * 0.85})
+	impacts.append({"pos": ep, "life": 0.30, "max": 0.30, "color": Color(1.0, 0.95, 0.8), "radius": CELL * 0.5})
+	for _n in range(16):
+		var ang: float = randf() * TAU
+		var spd: float = randf_range(120.0, 300.0)
+		var life: float = randf_range(0.35, 0.7)
+		debris.append({
+			"pos": ep, "vel": Vector2(cos(ang), sin(ang)) * spd,
+			"life": life, "max": life, "color": Color("#fb923c"), "size": randf_range(3.0, 7.0),
+		})
+	shake_timer = maxf(shake_timer, SHAKE_DUR * 1.4)
 
 # 누수(거점 피격) 연출을 지금 터뜨림
 func _reveal_leaks() -> void:
@@ -1931,6 +2049,70 @@ func _reveal_leaks() -> void:
 			tut_flash_msg = _t("tut_leak")
 			tut_flash_t = TUT_FLASH_DUR
 	pending_leaks = []
+
+# 폭탄 폭발 → 거점 피해의 인과를 눈에 보이게. 누수(-1, 거점 띠서 발생)와 달리 폭발은 보드 중간서 나므로
+#   ①폭발 ②폭발→거점 붉은 충격파 스트릭(눈을 HP 바로 끌어내림) ③거점 열 균열+정확한 -N ④바 전체 펄스로
+#   "저 폭발이 이만큼 깎았다"를 잇는다. 규칙 몰라도 읽히게(hud-signal-by-color-not-text + 인과 사슬 가시화).
+func _reveal_detonations() -> void:
+	if pending_detonations.is_empty():
+		return
+	# B: 폭발이 '깨진 하트 −N' 토큰을 뱉고 → 그게 HP 바의 곧-깎일 구간으로 날아가 → 착지 순간 바가 부서진다.
+	#   바는 즉시 안 줄고(core_hp_vis 지연) 토큰 착지 때만 깎여 인과가 읽힌다. 전체 붉은 섬광 등 노이즈는 착지로 몰았다.
+	var core_max: int = maxi(1, director.core_hp_max())
+	var sw: float = COLS * CELL
+	var bar_y: float = board_y + ROWS * CELL + 4.0 + 16.0
+	# hop 순 정렬 → 폭발(붐)은 씨앗부터 타닥타닥 순차로. 피해 하트는 개별로 흩뿌리지 않고 '합계 −N 하나'로 합쳐 날린다
+	#   (도미노의 '합산 한 방' 정체성과도 맞고, 여러 토큰이 우르르 흩어지는 어지러움 제거).
+	var ds: Array = pending_detonations.duplicate()
+	ds.sort_custom(func(a, b): return int(a.get("hop", 0)) < int(b.get("hop", 0)))
+	var total_dmg: int = 0
+	var maxhop: int = 0
+	var sum_pos: Vector2 = Vector2.ZERO
+	for d in ds:
+		total_dmg += int(d["dmg"])
+		maxhop = maxi(maxhop, int(d.get("hop", 0)))
+		sum_pos += d["pos"] as Vector2
+		# 폭발(붐)만 hop 딜레이로 순차 발화 — 피해 토큰(dmg=0)은 안 붙인다.
+		boom_queue.append({
+			"pos": d["pos"], "to_pt": Vector2.ZERO, "dmg": 0, "junk": int(d.get("junk", 0)),
+			"col": int(d["col"]), "delay": float(int(d.get("hop", 0))) * CHAIN_STAGGER, "boom": true,
+		})
+	# 합계 하트 하나 — 모든 폭발이 끝난 직후, 클러스터 중앙에서 HP 바로 '총 −N'이 날아간다.
+	if total_dmg > 0:
+		var centroid: Vector2 = sum_pos / float(maxi(1, ds.size()))
+		var mid_ratio: float = clampf((core_hp_vis - float(total_dmg) * 0.5) / float(core_max), 0.0, 1.0)
+		boom_queue.append({
+			"pos": centroid, "to_pt": Vector2(BOARD_X + sw * mid_ratio, bar_y), "dmg": total_dmg,
+			"junk": 0, "col": 0, "delay": float(maxhop) * CHAIN_STAGGER + 0.06, "boom": false,
+		})
+	pending_detonations = []
+
+# 폭탄 폭발이 보드에 잔해를 쏟는다(질적 rung) — 폭발 열과 이웃 열의 가장 낮은 빈칸부터 채운다.
+#   RNG 없음(결정적) = 회귀 안전. 지울 수 있는 블록이라 라인으로 파낼 수 있으되, 어정쩡하게 쌓여 패킹을 무너뜨린다.
+func _dump_junk(col: int, n: int) -> void:
+	var order: Array = [col, col - 1, col + 1, col - 2, col + 2]
+	var palette: Array = ["R", "B", "Y"]
+	var placed: int = 0
+	var pk: int = 0
+	while placed < n:
+		var progressed: bool = false
+		for c in order:
+			if c < 0 or c >= COLS:
+				continue
+			for rr in range(ROWS - 1, -1, -1):   # 그 열 가장 낮은 빈칸부터 위로 쌓음
+				if board[rr][c] == "":
+					var key: String = palette[pk % palette.size()]
+					board[rr][c] = key
+					pk += 1
+					place_pops.append({"pos": _cell_center(c, rr), "life": PLACE_POP_DUR, "max": PLACE_POP_DUR, "color": _color_of(key)})
+					placed += 1
+					progressed = true
+					break
+			if placed >= n:
+				break
+		if not progressed:
+			break   # 보드가 꽉 참 — 더 못 쌓음
+
 
 # 공격 시퀀스 종료 → 그 다음에 세계가 움직인다(적 이동·누수·스폰) → 판정
 func _finish_resolve() -> void:
@@ -1958,14 +2140,31 @@ func _end_turn() -> void:
 		tut_msg = ""
 	advance_step()          # 적 이동(step_every 주기)·누수(거점 피해)·스폰
 	_reveal_leaks()         # 누수 연출은 공격 뒤에 재생 (자기 감쇠 → 데드락 없음)
+	_reveal_detonations()   # 폭탄 폭발→거점 인과 연출(누수와 별개 경로) — core_death보다 먼저 재생돼야 '왜 죽었나'가 보임
 	# ⚠거점 파괴가 클리어보다 우선(모드-무관 불변식). 마지막 적이 누수로 total을 채우며 동시에
 	#   core_hp를 0으로 만들면 _check_win이 killed+leaked>=total로 clear를 켜버린다 — 죽으며 클리어는 없다.
 	#   그래서 _check_win보다 먼저 판정하고, 죽었으면 return해 clear 판정 자체를 건너뛴다.
 	if pending_core_dead:
 		game_over = true
 		pending_core_dead = false
-		_begin_core_death()
 		fail_streak[stage_idx] = int(fail_streak.get(stage_idx, 0)) + 1   # 연속 실패 → 갓 모드 근접
+		# 폭탄사(비행 중 합계 하트가 죽인 경우)면 붕괴 연출을 하트 착지까지 미룬다 = "하트 꽂힘 → 죽음" 순서.
+		var by_bomb: bool = false
+		for be in boom_queue:
+			if int(be.get("dmg", 0)) > 0:
+				by_bomb = true
+				break
+		if by_bomb:
+			core_death_armed = true   # 하트 착지 틱(_process)에서 _begin_core_death 발화
+		else:
+			_begin_core_death()
+		return
+	# 금고 전소 = 상실축 패배(거점사와 병렬 경로). 도둑에게 다 털린 게임오버 — 거점은 멀쩡해도 진다.
+	if pending_vault_dead:
+		game_over = true
+		pending_vault_dead = false
+		fail_streak[stage_idx] = int(fail_streak.get(stage_idx, 0)) + 1
+		_begin_core_death()   # TODO(렌더): 금고-전소 전용 연출로 분기(현재는 거점 붕괴 재사용)
 		return
 	_boss_foul()             # 보스 스테이지: 감시자가 이번 턴에 잔해를 떨굴 수 있다(막힘 판정 전 = 파울이 스터크 유발 가능)
 	_check_win()
@@ -2072,10 +2271,20 @@ func advance_step() -> void:
 	# 전진 스로틀: step_every 배치마다 1칸. 서지 클램프(하한 2)는 director.effective_step_every가 캡슐화.
 	var any_advanced: bool = false
 	for e in enemies:
+		# 폭탄 도화선: 배치할 때마다(=이 함수 호출마다) 1씩 탄다. 전진 주기와 무관한 순수 카운트다운.
+		#   0 이하가 되면 아래 누수/폭발 루프에서 제자리 폭발(거점 bomb_dmg 피해).
+		if e["etype"] == "bomb":
+			e["fuse"] = int(e.get("fuse", 0)) - 1
+		# 도둑이 훔치고 도망 중(carrying)이면 되돌아 위로 올라간다(row 감소). carry_step>0이면 그 주기로(R1=느리게=회수 쉬움).
+		var carrying: bool = e["etype"] == "thief" and bool(e.get("carrying", false))
 		var base_step: int = e.get("step_every", director.hud_step_every())
+		if carrying:
+			var cs: int = director.thief_carry_step()
+			if cs > 0:
+				base_step = cs
 		var step_every: int = director.effective_step_every(base_step, ctx)
 		if place_count % step_every == 0:
-			e["row"] += 1
+			e["row"] += (-1 if carrying else 1)   # 도망 중이면 상승(탈출로), 아니면 하강(거점으로)
 			e["stepped"] = true          # 이번 스텝에 전진 → 박자 링
 			any_advanced = true
 		else:
@@ -2099,28 +2308,94 @@ func advance_step() -> void:
 				and not bool(se.get("split_done", false)) and int(se["row"]) >= SPLIT_ROW:
 			_split_enemy(se)
 
+	# 연쇄 폭탄(R3): 도화선이 다 탄 폭탄에서 인접 폭탄(8방)으로 폭발이 번진다(BFS). 뭉친 폭탄은 하나가 터지면
+	#   도미노로 다 터져 HP 벌이 합산 = 큰 한 방. 새 결정 = "연쇄를 끊는 linchpin(임박한 하나)을 먼저 해체".
+	#   씨앗 = fuse<=0 폭탄들(비연쇄 스테이지도 이걸로 detonated 판정). bomb_chain일 때만 인접으로 전파.
+	# 연쇄 폭탄(R3): 도화선이 다 탄 폭탄에서 인접 폭탄(8방)으로 폭발이 번진다(BFS·hop 깊이 기록). 뭉친 폭탄은
+	#   하나가 터지면 도미노로 다 터져 HP 벌 합산 = 큰 한 방. 새 결정 = "연쇄 끊는 linchpin(임박한 하나) 먼저 해체".
+	#   ⚠회계·HP는 이 스텝에 즉시 확정(불변식 보존). hop은 시각 연출만 타닥타닥 시차 재생하는 데 쓴다.
+	var chained: Dictionary = {}   # id -> hop 깊이(씨앗=0, 인접=1, …)
+	var cq: Array = []             # BFS 큐 [{e, hop}]
+	for ce in enemies:
+		if ce["etype"] == "bomb" and int(ce.get("fuse", 99)) <= 0:
+			chained[int(ce["id"])] = 0
+			cq.append({"e": ce, "hop": 0})
+	if director.bomb_chain():
+		var qi: int = 0
+		while qi < cq.size():
+			var cur: Dictionary = cq[qi]
+			qi += 1
+			var ce2: Dictionary = cur["e"]
+			for ne in enemies:
+				if ne["etype"] == "bomb" and not chained.has(int(ne["id"])) \
+						and absi(int(ne["col"]) - int(ce2["col"])) <= 1 and absi(int(ne["row"]) - int(ce2["row"])) <= 1:
+					var h: int = int(cur["hop"]) + 1
+					chained[int(ne["id"])] = h
+					cq.append({"e": ne, "hop": h})
 	# 누수(거점 도달): 로직은 즉시 반영, 시각 연출은 resolve 끝물로 지연.
 	# ⚠누수는 killed가 아니라 leaked로 센다. (구버전은 killed++ 해서 '흘려보내도 목표 진행'
 	#  = 진행도·승리조건이 못 막은 적한테 보상을 줬음.)
 	var i: int = enemies.size() - 1
 	pending_leaks = []
 	while i >= 0:
-		if enemies[i]["row"] >= ROWS:
-			if enemies[i]["etype"] == "gem":
+		var en: Dictionary = enemies[i]
+		# 도둑 탈출: 훔친 채(carrying) 화면 위로 빠져나감 = 영구 손실 확정(금고는 grab서 이미 차감). 웨이브 회계는 leak과 동일.
+		if en["etype"] == "thief" and bool(en.get("carrying", false)) and int(en["row"]) < 0:
+			leaked += 1                  # 도둑도 gen0 = 웨이브 카운트로 반환(spawned==killed+leaked+onboard 불변식)
+			dbg_escape += 1
+			var tep: Vector2 = _enemy_pos(int(en["col"]), 0)
+			impacts.append({"pos": tep, "life": 0.4, "max": 0.4, "color": Color(0.85, 0.35, 0.42), "radius": CELL * 0.5, "star": false})
+			vault_flash = 0.55
+			enemies.remove_at(i)
+			i -= 1
+			continue
+		# 폭탄 폭발: chained에 든 폭탄(=fuse 소진 씨앗 + 연쇄 전파분). 제자리서 터진다(데드라인 위협).
+		var detonated: bool = en["etype"] == "bomb" and chained.has(int(en["id"]))
+		if en["row"] >= ROWS or detonated:
+			if en["etype"] == "thief":
+				# 낚아채기(grab): 거점을 안 때리고 금고서 훔쳐 되돌아 위로 도망. 금고 즉시 차감·carrying·바닥 반등.
+				#   제거 안 함(계속 온보드) → 위로 탈출하거나 처치(회수)될 때까지 웨이브 미종료 = 긴장 유지.
+				var steal: int = director.steal_amount()
+				vault = maxi(0, vault - steal)
+				dbg_grab += 1
+				vault_pop = 0.42
+				vault_flash = 0.55
+				en["carrying"] = true
+				en["row"] = ROWS - 1     # 바닥서 반등 → 다음 스텝부터 상승(탈출로)
+				en["vis_row"] = float(ROWS - 1)
+				var stp: Vector2 = _enemy_pos(int(en["col"]), ROWS - 1)
+				impacts.append({"pos": stp, "life": 0.3, "max": 0.3, "color": Color(0.95, 0.55, 0.5), "radius": CELL * 0.45, "star": true})
+			elif en["etype"] == "gem":
 				# 보석 놓침 — 거점 무피해, 진행 손해일 뿐. 바닥에서 회색 파프로 '놓쳤다'를 짧게 알림(보석이 중요함을 학습).
-				var gmp: Vector2 = _enemy_pos(int(enemies[i]["col"]), ROWS - 1)
+				var gmp: Vector2 = _enemy_pos(int(en["col"]), ROWS - 1)
 				impacts.append({"pos": gmp, "life": 0.32, "max": 0.32, "color": Color(0.5, 0.5, 0.56), "radius": CELL * 0.42, "star": false})
+				enemies.remove_at(i)
+			elif detonated:
+				# 데드라인 놓친 대가: 큰 한 방(일반 누수 -1보다 큼). 웨이브 회계는 leak과 동일 취급 = 불변식 보존.
+				var dmg: int = director.bomb_dmg()
+				core_hp -= dmg
+				leaked += 1                  # 폭탄은 gen0 = 웨이브 카운트로 반환(spawned==killed+leaked+onboard)
+				# ⚠누수(pending_leaks)로 재사용하지 않는다 — 누수 연출은 거점 띠서 "-1"이라 폭발과 단절+금액 오표기.
+				#   폭발 위치를 담아 _reveal_detonations가 폭발→거점 인과(충격파+정확한 -N+바 펄스)를 그린다.
+				pending_detonations.append({
+					"pos": _enemy_pos(int(en["col"]), mini(int(en["row"]), ROWS - 1)),
+					"col": int(en["col"]), "dmg": dmg, "junk": director.bomb_junk(),
+					"hop": int(chained.get(int(en["id"]), 0)),   # 연쇄 hop = 시각 시차(타닥타닥)
+				})
 				enemies.remove_at(i)
 			else:
 				core_hp -= 1                 # 자식도 거점은 깎는다(진짜 위협)
-				if int(enemies[i].get("gen", 0)) == 0:
+				core_hp_vis -= 1.0           # 누수는 즉시 반영(폭탄만 토큰 착지까지 늦춘다)
+				if int(en.get("gen", 0)) == 0:
 					leaked += 1              # 단 웨이브 카운터엔 gen0(원본)만
-				pending_leaks.append(enemies[i]["col"])
+				pending_leaks.append(en["col"])
 				enemies.remove_at(i)
 		i -= 1
 	pending_core_dead = core_hp <= 0
-	if pending_core_dead:
-		return   # 거점 파괴 스텝: 블라스트 없이 누수 연출 후 게임오버
+	# 금고 전소 = 상실축 패배(거점사와 병렬). protect 판에서만 발화.
+	pending_vault_dead = bool(st.get("protect", false)) and vault <= 0
+	if pending_core_dead or pending_vault_dead:
+		return   # 거점 파괴/금고 전소 스텝: 블라스트 없이 연출 후 게임오버
 
 	# 스폰: 감독이 스케줄(밀도 하한 floor + 스로틀·온보딩·swarm 클러스터)을 결정하고, 코어는 spec을 실행만.
 	#   ⚠감독의 randi 순서는 원본과 정확히 일치(floor=열→타입 / throttle=타입→(swarm:count→shuffle | col)).
@@ -2212,7 +2487,12 @@ func _spawn_one(col: int, etype: String, step_override: int = 0) -> void:
 	#   ctx = run-state(점수·best) — 무한모드 PB 너머 HP 발화가 스폰 시점 점수로 읽는다(다른 모드는 무시).
 	var hp: int = director.enemy_hp(etype, spawned, _director_ctx())
 	var step_every: int = step_override if step_override > 0 else director.enemy_step(etype)
-	enemies.append({"col": col, "row": 0, "vis_row": 0.0, "hp": hp, "maxhp": hp, "etype": etype, "id": enemy_seq, "step_every": step_every})
+	var ed: Dictionary = {"col": col, "row": 0, "vis_row": 0.0, "hp": hp, "maxhp": hp, "etype": etype, "id": enemy_seq, "step_every": step_every}
+	if etype == "bomb":
+		ed["fuse"] = director.bomb_fuse()   # 도화선 = 남은 배치 수(advance_step마다 1 감소)
+	elif etype == "thief":
+		ed["carrying"] = false              # 훔치기 전. 거점 도달 시 grab → carrying=true(되돌아 위로 도망)
+	enemies.append(ed)
 	enemy_seq += 1
 	spawned += 1
 	# 첫 등장 콜아웃 (타입당 1회)
@@ -2227,6 +2507,10 @@ func _spawn_one(col: int, etype: String, step_override: int = 0) -> void:
 				_set_callout(_t("callout_swarm"))
 			"split":
 				_set_callout(_t("callout_split"))   # 이제 파랑 점선이 실제로 보인다(공간 기준)
+			"bomb":
+				_set_callout(_t("callout_bomb"))
+			"thief":
+				_set_callout(_t("callout_thief"))
 
 # 분열선 도달 → 부모는 절반 HP로 남고(gen0 유지=웨이브 카운트 불변, split_done로 재분열 봉쇄),
 #   빈 인접 열 하나에 절반 HP 쌍둥이(gen1)를 뱉는다. 결정적 배치(randi 없음) = 회귀 시드 불변.
@@ -2312,6 +2596,8 @@ func _stuck_total() -> float:
 func _death_playing() -> bool:
 	if stuck_t >= 0.0 and stuck_t < _stuck_total():
 		return true
+	if core_death_armed:
+		return true   # 폭탄사: 합계 하트가 아직 날아가는 중 → 결과 팝업을 착지(붕괴 시작)까지 미룬다
 	return core_t >= 0.0 and core_t < _core_total()
 
 # ===== 거점 파괴 죽음 =====
@@ -2321,6 +2607,8 @@ func _core_total() -> float:
 func _begin_core_death() -> void:
 	core_t = 0.0
 	core_burst_done = false
+	core_hp_vis = float(core_hp)   # 폭탄 토큰이 아직 날던 중이어도 죽는 순간 바를 실제 값(0)으로 스냅
+	dmg_flights = []
 	hitstop = maxf(hitstop, CORE_HITSTOP)   # 뚫리는 순간 시간이 멎는다 (hitstop 중엔 core_t도 멈춘다)
 
 # 거점 띠가 터지는 순간 — 파편이 아래로 쏟아지고 화면이 붉게 흔들린다
@@ -2797,6 +3085,8 @@ func _process(delta: float) -> void:
 		outline_timer = maxf(0.0, outline_timer - delta)
 	if red_flash > 0.0:
 		red_flash = maxf(0.0, red_flash - delta)
+	if core_flash_t > 0.0:
+		core_flash_t = maxf(0.0, core_flash_t - delta)
 	if shake_timer > 0.0:
 		shake_timer = maxf(0.0, shake_timer - delta)
 	if callout_timer > 0.0:
@@ -2882,6 +3172,58 @@ func _process(delta: float) -> void:
 	for pi in range(collect_pop.size()):
 		if collect_pop[pi] > 0.0:
 			collect_pop[pi] = maxf(0.0, collect_pop[pi] - delta)
+	# 연쇄 도미노 순차 발화: hop 딜레이가 다 된 폭발을 지금 터뜨린다(붐 + 피해 토큰 비행). 회계는 이미 확정, 연출만.
+	var bq: int = boom_queue.size() - 1
+	while bq >= 0:
+		boom_queue[bq]["delay"] -= delta
+		if boom_queue[bq]["delay"] <= 0.0:
+			var be: Dictionary = boom_queue[bq]
+			if bool(be.get("boom", true)):
+				_spawn_boom(be["pos"])              # 폭발 붐(순차 hop) — 매 hop 작은 쿵
+				if int(be["junk"]) > 0:
+					_dump_junk(int(be["col"]), int(be["junk"]))
+				shake_timer = maxf(shake_timer, SHAKE_DUR * 0.9)
+			if int(be["dmg"]) > 0:
+				# 합계 하트 하나 — 폭발이 다 끝난 뒤 클러스터 중앙서 발사(도미노면 −총합, 단일이면 −그 폭탄)
+				dmg_flights.append({"from": be["pos"], "to": be["to_pt"], "t": 0.0, "dur": 0.52, "dmg": int(be["dmg"])})
+			boom_queue.remove_at(bq)
+		bq -= 1
+	# 폭탄 피해 토큰 착지 = 바가 실제로 깎이는 순간. 여기서만 core_hp_vis를 내려 인과를 못 박는다.
+	var core_max_t: int = maxi(1, director.core_hp_max())
+	var sw_t: float = COLS * CELL
+	var bar_y_t: float = board_y + ROWS * CELL + 4.0
+	var df: int = dmg_flights.size() - 1
+	while df >= 0:
+		dmg_flights[df]["t"] += delta
+		if dmg_flights[df]["t"] >= float(dmg_flights[df]["dur"]):
+			var ddmg: int = int(dmg_flights[df]["dmg"])
+			var x_hi: float = BOARD_X + sw_t * clampf(core_hp_vis / float(core_max_t), 0.0, 1.0)
+			core_hp_vis = maxf(0.0, core_hp_vis - float(ddmg))
+			var x_lo: float = BOARD_X + sw_t * clampf(core_hp_vis / float(core_max_t), 0.0, 1.0)
+			core_shatter.append({"x0": x_lo, "x1": x_hi, "life": 0.4})   # 깎여나간 구간 파쇄 플래시
+			for _n in range(10):
+				var ang: float = randf() * TAU
+				var spd: float = randf_range(80.0, 220.0)
+				var dl: float = randf_range(0.3, 0.6)
+				debris.append({"pos": Vector2(lerpf(x_lo, x_hi, randf()), bar_y_t + 16.0),
+					"vel": Vector2(cos(ang), sin(ang)) * spd, "life": dl, "max": dl,
+					"color": Color(1.0, 0.35, 0.3), "size": randf_range(3.0, 6.0)})
+			core_flash_t = 0.5             # 바 전체 붉은 펄스(착지 순간에만)
+			red_flash = RED_FLASH_DUR * 0.8
+			shake_timer = maxf(shake_timer, SHAKE_DUR * 1.4)
+			kill_pulse = 0.35
+			dmg_flights.remove_at(df)
+		df -= 1
+		# 폭탄사 예약: 죽인 하트가 착지하고(비행·붐 큐 다 비었으면) 붕괴 연출을 지금 시작 = "하트 꽂힘 → 죽음".
+		if core_death_armed and dmg_flights.is_empty() and boom_queue.is_empty():
+			core_death_armed = false
+			_begin_core_death()
+	var cs: int = core_shatter.size() - 1
+	while cs >= 0:
+		core_shatter[cs]["life"] -= delta
+		if core_shatter[cs]["life"] <= 0.0:
+			core_shatter.remove_at(cs)
+		cs -= 1
 	var cp: int = cell_pops.size() - 1
 	while cp >= 0:
 		cell_pops[cp]["life"] -= delta
@@ -2932,6 +3274,10 @@ func _process(delta: float) -> void:
 		im -= 1
 	if kill_pulse > 0.0:
 		kill_pulse = maxf(0.0, kill_pulse - delta)
+	if vault_pop > 0.0:
+		vault_pop = maxf(0.0, vault_pop - delta)
+	if vault_flash > 0.0:
+		vault_flash = maxf(0.0, vault_flash - delta)
 	if step_beat > 0.0:
 		step_beat = maxf(0.0, step_beat - delta)
 	if pb_pop_t >= 0.0:
@@ -3021,6 +3367,15 @@ func _draw() -> void:
 		var gfc: Color = gfl["color"]
 		draw_circle(gpos, gsz * 0.5 + 4.0, Color(gfc.r, gfc.g, gfc.b, 0.28 * (1.0 - gft)))
 		_draw_gem_icon(gpos, gsz, int(gfl["gtype"]))
+	# 폭탄 피해 토큰: 깨진 하트 + −N 이 폭발서 HP 바로 날아간다(움직이는 물체 = 강한 인과). 살짝 아치 그리며 내려꽂힘.
+	for dfl in dmg_flights:
+		var dft: float = clampf(float(dfl["t"]) / float(dfl["dur"]), 0.0, 1.0)
+		var dbase: Vector2 = (dfl["from"] as Vector2).lerp(dfl["to"] as Vector2, dft)
+		var dpos: Vector2 = dbase + Vector2(0.0, sin(dft * PI) * -CELL * 0.5)
+		var dsz: float = lerpf(CELL * 0.42, CELL * 0.68, dft)
+		draw_circle(dpos, dsz * 0.7, Color(1.0, 0.3, 0.25, 0.25 * (1.0 - dft)))
+		_draw_broken_heart(dpos, dsz, Color(0.95, 0.22, 0.20))
+		_draw_text_outlined(fnt, dpos + Vector2(-9.0, -9.0), "-%d" % int(dfl["dmg"]), 24, Color.WHITE)
 
 	# 파편 버스트 (타입 색 작은 사각형)
 	for dpart in debris:
@@ -3361,6 +3716,11 @@ func _revive() -> void:
 	core_burst_done = false
 	stuck_t = -1.0            # 막힘 연출 취소
 	core_hp = director.core_hp_max()   # 거점 HP 풀 복구
+	core_hp_vis = float(core_hp)
+	dmg_flights = []
+	core_shatter = []
+	boom_queue = []
+	core_death_armed = false
 	pending_leaks = []
 	combo = 0                 # 콤보 초기화 (부활은 새 국면 — 스트릭을 이어주지 않는다)
 	combo_miss = 0
@@ -3619,6 +3979,22 @@ func _draw_stage_intro(fnt: Font) -> void:
 			gx0 += float(g_ws[gi2]) + g_gap
 		return
 
+	# 보호: 💀 대신 '보물 아이콘 + 지킬 금고 수'를 선언(도킹은 상단 금고 카드로). "이만큼을 지켜라".
+	if bool(st.get("protect", false)):
+		var pv: int = int(st.get("vault_start", vault_max))
+		var p_hold: Vector2 = Vector2(cx, r.position.y + r.size.y * 0.62)
+		var p_chip: Vector2 = p_hold.lerp(Vector2(293.0, 66.0), dock)
+		var pcs: float = lerpf(1.0, 0.47, dock)
+		var p_a: float = appear * (1.0 - clampf((dock - 0.72) / 0.28, 0.0, 1.0))
+		var p_icon: float = 52.0 * pcs
+		var p_fs: int = maxi(1, int(56.0 * pcs))
+		var pnw: float = fnt.get_string_size(str(pv), HORIZONTAL_ALIGNMENT_LEFT, -1, p_fs).x
+		var p_total: float = p_icon + 8.0 * pcs + pnw
+		var px0: float = p_chip.x - p_total * 0.5
+		_draw_gem_icon(Vector2(px0 + p_icon * 0.5, p_chip.y), p_icon, 0)
+		_draw_text_outlined(fnt, Vector2(px0 + p_icon + 8.0 * pcs, p_chip.y + float(p_fs) * 0.35), str(pv), p_fs, Color(1.0, 0.92, 0.62, p_a))
+		return
+
 	# ② 💀 처치 수(히어로) + 작은 '처치' 접미사 — 도킹 동안 중앙 → 상단 목표 카드로 날아가 녹아든다.
 	#    수는 크게(목표의 핵심), 접미사는 작게(무슨 수인지 못 박기). 인트로=목표 선언, HUD=남은 수 추적.
 	var goal_s: String = str(director.enemy_total())
@@ -3670,6 +4046,36 @@ func _draw_result_collect(fnt: Font, p: Rect2, cx: float) -> void:
 		var col: Color = Color(0.55, 0.95, 0.65) if rem2 <= 0 else Color(1.0, 0.55, 0.5)
 		_draw_text_outlined(fnt, Vector2(x + icon_s + 8.0, row_y + 16.0), str(rem2), num_fs, col)
 		x += float(widths[i]) + gap
+
+# 보호 결과 — 지킨 금고를 핍 열로(채움=지킴 금 다이아, 빈=뺏김). 게임 중 금고 카드와 같은 언어.
+#   승리=대부분 금(초록 톤 수), 금고 전소=전부 빈 슬롯(빨강 0). '얼마나 지켰나'가 성적.
+func _draw_result_protect(fnt: Font, p: Rect2, cx: float) -> void:
+	var cap: String = _t("result_vault")
+	var cap_fs: int = 18
+	var cw: float = fnt.get_string_size(cap, HORIZONTAL_ALIGNMENT_LEFT, -1, cap_fs).x
+	_draw_text_outlined(fnt, Vector2(cx - cw * 0.5, p.position.y + 176.0), cap, cap_fs, Color(0.95, 0.85, 0.5))
+	var vm: int = maxi(1, vault_max)
+	var pip_s: float = clampf(230.0 / float(vm) - 8.0, 12.0, 34.0)
+	var gap: float = 8.0
+	var row_w: float = pip_s * float(vm) + gap * float(vm - 1)
+	var x: float = cx - row_w * 0.5
+	var row_y: float = p.position.y + 220.0
+	for i in range(vm):
+		var px: float = x + pip_s * 0.5
+		if i < vault:
+			_draw_gem_icon(Vector2(px, row_y), pip_s, 0)
+		else:
+			var pts: PackedVector2Array = _gem_shape_points(Vector2(px, row_y), pip_s * 0.42, 0)
+			var closed: PackedVector2Array = pts.duplicate()
+			closed.append(pts[0])
+			draw_colored_polygon(pts, Color(0.0, 0.0, 0.0, 0.30))
+			draw_polyline(closed, Color(0.62, 0.5, 0.3, 0.7), 1.5)
+		x += pip_s + gap
+	var cnt: String = "%d / %d" % [vault, vault_max]
+	var c_fs: int = 22
+	var c_w: float = fnt.get_string_size(cnt, HORIZONTAL_ALIGNMENT_LEFT, -1, c_fs).x
+	var c_col: Color = Color(0.55, 0.95, 0.65) if vault > 0 else Color(1.0, 0.5, 0.5)
+	_draw_text_outlined(fnt, Vector2(cx - c_w * 0.5, row_y + 34.0), cnt, c_fs, c_col)
 
 func _draw_result(fnt: Font) -> void:
 	# 스크림 — 팝업 뒤의 보드를 '멈춘 배경'으로 눌러둔다(모달 표시)
@@ -3764,6 +4170,9 @@ func _draw_result(fnt: Font) -> void:
 	elif bool(st.get("collect", false)):
 		# 받기형 수집: 남은 적이 아니라 '색별 남은 보석'을 보여준다(게임 중 목표 카드와 같은 언어).
 		_draw_result_collect(fnt, p, cx)
+	elif bool(st.get("protect", false)):
+		# 보호: 지킨 금고(vault/max)를 핍으로 — 게임 중 금고 카드와 같은 언어(지킨 만큼 금, 뺏긴 만큼 빈 슬롯).
+		_draw_result_protect(fnt, p, cx)
 	else:
 		# 정의는 HUD 목표 카드와 동일(total - killed - leaked) → 게임 중 보던 그 숫자가 그대로.
 		var remaining: int = maxi(0, director.enemy_total() - killed - leaked)
@@ -4344,6 +4753,9 @@ func _draw_hud(fnt: Font) -> void:
 	# 받기형 수집: GOAL 카드 = 보석 수집(N/K). ADVANCE 카드(적 전진 시계)는 아래서 그대로 유지 — 적이 밀려오니까.
 	if bool(st.get("collect", false)):
 		_draw_collect_goal(fnt, goal_r, gw, box_y)
+	elif bool(st.get("protect", false)):
+		# 보호: GOAL 카드 = 금고 잔량(핍). 빈 슬롯이 곧 '도난당한 양' = 상실을 눈으로 못 박음(loss aversion).
+		_draw_protect_goal(fnt, goal_r, gw, box_y)
 	elif director.scores():
 		# 점수 모드: GOAL 카드 = 점수(리더보드 지표). 최고 넘으면 카드·제목·숫자가 금색으로(실시간 갱신 신호).
 		#   깊이·최고는 좌상단, 콤보는 우상단.
@@ -4444,6 +4856,41 @@ func _draw_collect_goal(fnt: Font, goal_r: Rect2, gw: float, box_y: float) -> vo
 		var num_col: Color = Color(0.45, 0.85, 0.5) if done else Color.WHITE.lerp(gcol, clampf(kill_pulse / 0.35, 0.0, 1.0))
 		_draw_text_outlined(fnt, Vector2(gl + icon_s + 6.0, box_y + 68.0), num_str, num_fs, num_col)
 
+# 보호(Protect) GOAL 카드 — 금고 잔량을 핍으로. 채워진 핍=남은 보석(금 다이아), 빈 핍=도난당함(어두운 슬롯).
+#   빈 슬롯이 곧 손실량 = 상실을 눈으로 못 박는다(loss aversion). vault_flash=도난/손실 순간 붉은 경보 테두리,
+#   vault_pop=경계 핍 톡 튐. 카드색 C_GEM(보물 금색) = 지킬 대상이 '보물'임을 색으로. [[hud-signal-by-color-not-text]]
+func _draw_protect_goal(fnt: Font, goal_r: Rect2, gw: float, box_y: float) -> void:
+	_draw_card(goal_r, C_GEM)
+	if vault_flash > 0.0:
+		var fa: float = clampf(vault_flash / 0.55, 0.0, 1.0)
+		draw_rect(goal_r, Color(1.0, 0.3, 0.32, 0.85 * fa), false, 3.0)   # 도난/손실 순간 붉은 경보
+	var title: String = _t("vault")
+	var t_w: float = fnt.get_string_size(title, HORIZONTAL_ALIGNMENT_LEFT, -1, 16).x
+	_draw_text_outlined(fnt, Vector2(goal_r.position.x + gw * 0.5 - t_w * 0.5, box_y + 24.0), title, 16, Color(1.0, 0.9, 0.6))
+	var vm: int = maxi(1, vault_max)
+	var pip_gap: float = 6.0
+	var pip_s: float = clampf((gw - pip_gap * float(vm + 1)) / float(vm), 10.0, 30.0)
+	var row_w: float = pip_s * float(vm) + pip_gap * float(vm - 1)
+	var x0: float = goal_r.position.x + gw * 0.5 - row_w * 0.5
+	var py: float = box_y + 58.0
+	var pop: float = clampf(vault_pop / 0.42, 0.0, 1.0)
+	for i in range(vm):
+		var px: float = x0 + (pip_s + pip_gap) * float(i) + pip_s * 0.5
+		if i < vault:
+			var bump: float = 0.24 * pop if i == vault - 1 else 0.0   # 경계(최근 변화) 핍만 톡
+			_draw_gem_icon(Vector2(px, py), pip_s * (1.0 + bump), 0)   # 남은 보석 = 금 다이아
+		else:
+			var pts: PackedVector2Array = _gem_shape_points(Vector2(px, py), pip_s * 0.42, 0)  # 도난 = 빈 구멍
+			var closed: PackedVector2Array = pts.duplicate()
+			closed.append(pts[0])
+			draw_colored_polygon(pts, Color(0.0, 0.0, 0.0, 0.30))
+			draw_polyline(closed, Color(0.62, 0.5, 0.3, 0.75), 1.5)
+	var cnt: String = "%d / %d" % [vault, vault_max]
+	var c_fs: int = 16
+	var c_w: float = fnt.get_string_size(cnt, HORIZONTAL_ALIGNMENT_LEFT, -1, c_fs).x
+	var c_col: Color = Color(1.0, 0.55, 0.5) if vault_flash > 0.0 else Color(0.95, 0.85, 0.55)
+	_draw_text_outlined(fnt, Vector2(goal_r.position.x + gw * 0.5 - c_w * 0.5, box_y + 90.0), cnt, c_fs, c_col)
+
 # 보석 타입별 실루엣 — 0=다이아(4각), 1=육각, 2=5각 별. 색(GEM_COLORS)과 함께 이중 신호(색맹에도 구분).
 func _gem_shape_points(center: Vector2, h: float, shape: int) -> PackedVector2Array:
 	var pts: PackedVector2Array = PackedVector2Array()
@@ -4464,6 +4911,22 @@ func _gem_shape_points(center: Vector2, h: float, shape: int) -> PackedVector2Ar
 	return pts
 
 # 보석 아이콘 — gtype이 색(GEM_COLORS)과 모양을 함께 정한다. HUD·보드·비행·결과 공용 form.
+# 깨진 하트 — 폭탄 피해 토큰용. 위 두 로브 + 아래 삼각 꼭지, 가운데 어두운 균열 = '목숨이 깨진다'.
+func _draw_broken_heart(c: Vector2, s: float, col: Color) -> void:
+	var lobe: float = s * 0.28
+	draw_circle(c + Vector2(-s * 0.22, -s * 0.10), lobe, col)
+	draw_circle(c + Vector2( s * 0.22, -s * 0.10), lobe, col)
+	var pts: PackedVector2Array = PackedVector2Array([
+		c + Vector2(-s * 0.46, -s * 0.02),
+		c + Vector2( s * 0.46, -s * 0.02),
+		c + Vector2( 0.0, s * 0.52),
+	])
+	draw_colored_polygon(pts, col)
+	# 어두운 균열(깨짐)
+	draw_line(c + Vector2(0.0, -s * 0.34), c + Vector2(-s * 0.10, 0.0), Color(0.25, 0.03, 0.05), 2.2)
+	draw_line(c + Vector2(-s * 0.10, 0.0), c + Vector2(s * 0.06, s * 0.16), Color(0.25, 0.03, 0.05), 2.2)
+	draw_line(c + Vector2(s * 0.06, s * 0.16), c + Vector2(0.0, s * 0.5), Color(0.25, 0.03, 0.05), 2.2)
+
 func _draw_gem_icon(center: Vector2, s: float, gtype: int = 0) -> void:
 	var col: Color = GEM_COLORS[gtype % GEM_COLORS.size()]
 	var shape: int = gtype % 3
@@ -4831,7 +5294,22 @@ func _draw_board(fnt: Font) -> void:
 	# 넉백 잔상 (밀쳐진 적의 이전→현재 위치 시안 스트릭)
 	for st in push_streaks:
 		var sa: float = clampf(st["life"] / st["max"], 0.0, 1.0)
-		draw_line(st["from"], st["to"], Color(0.6, 0.95, 1.0, sa * 0.7), 4.0)
+		var scol: Color = st.get("color", Color(0.6, 0.95, 1.0))   # 기본=시안(넉백) / 폭탄=주황 충격파
+		draw_line(st["from"], st["to"], Color(scol.r, scol.g, scol.b, sa * 0.8), float(st.get("w", 4.0)))
+
+	# 연쇄 폭탄 링크: 인접 폭탄들 사이에 지지직 스파크 선 = "하나 터지면 옆도 터진다"를 미리 보여줌(linchpin 판단 근거).
+	if director.bomb_chain():
+		var bl: Array = []
+		for be in enemies:
+			if be["etype"] == "bomb" and int(be["row"]) >= 0 and int(be["row"]) < ROWS:
+				var bxp: float = BOARD_X + int(be["col"]) * CELL + CELL * 0.5
+				var byp: float = board_y + float(be.get("vis_row", be["row"])) * CELL + CELL * 0.5 + E_BODY_DY
+				bl.append({"c": int(be["col"]), "r": int(be["row"]), "p": Vector2(bxp, byp)})
+		for a in range(bl.size()):
+			for b in range(a + 1, bl.size()):
+				if absi(int(bl[a]["c"]) - int(bl[b]["c"])) <= 1 and absi(int(bl[a]["r"]) - int(bl[b]["r"])) <= 1:
+					var flick: float = 0.5 + 0.5 * sin(anim_t * 18.0 + float(a + b))
+					draw_line(bl[a]["p"], bl[b]["p"], Color(1.0, 0.6, 0.2, 0.30 + 0.35 * flick), 2.0 + 1.5 * flick)
 
 	# 적 (타입별 색·모양·크기 + 피격 생존 시에만 HP 바)
 	for e in enemies:
@@ -4854,11 +5332,13 @@ func _draw_board(fnt: Font) -> void:
 		# ── 전진 텔레그래프 = 두 채널(글로벌 카드 대체). remain = 이 적이 몇 배치 뒤 전진하나(자기 시계).
 		#   신호를 구석 카드가 아니라 적 위에 얹는다([[signal-layer-above-occluders]]·[[hud-signal-by-color-not-text]]).
 		var remain: int = int(e.get("remain", 99))
+		# 도둑이 훔쳐 위로 도망 중(carrying)이면 하강 텔레그래프(자세·붉은 착지칸)를 끈다 — 아래가 아니라 위로 간다.
+		var fleeing: bool = e["etype"] == "thief" and bool(e.get("carrying", false))
 		# 채널 A — 자세(lean): 전역·조용. 아래(다음 칸) 쪽으로 기울어 "곧 내려간다"를 몸으로.
 		#   ⚠몸의 꿈틀 = "다음 배치에 이동" 약속이다. remain==1일 때만 켠다. 예전엔 remain==2에도 살짝
 		#   꿈틀댔는데, 실제론 안 움직이는데 움직일 것처럼 읽혀 약속을 어겼다(유저 확인) → 제거.
 		#   '곧'의 예고는 몸이 아니라 붉은 착지칸(채널 B)이 바닥 밴드에서만 맡는다.
-		var lean_amt: float = 1.0 if remain == 1 else 0.0
+		var lean_amt: float = 1.0 if remain == 1 and not fleeing else 0.0
 		var bob: float = lean_amt * (0.6 + 0.4 * sin(anim_t * 5.0)) * CELL * 0.16
 		var cx: float = BOARD_X + ec * CELL + CELL * 0.5 + jit.x
 		# 몸통은 셀 중심보다 E_BODY_DY 아래 — 위쪽은 HP 게이지 자리다(_enemy_pos와 같은 셈).
@@ -4866,7 +5346,7 @@ func _draw_board(fnt: Font) -> void:
 		# 채널 B — 붉은 착지칸: 시끄럽지만 '깊이(누수까지)'로 게이팅. 상단(depth≈0)엔 안 뜨고 바닥으로
 		#   내려올수록 차오른다 → 위협 있는 곳에서만 정확한 착지점. 전 깊이 알람(구 방식)의 정신없음을 없앰.
 		#   depth: row4=0 → row7=1 완만 램프. imm: remain 1=꽉, 2=먼저 흐리게(와인드업).
-		if er + 1 < ROWS:
+		if er + 1 < ROWS and not fleeing:
 			var depth: float = clampf((float(er) - 4.0) / 3.0, 0.0, 1.0)
 			var imm: float = (1.0 if remain == 1 else (0.5 if remain == 2 else 0.0))
 			var box_a: float = depth * imm
@@ -4964,6 +5444,64 @@ func _draw_board(fnt: Font) -> void:
 				draw_circle(Vector2(cx, cy), CELL * (0.34 + 0.06 * gpulse), Color(gcol2.r, gcol2.g, gcol2.b, 0.20 + 0.15 * gpulse))  # 후광
 				_draw_gem_icon(Vector2(cx, cy), CELL * 0.62, int(e.get("gtype", 0)))
 				rad = CELL * 0.34
+			"bomb":
+				# 폭탄 = 어두운 숯색 구 + 타들어가는 도화선 + 카운트다운 숫자. 몸은 안 붉게(착지칸 신호 보존),
+				#   긴급색은 도화선 불꽃·숫자가 맡는다. fuse↓일수록 불꽃 뜨겁고 크게·숫자 붉게·맥동 빠르게.
+				var fuse: int = int(e.get("fuse", 0))
+				var fmax: int = maxi(1, director.bomb_fuse())
+				var urg: float = clampf(1.0 - float(fuse) / float(fmax), 0.0, 1.0)   # 0=여유 → 1=임박
+				var br: float = CELL * 0.34
+				var bpulse: float = 0.5 + 0.5 * sin(anim_t * (4.0 + 9.0 * urg))        # 임박할수록 빨리 맥동
+								# ★ 발광 후광 = 가시성 핵심: 다른 적은 쨍한 색, 폭탄만 어두워 배경에 묻힌다 → 따뜻한 앰버 후광으로 분리.
+				#   빨강 아님(착지칸 신호 보존). 임박할수록 밝고 크게 맥동 = 후광 자체가 긴급 채널.
+				var halo_a: float = 0.24 + 0.34 * urg + 0.10 * bpulse
+				draw_circle(Vector2(cx, cy), br * (1.55 + 0.35 * urg + 0.12 * bpulse), Color(0.98, 0.55, 0.15, halo_a * 0.45))
+				draw_circle(Vector2(cx, cy), br * 1.18, Color(1.0, 0.62, 0.22, halo_a))
+				# 몸통: 숯색 구 + 밝은 상단 하이라이트(입체) + 따뜻한 글로우 림(어둠서 윤곽을 세운다)
+				draw_circle(Vector2(cx, cy), br, C_E_BOMB)
+				draw_circle(Vector2(cx - br * 0.30, cy - br * 0.32), br * 0.34, C_E_BOMB_HI)
+				draw_circle(Vector2(cx, cy), br, C_E_RIM, false, C_E_RIM_W)
+				draw_circle(Vector2(cx, cy), br, Color(1.0, 0.74, 0.38, 0.55 + 0.30 * bpulse), false, 2.2)
+				# 도화선 + 큰 불꽃(글로우 포함). 불꽃은 주황→흰열, 임박할수록 커진다.
+				var f0: Vector2 = Vector2(cx + br * 0.30, cy - br * 0.72)
+				var f1: Vector2 = Vector2(cx + br * 0.55, cy - br * 1.18)
+				draw_line(f0, f1, Color("#8a6d52"), 3.0)
+				var spark_c: Color = Color("#fb923c").lerp(Color(1.0, 0.97, 0.85), urg)
+				var spark_r: float = CELL * 0.072 * (0.85 + 0.55 * bpulse) * (1.0 + 0.5 * urg)
+				draw_circle(f1, spark_r * 1.9, Color(spark_c.r, spark_c.g, spark_c.b, 0.35))
+				draw_circle(f1, spark_r, spark_c)
+				# 카운트다운 숫자(몸 중앙): 흰→노랑→빨강. "남은 기회 N"을 글자로 못 박음(적별 자기 시계).
+				var num_c: Color = Color(1, 1, 1).lerp(Color("#fbbf24"), urg).lerp(Color("#ef4444"), urg * urg)
+				var ns: int = 27 + int(6.0 * urg * bpulse)
+				_draw_text_outlined(fnt, Vector2(cx - 7.0, cy - 13.0), str(maxi(0, fuse)), ns, num_c)
+				rad = br
+			"thief":
+				# 도둑 = 후드 쓴 도적: 둥근 후드 몸 + 복면 띠(눈 두 점) + 옆구리 자루. form만으로 '도둑'을 말한다.
+				#   carrying(훔쳐 도망 중): ①따뜻한 회수-촉구 후광 ②자루에 빛나는 보석 ③머리 위 상승 쉐브론(위로 도망).
+				var carrying2: bool = bool(e.get("carrying", false))
+				var tr: float = CELL * 0.32
+				if carrying2:
+					var cp: float = 0.5 + 0.5 * sin(anim_t * 8.0)
+					draw_circle(Vector2(cx, cy), tr * (1.5 + 0.2 * cp), Color(1.0, 0.82, 0.32, 0.16 + 0.12 * cp))  # 회수 촉구 후광(앰버)
+				draw_circle(Vector2(cx, cy), tr, C_E_THIEF)                              # 몸통
+				draw_circle(Vector2(cx, cy - tr * 0.34), tr * 0.86, C_E_THIEF_DK)        # 후드(위쪽 그늘)
+				draw_circle(Vector2(cx, cy), tr, C_E_RIM, false, C_E_RIM_W)
+				var eye_y: float = cy - tr * 0.04
+				draw_rect(Rect2(cx - tr * 0.82, eye_y - tr * 0.17, tr * 1.64, tr * 0.34), C_E_THIEF_DK)  # 복면 띠
+				draw_circle(Vector2(cx - tr * 0.32, eye_y), tr * 0.1, Color(1.0, 0.95, 0.7))             # 눈
+				draw_circle(Vector2(cx + tr * 0.32, eye_y), tr * 0.1, Color(1.0, 0.95, 0.7))
+				var sack: Vector2 = Vector2(cx + tr * 0.74, cy + tr * 0.52)
+				draw_circle(sack, tr * 0.34, C_E_THIEF_DK)                               # 자루
+				draw_circle(sack, tr * 0.34, C_E_RIM, false, C_E_RIM_W - 0.5)
+				if carrying2:
+					var gp2: float = 0.5 + 0.5 * sin(anim_t * 9.0)
+					draw_circle(sack, tr * (0.2 + 0.06 * gp2), Color(1.0, 0.9, 0.42))    # 훔친 보석 빛남
+					var chy: float = cy - tr * 1.42
+					var chs: float = tr * 0.34
+					var cha: float = 0.4 + 0.6 * (0.5 + 0.5 * sin(anim_t * 10.0))
+					draw_line(Vector2(cx - chs, chy + chs * 0.6), Vector2(cx, chy - chs * 0.4), Color(1.0, 0.85, 0.35, cha), 3.0)  # 상승 쉐브론
+					draw_line(Vector2(cx + chs, chy + chs * 0.6), Vector2(cx, chy - chs * 0.4), Color(1.0, 0.85, 0.35, cha), 3.0)
+				rad = tr
 			_:
 				# basic: 바이올렛 원 (hp 비율로 살짝 명암 — 어두워져도 빨강엔 안 닿는다)
 				var bcol: Color = C_E_BASIC.lerp(Color(0.30, 0.10, 0.48), 1.0 - ratio)
@@ -5030,18 +5568,39 @@ func _draw_core(fnt: Font) -> void:
 	var sy: float = board_y + ROWS * CELL + 4.0
 	var sw: float = COLS * CELL
 	var core_max: int = director.core_hp_max()
-	var ratio: float = clampf(float(core_hp) / float(core_max), 0.0, 1.0)
+	# 표시용 HP(core_hp_vis)로 그린다 — 폭탄 피해는 토큰이 착지할 때만 여기 반영돼 바가 그 순간 줄어든다.
+	var vis: float = clampf(core_hp_vis, 0.0, float(core_max))
+	var ratio: float = clampf(vis / float(core_max), 0.0, 1.0)
 	# HP바: 빈 트랙(어두움) + 체력 그라데이션(빨강↔초록) + 밝은 테두리
 	draw_rect(Rect2(sx, sy, sw, strip_h), Color(0.08, 0.03, 0.04))
 	var fill_col: Color = Color(0.86, 0.24, 0.20).lerp(Color(0.28, 0.82, 0.45), ratio)
 	draw_rect(Rect2(sx, sy, sw * ratio, strip_h), fill_col)
+	# 곧-깎일 구간(토큰 비행 중): [논리 core_hp .. 표시 core_hp_vis]를 붉게 펄스 = "여기가 곧 부서진다" 예고.
+	if dmg_flights.size() > 0:
+		var warn_lo: float = clampf(float(core_hp) / float(core_max), 0.0, 1.0)
+		var wp: float = 0.35 + 0.35 * sin(anim_t * 9.0)
+		draw_rect(Rect2(sx + sw * warn_lo, sy, sw * (ratio - warn_lo), strip_h), Color(1.0, 0.4, 0.3, wp))
 	# 상단 하이라이트(입체감)
 	draw_rect(Rect2(sx, sy, sw * ratio, strip_h * 0.4), Color(1.0, 1.0, 1.0, 0.18))
 	draw_rect(Rect2(sx, sy, sw, strip_h), Color(1.0, 1.0, 1.0, 0.55), false, 2.0)
 	# 라벨: 외곽선 흰 글자(트랙/체력 어느 색 위에서도 읽힘). 검정은 어두운 빈 구간서 안 보여 회피.
-	var lbl: String = _t("core_hp") % [core_hp, core_max]
+	var lbl: String = _t("core_hp") % [roundi(vis), core_max]
 	var lw: float = fnt.get_string_size(lbl, HORIZONTAL_ALIGNMENT_LEFT, -1, 19).x
 	_draw_text_outlined(fnt, Vector2(sx + sw * 0.5 - lw * 0.5, sy + 22.0), lbl, 19, Color.WHITE)
+
+	# 폭탄 폭발 순간: 바 전체가 붉게 펄스한다 = "HP가 방금 깎였다"를 바 자체로 못 박음(충격파가 여기로 착지).
+	if core_flash_t > 0.0:
+		var cf: float = clampf(core_flash_t / 0.5, 0.0, 1.0)
+		draw_rect(Rect2(sx, sy, sw, strip_h), Color(1.0, 0.3, 0.25, 0.55 * cf))
+		draw_rect(Rect2(sx, sy, sw, strip_h), Color(1.0, 0.9, 0.85, 0.85 * cf), false, 3.5)
+
+	# 폭탄 토큰 착지: 깎여나간 바 구간이 부서지는 밝은 플래시(그 자리서 −HP를 못 박음 = 토큰이 여기에 꽂혔다).
+	for shat in core_shatter:
+		var sfa: float = clampf(float(shat["life"]) / 0.4, 0.0, 1.0)
+		var x0: float = float(shat["x0"])
+		var x1: float = float(shat["x1"])
+		draw_rect(Rect2(x0, sy - 2.0, x1 - x0, strip_h + 4.0), Color(1.0, 0.95, 0.9, 0.9 * sfa))
+		draw_rect(Rect2(x0, sy - 2.0, x1 - x0, strip_h + 4.0), Color(1.0, 0.3, 0.25, sfa), false, 2.5)
 
 	# 거점 피격: 그 열 충격 플래시 + 균열 지그재그 (HP 잃는 게 확 무섭게)
 	for hit in core_hits:

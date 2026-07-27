@@ -30,11 +30,44 @@ func enemy_hp(etype: String, spawn_index: int, _ctx: Dictionary = {}) -> int:
 			hp = roundi(base * float(st["tank_mult"]))
 		"swarm":
 			hp = roundi(base * 0.4)
+		"thief":
+			# 도둑은 포지셔닝 위협(어디서 막나/쫓나)이지 HP 벽이 아니다 → 한 줄이면 죽는 저HP.
+			#   넉백만 나면 도망(상승) 중엔 오히려 위로 밀려 탈출 가속(주의) → 낮게 잡아 대개 즉사.
+			hp = roundi(base * float(st.get("thief_hp_mult", 0.35)))
 	return maxi(1, hp)
 
 func enemy_step(etype: String) -> int:
 	var base_step: int = int(st["step_every"])
-	return maxi(1, base_step - 1) if etype == "fast" else base_step
+	if etype == "fast":
+		return maxi(1, base_step - 1)
+	# 도둑 하강 속도 — thief_step>0이면 그 주기로 blitz(막기 어렵게 → 낚아채기가 기본, 게임은 회수-추격). 0=일반.
+	if etype == "thief":
+		var ts: int = int(st.get("thief_step", 0))
+		if ts > 0:
+			return maxi(1, ts)
+	return base_step
+
+# 폭탄(Defuse): 점화 적의 도화선 = 남은 배치 수(0이 되면 제자리서 터짐). 터짐 = 거점 bomb_dmg 피해(일반 누수 -1보다 큼).
+func bomb_fuse() -> int:
+	return int(st.get("bomb_fuse", 6))
+
+func bomb_dmg() -> int:
+	return int(st.get("bomb_dmg", 2))
+
+# >0이면 폭발이 HP 대신(또는 겸해) 보드에 잡동사니 블록 N개를 쏟는다(dormant, 현재 미사용 — 매몰은 점착 몫).
+func bomb_junk() -> int:
+	return int(st.get("bomb_junk", 0))
+
+# true면 폭탄이 연쇄 폭발(인접 폭탄 8방 도미노). R3 rung — linchpin 먼저 끊는 새 결정.
+func bomb_chain() -> bool:
+	return bool(st.get("bomb_chain", false))
+
+# 도둑(Protect): 한 번 훔칠 때 금고 감소량 / 물고 도망칠 때 전진 주기(0=하강과 동일).
+func steal_amount() -> int:
+	return int(st.get("steal", 1))
+
+func thief_carry_step() -> int:
+	return int(st.get("thief_carry_step", 0))
 
 # 재도전 = 같은/다음 스테이지(코어가 game_clear로 분기). scores()/*_score는 base 상속(무점수).
 func retry_kind() -> String:
@@ -109,12 +142,12 @@ func pick_etype(ctx: Dictionary) -> String:
 	var w: Dictionary = st["weights"]
 	var total: int = 0
 	for t in types:
-		total += int(w[t])
+		total += int(w.get(t, 0))   # 키 없는 타입(예: 신규 bomb)은 가중치 0 = 무영향(회귀 시드 보존)
 	if total <= 0:
 		return "basic"
 	var r: int = ctx["rng"].randi() % total
 	for t in types:
-		r -= int(w[t])
+		r -= int(w.get(t, 0))
 		if r < 0:
 			return t
 	return "basic"
