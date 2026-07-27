@@ -219,6 +219,12 @@ const TRAY_SLOT_H: int = 100
 const TRAY_SLOT_GAP: int = 20
 const TRAY_PREVIEW_CELL: int = 17   # 최대 조각이 5칸(I5) → 85px, 슬롯 120×100 안에 여백 확보
 
+# 아이템 = 유도 종이비행기(탭-투-유즈). 2줄+ 클리어로 '적립'하고, 탭하면 거점 근접 적 1마리 확정 처치.
+#   ⚠총량 불변 설계(㉮): 콤보 비행기를 자동발사 대신 이 칸에 저장 — 화력은 그대로, '언제 쏘냐'만 유저 것.
+#   무료(전진 안 함) + 상한 캡으로 스톡파일 방지(무료+무한이면 누수 위협이 통째로 사라짐). 캡은 실측 튜닝.
+const PLANE_CAP: int = 3             # 아이템 칸 최대 적립 수(초과분은 버려짐 = 소폭 너프, 안전). 튜닝 레버.
+const PLANE_FLIGHT: float = 0.34     # 발사→착지 비행 시간(resolve 시커와 동일 체감)
+
 # 드래그앤드롭 — 모바일이 최종 타깃. Godot이 터치를 마우스 이벤트로 에뮬레이트하므로
 # 같은 코드가 PC 테스트와 모바일에서 그대로 동작한다.
 const DRAG_LIFT: float = 80.0        # 조각을 포인터 위로 들어올리는 높이. 모바일에서 엄지가 조각을 가리지 않게.
@@ -235,6 +241,9 @@ var mode_btn := Rect2(596.0, 900.0, 184.0, 46.0)
 
 # 설정 기어 — 플레이 중 우상단. 콤보 표시(우상단 y=26)와는 콤보를 왼쪽으로 밀어 비켜준다.
 var gear_rect := Rect2(748.0, 30.0, 44.0, 44.0)   # 우상단 설정 기어(_relayout이 세이프에어리어만큼 내림)
+# 아이템 칸 — 트레이 왼쪽(x=0~200 빈 구역)에 얹힘. _relayout이 bot_y 기준으로 재배치.
+var item_rect := Rect2(38.0, 715.0, 134.0, 100.0)
+var _item_hover: bool = false
 # 세이프에어리어 인셋(논리 단위). _relayout이 _safe_insets()로 채운다. 데스크톱=0.
 var safe_top: float = 0.0
 var safe_bottom: float = 0.0
@@ -541,8 +550,9 @@ var resolve_hits: Array = []       # [{id, dmg, kb, at, done}] 거점 가까운 
 var resolve_rocket_plan: Array = []  # [{dir, idx}] 로켓은 충전 뒤에 발사
 var resolve_cross_plan: Array = []   # [{cell, at, fired}] 크로스(행+열) 교차점 관통 섬광 예약
 var cross_beams: Array = []          # [{cell, t, dur}] 십자 관통 섬광(진행) — 크로스만의 청록 빔
-var resolve_seeker_plan: Array = []  # [{to_pos, from, launch, arrive, fired}] 유도 로켓 예약(동시 N줄 → N발)
-var seekers: Array = []              # [{from, to_pos, t, dur}] 유도 로켓(진행) — 거점서 곧 샐 적으로
+var seekers: Array = []              # [{from, to_pos, t, dur, target_id, target_hp}] 유도 비행기(진행). 착지 시 target_id 확정 처치
+var planes_banked: int = 0           # 아이템 칸에 적립된 비행기 수(2줄+ 클리어로 벌고, 탭해 씀). 상한=PLANE_CAP
+var plane_bank_pulse: float = 0.0    # 방금 적립됐을 때 아이템 칸이 반짝(색 신호). 시간 감쇠.
 var resolve_fx_done: bool = false    # 로켓 발사 트리거됐나
 var pending_leaks: Array = []      # 이번 스텝 누수 열 목록(공격 뒤 표시)
 var pending_core_dead: bool = false
@@ -644,6 +654,7 @@ func _relayout() -> void:
 	var upper: int = max(int(hud_h), bot_y - int(CORE_BLOCK_H))
 	board_y = clampi(centered, int(hud_h), upper)
 	mode_btn = Rect2(596.0, float(bot_y) + 200.0, 184.0, 46.0)  # 트레이 안, bot_y 기준
+	item_rect = Rect2(38.0, float(bot_y) + 15.0, 134.0, 100.0)  # 트레이 왼쪽(x=0~200 빈 구역), 슬롯과 같은 높이
 	gear_rect = Rect2(748.0, 30.0 + safe_top, 44.0, 44.0)       # 우상단 설정 기어 — 노치 아래로
 	queue_redraw()
 
@@ -960,8 +971,9 @@ func _init_game() -> void:
 	resolve_rocket_plan = []
 	resolve_cross_plan = []
 	cross_beams = []
-	resolve_seeker_plan = []
 	seekers = []
+	planes_banked = 0
+	plane_bank_pulse = 0.0
 	resolve_fx_done = false
 	pending_leaks = []
 	pending_core_dead = false
@@ -1572,8 +1584,8 @@ func _begin_resolve(rows: Array, cols: Array) -> void:
 	resolve_rocket_plan = []
 	resolve_cross_plan = []
 	cross_beams = []
-	resolve_seeker_plan = []
-	seekers = []
+	# ⚠seekers는 안 지운다 — 이제 아이템 비행기 전용(턴 중 발사)이라, 발사 직후 놓은 수가 resolve를
+	#   열어도 날아가던 비행기가 사라지면 안 된다. 착지 처치는 id 조회로 가드(중복 처치 없음).
 	resolve_fx_done = false
 
 	var blast_len: float = 0.15
@@ -1623,29 +1635,18 @@ func _begin_resolve(rows: Array, cols: Array) -> void:
 		var mult: float = _simul_mult(l) * _streak_mult(combo)
 		var strike: int = roundi(LINE_BASE * mult)
 		var kb: int = clampi(1 + int(combo / 3), 1, 3)
-		# --- 유도 종이비행기 표적 선정(밴드보다 먼저) ---
-		#   유저 규칙: 동시 지운 줄 수(l) = 발수(2줄+만, 단일은 0). 콤보·전멸 무관하게 항상 발사.
-		#   표적 = 거점에 제일 가까운(row 큰 순) '살아있는' 적 N마리. 밴드가 다 쓸어도(전멸) 이 N마리는
-		#   비행기가 가로채 잡는다(아래 hit_list서 제외 → 한 마리 이중 처치 금지, [[wave-accounting-invariant]]).
-		var living: Array = []
-		for le in enemies:
-			if String(le["etype"]) == "gem":
-				continue
-			living.append(le)
-		living.sort_custom(func(a, b):
-			if a["row"] != b["row"]:
-				return a["row"] > b["row"]
-			return a["col"] < b["col"])
-		var n_seek: int = (mini(l, living.size()) if l >= 2 else 0)
-		var seeker_ids: Dictionary = {}
-		for si0 in range(n_seek):
-			seeker_ids[living[si0]["id"]] = true
+		# --- 아이템 적립(㉮): 콤보 비행기를 '자동발사' 대신 아이템 칸에 저장 ---
+		#   동시 2줄+ 클리어 = 지운 줄 수(l)만큼 비행기 적립(상한 PLANE_CAP, 초과분 버림). 단일 클리어=0.
+		#   총 화력은 옛 자동발사와 동일 — 바뀌는 건 '언제 쏘냐'뿐(유저가 탭). 밴드 제외도 사라졌으므로
+		#   완성 줄 위 적은 이제 밴드가 정상 처치(비행기는 줄 밖 적을 노리는 별도 무기가 됨).
+		if l >= 2:
+			var before_bank: int = planes_banked
+			planes_banked = mini(planes_banked + l, PLANE_CAP)
+			if planes_banked > before_bank:
+				plane_bank_pulse = 0.6
 		# ③ 로켓 피격: 밴드가 지나는 적별 (열밴드+행밴드 교차=배수). 적의 링=가장 안쪽 밴드
-		#   ⚠비행기 표적(seeker_ids)은 밴드서 제외 — 비행기가 잡는다(이중 처치 방지).
 		var hit_list: Array = []
 		for e in enemies:
-			if seeker_ids.has(e["id"]):
-				continue
 			var lines: int = 0
 			var ering: int = 999
 			if band_cols.has(e["col"]):
@@ -1674,18 +1675,6 @@ func _begin_resolve(rows: Array, cols: Array) -> void:
 				"id": hit_list[k]["id"], "dmg": hit_list[k]["dmg"], "kb": hit_list[k]["kb"],
 				"at": at, "done": false, "cross": hit_list[k]["cross"],
 			})
-		# --- 유도 종이비행기 발사: 위서 고른 표적(living[0..n_seek])에 거점서 곡선 호밍 ---
-		#   각 비행기는 표적을 '확정 처치'(dmg=표적 hp) — 밴드서 뺐으니 비행기가 안 잡으면 그 적이 샌다.
-		#   장갑이 표적이어도 한 방(유저 규칙: 줄 수 = 처치 수). 밸런스는 봇 실측+골든 재베이스로 조율.
-		var seek_from: Vector2 = Vector2(BOARD_X + COLS * CELL * 0.5, board_y + ROWS * CELL + 18.0)
-		for si in range(n_seek):
-			var tgt: Dictionary = living[si]
-			var s_launch: float = fire_t + 0.12 + float(si) * 0.07
-			var s_arrive: float = s_launch + 0.30
-			var sdmg: int = maxi(strike, int(tgt["hp"]))
-			resolve_seeker_plan.append({"to_pos": _enemy_pos(tgt["col"], tgt["row"]), "from": seek_from, "launch": s_launch, "arrive": s_arrive, "fired": false})
-			resolve_hits.append({"id": tgt["id"], "dmg": sdmg, "kb": 0, "at": s_arrive, "done": false, "cross": false, "seeker": true})
-			max_at = maxf(max_at, s_arrive)
 		# 총길이 = 마지막 피격 or 마지막 링 로켓 비행 완료 중 늦은 것(바깥 링에 적 없어도 물결 끝까지 재생)
 		var visual_end: float = fire_t + 0.08 + float(max_ring) * BLAST_RING_DELAY + ROCKET_DUR + 0.08
 		blast_len = clampf(maxf(max_at + 0.28, visual_end), fire_t + 0.30, fire_t + 3.2)
@@ -1937,7 +1926,6 @@ func _finish_resolve() -> void:
 	resolving = false
 	resolve_hits = []
 	resolve_cross_plan = []
-	resolve_seeker_plan = []
 	if not clear_done:
 		_burst_lines()   # 안전망: 어떤 경로로든 안 터졌으면 여기서라도 셀을 비운다(보드 정합성)
 	_end_turn()
@@ -2452,6 +2440,35 @@ func _return_held() -> void:
 	dragging = false
 	drag_slot = -1
 
+# 거점에 제일 가까운(row 큰 순, 동row는 col 작은 순) 살아있는 비-보석 적. 없으면 {}.
+func _nearest_core_enemy() -> Dictionary:
+	var best: Dictionary = {}
+	for e in enemies:
+		if String(e["etype"]) == "gem":
+			continue
+		if best.is_empty() or e["row"] > best["row"] or (e["row"] == best["row"] and e["col"] < best["col"]):
+			best = e
+	return best
+
+# 아이템 칸 탭 = 적립된 비행기 1발 발사. 표적 = 지금 거점에 제일 가까운 적(발사 시각에 선정 → 현재 위협).
+#   비행기는 아이템 칸에서 튀어나와 곡선 호밍, 착지 시 확정 처치(_process seekers 루프). 무료·전진 없음.
+func _fire_banked_plane() -> void:
+	if planes_banked <= 0 or resolving:
+		return
+	var tgt: Dictionary = _nearest_core_enemy()
+	if tgt.is_empty():
+		return   # 잡을 적이 없으면 소모하지 않는다(헛발사 방지)
+	planes_banked -= 1
+	seekers.append({
+		"from": item_rect.get_center(),
+		"to_pos": _enemy_pos(tgt["col"], tgt["row"]),
+		"t": 0.0, "dur": PLANE_FLIGHT,
+		"target_id": int(tgt["id"]), "target_hp": int(tgt["hp"]),
+	})
+	# 발사 머즐 — 아이템 칸에서 청록 섬광 튄다(원인→결과 연결)
+	impacts.append({"pos": item_rect.get_center(), "life": 0.16, "max": 0.16, "color": Color(0.7, 0.97, 1.0), "radius": 26.0, "star": true})
+	hitstop = maxf(hitstop, 0.02)
+
 # 안드로이드 하드웨어 '뒤로가기'(+ 제스처). project.godot에서 quit_on_go_back=false로 자동 종료를
 #   껐으므로 여기서 직접 한 단계씩 되돌린다. 안 그러면 판 중에 뒤로가기 한 번으로 앱이 통째로 꺼진다.
 #   사다리: 모달 닫기 → 결과 팝업은 홈 → 플레이 중엔 일시정지(설정) → 하위 화면은 허브 → 허브에서만 종료.
@@ -2663,9 +2680,11 @@ func _input(event: InputEvent) -> void:
 	if resolving:
 		return
 
-	# 우상단 기어 호버 (플레이 중 언제나)
+	# 우상단 기어 호버 + 아이템 칸 호버 (플레이 중 언제나)
 	if event is InputEventMouseMotion:
-		_gear_hover = gear_rect.has_point((event as InputEventMouseMotion).position)
+		var _mm: Vector2 = (event as InputEventMouseMotion).position
+		_gear_hover = gear_rect.has_point(_mm)
+		_item_hover = item_rect.has_point(_mm) and planes_banked > 0
 
 	# 들고 있는 조각은 두 모드 모두 포인터를 따라온다 — 화면 규칙(스냅=가능/부유=불가)이 같아진다.
 	if event is InputEventMouseMotion and dragging:
@@ -2687,6 +2706,12 @@ func _input(event: InputEvent) -> void:
 		if mbe.pressed and mode_btn.has_point(mbe.position):
 			click_mode = not click_mode
 			_return_held()   # 모드가 바뀌면 들고 있던 조각은 트레이로 돌려놓는다
+			return
+
+		# 아이템 칸 탭 = 비행기 1발 발사(탭-투-유즈). 두 입력 모드 모두 동일 — 들고 있는 조각은 안 건드린다.
+		#   빈 칸(적립 0)이거나 표적이 없으면 무반응(소모 안 함). 발사는 무료(전진 안 함).
+		if mbe.pressed and item_rect.has_point(mbe.position):
+			_fire_banked_plane()
 			return
 
 		if click_mode:
@@ -2757,11 +2782,7 @@ func _process(delta: float) -> void:
 				cp["fired"] = true
 				cross_beams.append({"cell": cp["cell"], "t": 0.0, "dur": 0.42})
 				hitstop = maxf(hitstop, 0.035)
-		# 유도 로켓 발사 — 거점서 곧 샐 적으로 호밍(도착 시각에 맞춰 아래 resolve_hits가 처치)
-		for sp in resolve_seeker_plan:
-			if not sp["fired"] and resolve_timer >= sp["launch"]:
-				sp["fired"] = true
-				seekers.append({"from": sp["from"], "to_pos": sp["to_pos"], "t": 0.0, "dur": sp["arrive"] - sp["launch"]})
+		# (유도 비행기는 이제 resolve가 아니라 아이템 탭으로 발사 — _fire_banked_plane. 아래 seekers 진행 루프서 착지 처치)
 		for h in resolve_hits:
 			if not h["done"] and resolve_timer >= h["at"]:
 				h["done"] = true
@@ -2841,6 +2862,12 @@ func _process(delta: float) -> void:
 	while sk >= 0:
 		seekers[sk]["t"] += delta
 		if seekers[sk]["t"] >= seekers[sk]["dur"]:
+			# 착지 = 표적 확정 처치. id 조회로 가드(이미 죽었으면 _apply_hit이 무시 → 중복·오처치 없음).
+			var tid: int = int(seekers[sk].get("target_id", -1))
+			if tid != -1:
+				var thp: int = int(seekers[sk].get("target_hp", 9999))
+				_apply_hit({"id": tid, "dmg": thp, "kb": 0, "seeker": true})
+				_check_win()   # 판 밖(턴 중) 처치라 여기서 승리 판정을 직접 태운다(마지막 적을 비행기로 잡는 경우)
 			seekers.remove_at(sk)
 		sk -= 1
 	var ch: int = core_hits.size() - 1
@@ -2932,6 +2959,8 @@ func _process(delta: float) -> void:
 		im -= 1
 	if kill_pulse > 0.0:
 		kill_pulse = maxf(0.0, kill_pulse - delta)
+	if plane_bank_pulse > 0.0:
+		plane_bank_pulse = maxf(0.0, plane_bank_pulse - delta)
 	if step_beat > 0.0:
 		step_beat = maxf(0.0, step_beat - delta)
 	if pb_pop_t >= 0.0:
@@ -4276,6 +4305,17 @@ func _draw_lock(c: Vector2, s: float, col: Color) -> void:
 	draw_arc(Vector2(c.x, c.y - s * 0.18), s * 0.30, PI, TAU, 12, col, 3.0)
 	draw_rect(Rect2(c.x - s * 0.40, c.y - s * 0.10, s * 0.80, s * 0.62), col)
 
+# 종이비행기 아이콘(절차적) — 위를 향한 다트. 접힌 종이 느낌으로 두 날개 명암 분리.
+func _draw_plane_icon(c: Vector2, s: float, fill: Color, edge: Color) -> void:
+	var tip: Vector2 = c + Vector2(0.0, -s)
+	var left: Vector2 = c + Vector2(-s * 0.82, s * 0.72)
+	var right: Vector2 = c + Vector2(s * 0.82, s * 0.72)
+	var notch: Vector2 = c + Vector2(0.0, s * 0.34)
+	draw_colored_polygon(PackedVector2Array([tip, left, notch]), fill)
+	draw_colored_polygon(PackedVector2Array([tip, right, notch]), fill.darkened(0.24))
+	draw_polyline(PackedVector2Array([tip, left, notch, right, tip]), edge, 1.5, true)
+	draw_line(tip, notch, edge, 1.5)
+
 # 상단 카드 패널(Toon Blast식) — 배경 + 강조 테두리
 func _draw_card(r: Rect2, accent: Color) -> void:
 	draw_rect(r, Color(0.14, 0.14, 0.21))
@@ -5193,6 +5233,36 @@ func _draw_bottom(fnt: Font) -> void:
 			draw_string(fnt, Vector2(sr.position.x + sr.size.x * 0.5 - dw * 0.5,
 					sr.position.y + sr.size.y * 0.5 + 8.0),
 					dash, HORIZONTAL_ALIGNMENT_LEFT, -1, 22, Color(0.3, 0.3, 0.4))
+
+	# 아이템 칸(유도 비행기) — 상태를 색으로만 신호([[hud-signal-by-color-not-text]]):
+	#   적립 0 = 어둡게(비활성) / 1+ = 청록 밝게+맥동(탭 유도) / 방금 적립 = plane_bank_pulse 반짝.
+	var ir: Rect2 = item_rect
+	var charged: bool = planes_banked > 0
+	var accent: Color = Color(0.5, 0.93, 1.0)           # 청록 = 비행기 시각 어휘와 통일
+	var ipulse: float = 0.5 + 0.5 * sin(anim_t * 5.0)
+	var iglow: float = plane_bank_pulse / 0.6           # 방금 적립 시 1→0 페이드
+	draw_rect(ir, Color(0.10, 0.16, 0.20) if charged else Color(0.10, 0.10, 0.14))
+	var iborder: Color = accent if charged else Color(0.28, 0.28, 0.36)
+	var ibw: float = ((2.0 + 1.6 * ipulse) if charged else 1.5) + (1.6 if (charged and _item_hover) else 0.0)
+	draw_rect(ir, iborder, false, ibw)
+	if iglow > 0.0:
+		draw_rect(ir, Color(accent.r, accent.g, accent.b, 0.28 * iglow))   # 적립 순간 청록 채움 반짝
+	# 종이비행기 아이콘(중앙 약간 위)
+	var icc: Vector2 = ir.get_center() - Vector2(0.0, 9.0)
+	_draw_plane_icon(icc, 21.0,
+			Color(1.0, 1.0, 1.0) if charged else Color(0.34, 0.36, 0.44),
+			accent if charged else Color(0.30, 0.32, 0.40))
+	# 적립 수 = 하단 pip 줄(청록 채움 N / 빈 링 CAP)
+	var pipy: float = ir.position.y + ir.size.y - 15.0
+	var pipw: float = 11.0
+	var piptot: float = pipw * float(PLANE_CAP) + 7.0 * float(PLANE_CAP - 1)
+	var pipx0: float = ir.get_center().x - piptot * 0.5 + pipw * 0.5
+	for pi in range(PLANE_CAP):
+		var pcc: Vector2 = Vector2(pipx0 + float(pi) * (pipw + 7.0), pipy)
+		if pi < planes_banked:
+			draw_circle(pcc, pipw * 0.5, accent)
+		else:
+			draw_arc(pcc, pipw * 0.5, 0.0, TAU, 12, Color(0.30, 0.32, 0.40), 1.5)
 
 	# 입력 방식 토글 (PC 테스트용) — 눌러서 드래그/클릭 전환
 	draw_rect(mode_btn, Color(0.20, 0.20, 0.31))
