@@ -176,6 +176,27 @@
 3. **think-aloud는 분리** — 사람 눈으로 잡는 표정·주저·소리내어생각은 이 스키마 밖, ②번 플테 관찰 프로토콜 소관.
 4. **featured 미배선** — `mode:featured` 이벤트는 스키마만 정의. C60 안전망-on 재설계로 플레이어 진입 재개할 때 값 배선.
 
+## 9. 배선 상태 (2026-07-27) — **P0 전량 실배선 완료**
+
+`analytics.gd`(이음새) + `Main.gd` 판 경계 호출 + 로컬 JSONL 싱크. leaderboard.gd와 같은 발상 —
+게임 코드는 SDK·파일을 직접 안 만지고, Firebase는 `_platform_log_event` stub에 꽂기만 하면 된다(W2).
+
+| 이벤트 | 배선 자리 |
+|---|---|
+| `app_opened` / `session_ended` | `_ready` / `_notification`(CLOSE·PAUSED·RESUMED — 모바일은 백그라운드 전환이 실제 세션 끝) |
+| `run_started` | `_init_game`(시작-적 배치 전 — '시작하자마자 막힘'도 판에 묶이게) |
+| `run_failed` (+`stage_failed` / `endless_run_ended`) | `_end_turn` 3분기 = `core_death` · `vault_lost` · `stuck` (+`stuck_at_start`) |
+| `stage_cleared` | `_check_win` |
+| `revive_offered` / `taken` / `declined` | 실패 판정 시 / `_revive()` / 팝업 이탈(retry·home·back) |
+| `tutorial_beat_completed` | 박자1·2 전이(`_end_turn`) · 박자3 = 첫 누수 캡션 |
+| `first_line_cleared` · `combo_peak` | 줄 완성 시(세션 1회 게이트) · 판 종료 |
+
+- **수집 = `user://analytics.jsonl`**(1줄 1이벤트). 안드로이드는 `adb pull`로 뽑는다(경로는 리포트 도구 주석).
+- **판독 = `tools/analytics_report.gd`** — §5 파생지표로 접는다(죽음의 질·부활 전환율·억울한 죽음 신호·기둥별 체류·스테이지 벽·콤보 분포).
+- **검증 = `tools/analytics_probe.gd`**(창 모드) — 봇이 캠페인·무한을 실제로 굴려 P0 이벤트·공통 좌표·택소노미 밖 이름을 확인. 회귀 골든 byte-identical(계측은 게임 RNG를 안 쓰고 헤드리스에선 자동 off).
+- **배선 중 프로브가 잡은 결함 1건**: 실패 시점에 판 좌표(`run_id`)를 닫으면 **광고 부활 뒤 이벤트가 판에서 떨어져 나가** 부활 퍼널이 끊긴다 → 좌표는 다음 판 시작 때만 교체하도록 수정.
+
 ## 다음 단계
-- **②번 플테 관찰 프로토콜** 설계(사람 눈 몫) — 이 문서의 §5 리스크 지표 중 기계가 못 찍는 것(표정·주저·왜 그만뒀나)을 사람이 잡게.
-- 실배선은 코드 작업(Phase V W1 후반) — 지금은 착수 안 함.
+- ~~②번 플테 관찰 프로토콜 설계~~ → 완료(`PLAYTEST_PROTOCOL.md`).
+- ~~P0 실배선~~ → 완료(§9).
+- **남은 것 = 계정·빌드(코드 밖)**: ① Firebase 프로젝트 개설 + custom dimension 등록(`mode`·`cause`·`stage_id`·`band`) ② 실기기(안드로이드) 플테 빌드 — JDK·Android SDK 설치가 선행 ③ W2에서 `_platform_log_event`에 Firebase SDK 연결.
