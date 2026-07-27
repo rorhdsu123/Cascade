@@ -101,6 +101,7 @@ const STR: Dictionary = {
 		"combo": "Combo x%d",
 		"leaderboard": "Leaderboard",   # 메뉴 우상단 진입 버튼
 		"new_best_live": "New best!",
+		"new_best_ribbon": "NEW BEST",   # PB 판전체 폭발 리본 배너 라벨(C90)
 		"score": "Score",
 		"depth": "Depth %d",
 		"goal": "Goal",
@@ -116,14 +117,11 @@ const STR: Dictionary = {
 		# ── 거점(보드 하단 방어선) ──
 		"core_hp": "Core  %d / %d",
 		# ── 게임플레이 콜아웃/tell(원래 영어로 authored — 값 동일, 로케일 확장용으로만 키화) ──
-		"ll_double": "DOUBLE!",
-		"ll_triple": "TRIPLE!",
-		"ll_tetris": "QUAD!",
-		"ll_mega": "MEGA!",
 		"tut_kill": "Enemy incoming! Clear a line to take it down",
 		"tut_leak": "Enemy slipped through — Core took damage!",
 		"combo_flash": "COMBO x%d",
 		"tell_block": "BLOCK",
+		"tell_pierce": "PIERCE!",
 		"callout_fast": "FAST — quick!",
 		"callout_tank": "TANK — big combo!",
 		"callout_swarm": "SWARM — sweep them!",
@@ -211,6 +209,7 @@ const STR: Dictionary = {
 		"combo": "콤보 x%d",
 		"leaderboard": "리더보드",
 		"new_best_live": "최고 갱신!",
+		"new_best_ribbon": "신기록",   # PB 판전체 폭발 리본 배너 라벨(C90)
 		"score": "점수",
 		"depth": "깊이 %d",
 		"goal": "목표",
@@ -224,14 +223,11 @@ const STR: Dictionary = {
 		"callout_gem": "보석! — 그냥 치우지 말고 낚아채라",
 		"core_hp": "거점  %d / %d",
 		# ⚠아래 콜아웃/tell·온보딩의 한국어는 초안(원문이 영어라 대응 한글이 없었음). 검수/조정 여지.
-		"ll_double": "더블!",
-		"ll_triple": "트리플!",
-		"ll_tetris": "쿼드!",
-		"ll_mega": "메가!",
 		"tut_kill": "적이 내려와요! 줄을 채워 잡으세요",
 		"tut_leak": "적이 통과했어요 — 거점이 깎였어요!",
 		"combo_flash": "콤보 x%d",
 		"tell_block": "버팀",
+		"tell_pierce": "관통!",
 		"callout_fast": "속공 — 빠르다!",
 		"callout_tank": "탱크 — 큰 콤보로!",
 		"callout_swarm": "무리 — 쓸어버려!",
