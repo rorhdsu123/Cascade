@@ -3743,6 +3743,19 @@ func _revive() -> void:
 			elif int(e.get("gen", 0)) == 0:
 				spawned = maxi(0, spawned - 1)   # 웨이브로 환원(gen1 쌍둥이는 spawned 밖 → 제외)
 		enemies = kept
+	# 이어하기 = 하단 트레이도 새로 채운다. 죽은 순간의 조각(막힘을 부른 안 맞는 세로 조각 등)을 그대로
+	#   이어받으면 부활 직후 또 못 놓는 소프트락으로 직결된다 — 부활은 '새 국면'이니 손패도 새로 준다.
+	#   비결정 트랙은 _refill_tray가 최소 한 조각 놓이도록 재추첨(24회)해 안전을 함께 보장한다.
+	_refill_tray()
+	# 안전망: 그래도 '못 놓음'이면 소프트락이 된다 — 배치가 없으면 턴 전환이 없고, 막힘 재판정은 턴 끝
+	#   (_end_turn)·판 시작(_init_game)에서만 도니 부활 직후엔 다시 안 걸린다(못 놓음 + 게임오버도 안 뜸).
+	#   결정적 트랙(리롤 금지)이나 거의 만원인 보드에선 리필해도 못 놓을 수 있다. 놓을 자리가 생길 때까지
+	#   하단부터 한 줄씩 더 비운다 — 최악에도 빈 보드가 되어 반드시 한 조각은 놓인다(부활은 놓을 수 있어야 부활).
+	var extra_clear: int = 0
+	while not _has_valid_placement() and extra_clear < ROWS:
+		for c in range(COLS):
+			board[ROWS - 1 - extra_clear][c] = ""
+		extra_clear += 1
 	_cont_hover = false
 
 # 재도전 = 실패면 같은 스테이지, 클리어면 다음(마지막이면 홈)
