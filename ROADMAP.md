@@ -65,7 +65,8 @@
 >
 > | 항목 | 상태 |
 > |---|---|
-> | ① 사람 플테 5~10명 | ❌ 미실행 (프로토콜만 있음. 실기기 빌드 = 안드로이드 export preset 부재, 현재 `Web`만) |
+> | ① 사람 플테 5~10명 | 🔄 **빌드는 나옴**(2026-07-27): 안드로이드 디버그 APK 27MB·arm64·`com.yujin.cascade`. 남은 것 = **피험자 5~10명 섭외·실행**(유저 몫, `PLAYTEST_PROTOCOL.md`) |
+> | └ 빌드 방법 | `PATH="/opt/homebrew/opt/openjdk@17/bin:$PATH" godot --headless --export-debug "Android" build/android/cascade.apk` → 기기 연결 후 `adb install -r build/android/cascade.apk`. 툴체인·함정은 [[android-build-toolchain-setup]] |
 > | ② 애널리틱스 택소노미 설계 | ✅ 완료 (P0 이벤트 10여 종 확정, Firebase 채택) / **Firebase 프로젝트 개설 ❌**(계정 작업, 유저 몫) |
 > | ③ AdMob 연동 | ❌ 코드에 SDK 0. 부활은 여전히 프로토 스텁(`Main.gd` "⚠광고는 프로토 스텁") |
 > | ④ 애널리틱스 실배선 | ✅ **P0 전량 배선 완료(2026-07-27)** — `analytics.gd` 이음새 + 판 경계 발화 + 로컬 JSONL 수집 + 판독기(`tools/analytics_report.gd`)·검증 프로브(`tools/analytics_probe.gd`). Firebase SDK 연결만 W2로 남음 |
