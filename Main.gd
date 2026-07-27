@@ -43,6 +43,9 @@ const BLAST_RING_DELAY: float = 0.26  # 링(추가 레인) 간 순차 발사 텀
                                       #   0.4→0.26(C83): 콤보2~4 꼬리가 길어 '느린 템포'로 체감 → 조임. 스펙터클은 열색·칭찬·축포가 채움.
 const FLASH_DUR: float = 0.7
 const PRAISE_DUR: float = 1.15   # 칭찬 텍스트 수명 — 섬광(FLASH_DUR)과 분리해 오래 읽히게(팍 등장→유지→페이드)
+const PRAISE_LEAD: float = 0.09  # 리듬 계단시차(C90): 블록 파괴(t=0) → 이 지연 뒤 칭찬 단어 팝인. 블블 관찰=터짐과 텍스트를 '한 박' 분리(0.06~0.12 튜닝대상).
+const SCORE_ROLL_RATE: float = 9.0    # 점수 롤업(C90) 이징 계수: 남은 차이 비례/초. 클수록 빨리 따라붙음.
+const SCORE_ROLL_MIN: float = 260.0   # 점수 롤업 최소 속도(점/초) — 작은 가산도 또르르(스냅 방지), 큰 점프도 ~0.6s 내 도착.
 # 전멸(클라이맥스) 임계 콤보. COMBO_GRACE 도입으로 스트릭이 실제로 자라기 시작(최대콤보 2.7→5.5)했고,
 # 그 사다리의 꼭대기가 되도록 6에 앉힘 → 판당 1~2회(도달 가능하되 드묾). 유예 없던 시절의 3은
 # 이제 판당 10회가 터져 클라이맥스가 아니게 됨.
@@ -438,6 +441,7 @@ var director: GameMode = null    # 감독(스폰·난이도·종료 결정). _st
 #   재도전·홈복귀는 전부 director.scores()/retry_kind()로 묻는다(C62). `if endless:`를 다시 넣으면 갈라짐.
 var endless: bool = false          # (관측용) 무한/featured 진행 중
 var endless_score: int = 0         # 이번 런 점수 = Σ(줄×기본점 + 처치×콤보×배수), C52+C58
+var endless_score_shown: float = 0.0  # 표시용 롤업 점수(C90): endless_score로 또르르 이징. HUD·크라운·PB돌파 판정이 이 값을 씀(스냅 대신 리듬).
 var endless_best: int = 0          # 로컬 베스트(리더보드 서비스가 소유, 여기선 읽기 캐시로 미러)
 var _leaderboard := LeaderboardService.new()   # 점수 저장·제출 이음새 — 파일/플랫폼 접근을 여기로만 (기획: endless-leaderboard-design)
 var endless_prev_best: int = 0     # 런 시작 시점의 베스트(결과 팝업 델타 표시용)
@@ -550,12 +554,13 @@ var click_mode: bool = false
 
 # 연출 타이머
 var flash_timer: float = 0.0
-var flash_label: String = ""
-var flash_lines: int = 0
+var flash_lines: int = 0             # 이번 클리어 줄 수 — 점수 계산용(라벨 아님)
 var flash_combo: int = 0
 var flash_climax: bool = false      # 화면 전체 도달(전멸) — 라벨 강조용
 var praise_t: float = 0.0           # 칭찬 텍스트 전용 타이머(섬광과 분리 = 오래 읽힘)
 var praise_combo: int = 0
+var praise_delay: float = 0.0       # 리듬 계단시차(C90): 파괴 후 이 시간 지나면 praise_t를 켠다(단어 팝인 지연)
+var praise_pending_combo: int = 0   # 지연 대기 중인 콤보값(_burst_lines가 예약, delay 만료 시 소비)
 var climax_pending: float = -1.0    # 전멸 충격파 발사 예약 시각(resolve_timer 기준, -1=없음)
 var surge_active: bool = false      # 후반 서지 중(진행도 > surge_at) — 전진 가속 + 텔레그래프용
 
@@ -579,7 +584,7 @@ var confetti: Array = []       # [{pos, vel, life, max, color, rot, spin, w, h, 
 var impacts: Array = []        # [{pos, life, max, color, radius}] 빔 임팩트/탱크 막음 링
 var kill_pulse: float = 0.0    # 킬 순간 ENEMIES LEFT 헤드라인 펄스
 var pb_pop_t: float = -1.0     # PB 돌파 '순간' 버스트 타이머(방사광+스티커 팝인). <0=대기. (스티커 자체는 이후에도 상주)
-const PB_POP_DUR: float = 1.15 # 순간 버스트 길이(팝인·방사광). 스티커는 이 뒤로도 판 끝까지 붙어 있음.
+const PB_POP_DUR: float = 1.6  # PB 판전체 폭발 길이(C90: 1.15→1.6, 리본 스윕+홀드가 숨쉴 시간). 스티커는 이 뒤로도 상주.
 var zone_index: int = 0        # 현재 절대점수 존(0=base·1~4·그 위 프리스티지). 전이 엣지로만 상승.
 var zone_mix: float = 0.0      # base→존색 존재감(존≥1서 1로 이징).
 var zone_col: Color = C_BG_PB  # 현재 존 배경색. 존 바뀌면 목표 존색으로 짧게 이징(전이 순간의 이산 스텝).
@@ -607,6 +612,10 @@ var resolve_timer: float = 0.0
 var resolve_total: float = 0.0
 var resolve_hits: Array = []       # [{id, dmg, kb, at, done}] 거점 가까운 순 순차 피격
 var resolve_rocket_plan: Array = []  # [{dir, idx}] 로켓은 충전 뒤에 발사
+var resolve_cross_plan: Array = []   # [{cell, at, fired}] 크로스(행+열) 교차점 관통 섬광 예약
+var cross_beams: Array = []          # [{cell, t, dur}] 십자 관통 섬광(진행) — 크로스만의 청록 빔
+var resolve_seeker_plan: Array = []  # [{to_pos, from, launch, arrive, fired}] 유도 로켓 예약(동시 N줄 → N발)
+var seekers: Array = []              # [{from, to_pos, t, dur}] 유도 로켓(진행) — 거점서 곧 샐 적으로
 var resolve_fx_done: bool = false    # 로켓 발사 트리거됐나
 var pending_leaks: Array = []      # 이번 스텝 누수 열 목록(공격 뒤 표시)
 var pending_core_dead: bool = false
@@ -616,6 +625,7 @@ var enemy_seq: int = 0             # 적 고유 id 카운터
 # ===== 초기화 =====
 const I18N = preload("res://i18n.gd")   # UI 로컬라이제이션 테이블(en base + ko). 새 언어=로케일 추가.
 var _font: Font = null
+var _font_display: Font = null   # 축하 텍스트 전용(C90): Baloo2 ExtraBold(통통 라운드) — 어두운 판 위 칭찬 단어 가독성·BB 캔디감. 미로드 시 _font로 폴백.
 var _locale: String = I18N.DEFAULT_LOCALE   # 기기 언어에서 파생(_ready). 미지원이면 en. i18n.gd 참고.
 
 # UI 문자열 조회 단축 헬퍼 — 각 draw 사이트가 이걸로 현재 로케일 문자열을 얻는다.
@@ -673,6 +683,17 @@ func _ready() -> void:
 		_font = noto
 	else:
 		_font = sf   # 번들 로드 실패 시 안전망
+	# 축하 텍스트 전용 디스플레이 폰트(C90) — Baloo2를 ExtraBold(wght 800)로 고정. 미로드 시 _font 폴백.
+	var baloo := load("res://fonts/Baloo2.ttf") as FontFile
+	if baloo != null:
+		baloo.fallbacks = [sf]
+		var fv := FontVariation.new()
+		fv.base_font = baloo
+		var ts := TextServerManager.get_primary_interface()
+		fv.variation_opentype = {ts.name_to_tag("wght"): 800}
+		_font_display = fv
+	else:
+		_font_display = _font
 	_relayout()
 	get_viewport().size_changed.connect(_relayout)
 	mode = "menu"
@@ -783,11 +804,9 @@ func _save_campaign() -> void:
 # 점수 가산 + 판 중 최고 갱신 감지(HUD 실시간 신호). best>0일 때만 = 첫 판(best 0)은 '갱신'이 무의미.
 func _add_endless_score(pts: int) -> void:
 	endless_score += pts
-	# 넘는 '순간'(not-beat → beat 엣지)에 원샷 1회 발화 — 이후 프레임은 이미 beat라 재발화 없음.
-	# ── PB 돌파(상대·정점) = 계단 위로 솟는 크레셴도(크라운 락+버스트). 존 전이보다 크게. ──
-	if endless_best > 0 and not endless_beat_best and endless_score > endless_best:
-		endless_beat_best = true
-		pb_pop_t = PB_POP_DUR   # 순간 버스트(방사광+스티커 팝인).
+	# PB 돌파 발화는 여기(실제 가산)가 아니라 _process의 롤업이 '표시 점수(endless_score_shown)'로
+	#   endless_best를 넘는 순간에 한다(C90). 이유: 점수가 또르르 기어오르다 크라운을 넘는 그 순간에
+	#   폭발이 실려야 '차오름→돌파'가 성립. 여기서 켜면 표시 숫자가 아직 안 넘었는데 터진다.
 	# ── 절대점수 존(스펙터클·매판) = 계단. 존 오르는 '순간' 전이 비트(링+배경 플래시). 배경은 zone_col이 뒤따라 스텝. ──
 	var z: int = _zone_for(endless_score)
 	if z > zone_index:
@@ -955,6 +974,7 @@ func _init_game() -> void:
 	leaked = 0
 	score = 0
 	endless_score = 0
+	endless_score_shown = 0.0
 	endless_prev_best = endless_best   # 판 시작 시점 베스트 스냅샷(결과 델타)
 	endless_beat_best = false
 	combo = 0
@@ -969,11 +989,12 @@ func _init_game() -> void:
 	revive_used = false
 	stuck = false
 	flash_timer = 0.0
-	flash_label = ""
 	flash_lines = 0
 	flash_combo = 0
 	praise_t = 0.0
 	praise_combo = 0
+	praise_delay = 0.0
+	praise_pending_combo = 0
 	clear_cells = []
 	clear_rows = []
 	clear_cols = []
@@ -1023,6 +1044,10 @@ func _init_game() -> void:
 	resolve_total = 0.0
 	resolve_hits = []
 	resolve_rocket_plan = []
+	resolve_cross_plan = []
+	cross_beams = []
+	resolve_seeker_plan = []
+	seekers = []
 	resolve_fx_done = false
 	pending_leaks = []
 	pending_core_dead = false
@@ -1517,18 +1542,6 @@ func _simul_mult(l: int) -> float:
 func _streak_mult(streak: int) -> float:
 	return 1.0 + STREAK_STEP * float(streak - 1)
 
-func _line_label(l: int) -> String:
-	match l:
-		2:
-			return _t("ll_double")
-		3:
-			return _t("ll_triple")
-		4:
-			return _t("ll_tetris")
-	if l >= 5:
-		return _t("ll_mega")
-	return ""
-
 # 열(heat) 색 사다리 — 잔불 빨강 → 주황 → 금빛 → 백열. t=0..1(콤보·위치로 올림).
 #   삭제 줄이 '달아오르는' 색(레퍼런스 Block Blast: 삭제 라인이 무지개 열로 빛남 → 우린 어둡고 코지하게 따뜻한 쪽만).
 func _combo_heat(t: float) -> Color:
@@ -1542,16 +1555,17 @@ func _combo_heat(t: float) -> Color:
 # 콤보(연쇄) 칭찬 사다리 — 숫자 대신 점점 세지는 외침(Block Blast식). 색도 함께 달아오른다.
 #   콤보5+ = 전멸(CLIMAX)과 겹쳐 가장 큰 순간에 가장 센 단어가 실린다.
 func _combo_praise(c: int) -> Dictionary:
-	# 등급마다 확실히 다른 색 = 체감. 열 여정: 노랑→금→주황→핫레드→핑크→보라→청백 백열(초월).
-	#   저·중은 따뜻하게, 최고조(6+)에서만 핑크·보라·청백으로 넘어가 '특별함'을 색으로 못 박는다.
+	# 등급마다 확실히 다른 색 = 체감. 열 여정: 리치골드→금→주황→핫레드→핑크→보라→일렉트릭블루(초월).
+	#   ⚠색은 흰 아웃라인 위에서 대비가 나야 한다(C90): GOOD 밝은노랑·UNREAL 청백은 흰 테두리에 묻혀
+	#   흐렸다 → 둘 다 밝기를 낮춰 대비 확보(hue는 노랑·시안 계열 유지). 중간 등급은 원래 잘 읽혀 유지.
 	match c:
-		2: return {"text": "GOOD!", "col": Color(1.0, 0.88, 0.30)}       # 밝은 노랑
+		2: return {"text": "GOOD!", "col": Color(1.0, 0.72, 0.06)}       # 리치골드(구 밝은노랑=흰테두리에 묻힘)
 		3: return {"text": "NICE!", "col": Color(1.0, 0.66, 0.14)}       # 금-주황
 		4: return {"text": "GREAT!", "col": Color(1.0, 0.44, 0.12)}      # 주황
 		5: return {"text": "PERFECT!", "col": Color(1.0, 0.26, 0.20)}    # 핫 레드(전멸 시작점)
 		6: return {"text": "STRONG!", "col": Color(1.0, 0.32, 0.60)}     # 핑크-마젠타
 		7: return {"text": "FANTASTIC!", "col": Color(0.70, 0.48, 1.0)}  # 보라
-	return {"text": "UNREAL!", "col": Color(0.52, 0.95, 1.0)}           # 청백 백열
+	return {"text": "UNREAL!", "col": Color(0.24, 0.68, 1.0)}           # 일렉트릭블루(구 청백=흰테두리에 묻힘)
 
 # ⚠뿌리("#")는 '벽' — 채운 칸으로 안 쳐서 줄을 완성시키지 않는다. 그래야 (a) 뿌리 옆에 놔도
 #   안 터지고(헷갈림 제거), (b) 보스가 뿌릴수록 네 클리어를 거들지 못한다(압박이 단조로 작동).
@@ -1642,6 +1656,10 @@ func _begin_resolve(rows: Array, cols: Array) -> void:
 	resolve_timer = 0.0
 	resolve_hits = []
 	resolve_rocket_plan = []
+	resolve_cross_plan = []
+	cross_beams = []
+	resolve_seeker_plan = []
+	seekers = []
 	resolve_fx_done = false
 
 	var blast_len: float = 0.15
@@ -1680,13 +1698,40 @@ func _begin_resolve(rows: Array, cols: Array) -> void:
 			resolve_rocket_plan.append({"dir": "col", "idx": c, "ring": band_cols[c], "launch": fire_t + 0.08 + float(band_cols[c]) * BLAST_RING_DELAY})
 		for r in band_rows:
 			resolve_rocket_plan.append({"dir": "row", "idx": r, "ring": band_rows[r], "launch": fire_t + 0.08 + float(band_rows[r]) * BLAST_RING_DELAY})
+		# 크로스(행+열 동시 클리어) = 교차점 관통. 평행 더블과 달리 '십자'로 읽히게 각 교차 셀에
+		#   청록 관통 빔을 예약한다(로켓이 그 칸을 지나는 박자에). 교차점은 이미 lines=2로 2배 피격
+		#   (아래 hit_list) → 장갑을 뚫는다. 데미지 셈은 안 건드리므로 회귀 불변.
+		if not full_board and rows.size() > 0 and cols.size() > 0:
+			for cr in rows:
+				for cc2 in cols:
+					resolve_cross_plan.append({"cell": Vector2i(int(cc2), int(cr)), "at": fire_t + ROCKET_DUR * 0.6, "fired": false})
 		# 일격량 (콤보 데미지 배수는 '탱커 관통용 부 증폭'으로 소폭 유지)
 		var mult: float = _simul_mult(l) * _streak_mult(combo)
 		var strike: int = roundi(LINE_BASE * mult)
 		var kb: int = clampi(1 + int(combo / 3), 1, 3)
+		# --- 유도 종이비행기 표적 선정(밴드보다 먼저) ---
+		#   유저 규칙: 동시 지운 줄 수(l) = 발수(2줄+만, 단일은 0). 콤보·전멸 무관하게 항상 발사.
+		#   표적 = 거점에 제일 가까운(row 큰 순) '살아있는' 적 N마리. 밴드가 다 쓸어도(전멸) 이 N마리는
+		#   비행기가 가로채 잡는다(아래 hit_list서 제외 → 한 마리 이중 처치 금지, [[wave-accounting-invariant]]).
+		var living: Array = []
+		for le in enemies:
+			if String(le["etype"]) == "gem":
+				continue
+			living.append(le)
+		living.sort_custom(func(a, b):
+			if a["row"] != b["row"]:
+				return a["row"] > b["row"]
+			return a["col"] < b["col"])
+		var n_seek: int = (mini(l, living.size()) if l >= 2 else 0)
+		var seeker_ids: Dictionary = {}
+		for si0 in range(n_seek):
+			seeker_ids[living[si0]["id"]] = true
 		# ③ 로켓 피격: 밴드가 지나는 적별 (열밴드+행밴드 교차=배수). 적의 링=가장 안쪽 밴드
+		#   ⚠비행기 표적(seeker_ids)은 밴드서 제외 — 비행기가 잡는다(이중 처치 방지).
 		var hit_list: Array = []
 		for e in enemies:
+			if seeker_ids.has(e["id"]):
+				continue
 			var lines: int = 0
 			var ering: int = 999
 			if band_cols.has(e["col"]):
@@ -1696,7 +1741,7 @@ func _begin_resolve(rows: Array, cols: Array) -> void:
 				lines += 1
 				ering = mini(ering, band_rows[e["row"]])
 			if lines > 0:
-				hit_list.append({"id": e["id"], "row": e["row"], "dmg": strike * lines, "kb": kb, "ring": ering})
+				hit_list.append({"id": e["id"], "row": e["row"], "dmg": strike * lines, "kb": kb, "ring": ering, "cross": lines >= 2})
 		# 링 오름차순(안→밖 물결) → 같은 링 내에선 거점 가까운 순(row 큰 순)
 		hit_list.sort_custom(func(a, b):
 			if a["ring"] != b["ring"]:
@@ -1713,20 +1758,31 @@ func _begin_resolve(rows: Array, cols: Array) -> void:
 			max_at = maxf(max_at, at)
 			resolve_hits.append({
 				"id": hit_list[k]["id"], "dmg": hit_list[k]["dmg"], "kb": hit_list[k]["kb"],
-				"at": at, "done": false,
+				"at": at, "done": false, "cross": hit_list[k]["cross"],
 			})
+		# --- 유도 종이비행기 발사: 위서 고른 표적(living[0..n_seek])에 거점서 곡선 호밍 ---
+		#   각 비행기는 표적을 '확정 처치'(dmg=표적 hp) — 밴드서 뺐으니 비행기가 안 잡으면 그 적이 샌다.
+		#   장갑이 표적이어도 한 방(유저 규칙: 줄 수 = 처치 수). 밸런스는 봇 실측+골든 재베이스로 조율.
+		var seek_from: Vector2 = Vector2(BOARD_X + COLS * CELL * 0.5, board_y + ROWS * CELL + 18.0)
+		for si in range(n_seek):
+			var tgt: Dictionary = living[si]
+			var s_launch: float = fire_t + 0.12 + float(si) * 0.07
+			var s_arrive: float = s_launch + 0.30
+			var sdmg: int = maxi(strike, int(tgt["hp"]))
+			resolve_seeker_plan.append({"to_pos": _enemy_pos(tgt["col"], tgt["row"]), "from": seek_from, "launch": s_launch, "arrive": s_arrive, "fired": false})
+			resolve_hits.append({"id": tgt["id"], "dmg": sdmg, "kb": 0, "at": s_arrive, "done": false, "cross": false, "seeker": true})
+			max_at = maxf(max_at, s_arrive)
 		# 총길이 = 마지막 피격 or 마지막 링 로켓 비행 완료 중 늦은 것(바깥 링에 적 없어도 물결 끝까지 재생)
 		var visual_end: float = fire_t + 0.08 + float(max_ring) * BLAST_RING_DELAY + ROCKET_DUR + 0.08
 		blast_len = clampf(maxf(max_at + 0.28, visual_end), fire_t + 0.30, fire_t + 3.2)
 		if full_board:
 			blast_len = maxf(blast_len, fire_t + 1.35)   # 전멸은 세계 이동 전에 충격파가 충분히 breathe
-		# COMBO xN 라벨용 (중앙 큰 숫자는 제거, 라벨만).
+		# 점수·콤보 연출 입력값(중앙 텍스트는 콤보 칭찬어 하나만 — 줄수 라벨 double/triple은 폐기, C90).
 		# flash_timer는 여기서 켜지 않는다 — 블록이 실제로 소멸하는 순간(_burst_lines)에 켠다.
 		# 충전 중에 미리 번쩍이면 원인 없는 섬광이 된다.
 		flash_lines = l
 		flash_combo = combo
 		flash_climax = full_board
-		flash_label = "" if full_board else _line_label(l)   # 전멸은 텍스트 없이 연출만
 
 	# 공격만 재생. 적 이동·누수·스폰은 시퀀스가 끝난 뒤 _end_turn에서.
 	resolve_total = blast_len
@@ -1773,11 +1829,11 @@ func _burst_lines() -> void:
 		_retract_dead_mouths()                  # 머리 다 뜯긴 입 열의 촉수 전체 회수(자기-완화)
 	clear_cells = []
 	outline_timer = LINE_OUTLINE_DUR   # ④ 줄 자리에 남는 색 테두리 잔상
-	# 보상 텍스트(COMBO xN)와 섬광은 파괴 순간에. 파괴가 이제 한순간이라 겹치지 않는다.
+	# 섬광은 파괴 순간(t=0)에. 칭찬 단어는 PRAISE_LEAD 뒤에 팝인 — '터짐→단어'를 한 박 분리(C90 리듬 계단시차, 블블 관찰).
 	flash_timer = FLASH_DUR
 	if flash_combo >= 2:                 # 칭찬 텍스트는 섬광보다 오래 산다(읽을 시간 확보)
-		praise_t = PRAISE_DUR
-		praise_combo = flash_combo
+		praise_delay = PRAISE_LEAD       # 지금 켜지 않고 예약 — _process가 만료 시 praise_t를 켠다
+		praise_pending_combo = flash_combo
 	hitstop = maxf(hitstop, 0.05)
 	# 콤보 높으면 중앙에 황금 링 후광(전멸은 _fire_climax가 더 큰 링을 따로 쏘니 제외 = 꼭대기 구별).
 	if flash_combo >= 3 and not flash_climax:
@@ -1789,10 +1845,32 @@ func _burst_lines() -> void:
 # 전멸(화면 전체 청소) 클라이맥스 — 보드 중앙에서 퍼지는 큰 충격파 + 히트스톱(셰이크·전체화면 섬광 없음)
 func _fire_climax() -> void:
 	var ctr: Vector2 = Vector2(BOARD_X + COLS * CELL * 0.5, board_y + ROWS * CELL * 0.5)
-	hitstop = maxf(hitstop, 0.12)
-	impacts.append({"pos": ctr, "life": 1.0, "max": 1.0, "color": Color(1.0, 0.97, 0.65), "radius": CELL * 1.6, "star": true})
-	impacts.append({"pos": ctr, "life": 0.85, "max": 0.85, "color": Color(1.0, 0.82, 0.32), "radius": CELL * 2.8, "star": false})
-	impacts.append({"pos": ctr, "life": 0.7, "max": 0.7, "color": Color(1.0, 1.0, 0.92), "radius": CELL * 3.8, "star": false})
+	hitstop = maxf(hitstop, 0.14)   # 멈칫→릴리스가 '팍'의 절반. 살짝 강화.
+	# '한 방' 펀치(C90 D 튜닝) — 잔잔한 확장 링(파동)을 없애고, 순간 밝은 플래시 + 전부 동시 폭발 + 빠르게 사그라듦.
+	#   전역 randf = 연출 스트림(game_rng 무관 → 회귀 무영향).
+	# 중앙: 채워진 순간 플래시(확장 링 아님) — 확 떴다 즉시 꺼짐.
+	impacts.append({"pos": ctr, "life": 0.18, "max": 0.18, "color": Color(1.0, 1.0, 0.92), "radius": CELL * 1.5, "flash": true})
+	var warm: Array = [Color(1.0, 0.85, 0.35), Color(1.0, 0.5, 0.62), Color(0.68, 0.85, 1.0), Color(1.0, 0.95, 0.6), Color(0.8, 0.7, 1.0), Color(0.55, 0.95, 0.7)]
+	var bl: float = float(BOARD_X)
+	var bt: float = float(board_y)
+	var bwd: float = float(COLS * CELL)
+	var bht: float = float(ROWS * CELL)
+	# 산개 불꽃 6발 — 전부 '동시', 각 점 = 채워진 플래시 + 빠른 방사 스파크. 링 없음 = 파동 없음, 한 방.
+	for i in range(6):
+		var fp: Vector2 = Vector2(bl + randf_range(CELL * 0.7, bwd - CELL * 0.7), bt + randf_range(CELL * 0.7, bht - CELL * 0.7))
+		var fcol: Color = warm[i % warm.size()]
+		impacts.append({"pos": fp, "life": 0.15, "max": 0.15, "color": fcol, "radius": CELL * 0.5, "flash": true})   # 채워진 플래시(링 아님)
+		var spk: int = 20 + (randi() % 5)
+		for s in range(spk):
+			var ang: float = randf() * TAU
+			var spd: float = randf_range(320.0, 620.0)   # 빠르게 확 퍼짐
+			var dl: float = randf_range(0.26, 0.44)       # 짧게 = 여운 안 남김
+			debris.append({"pos": fp, "vel": Vector2(cos(ang), sin(ang)) * spd, "life": dl, "max": dl, "color": fcol, "size": randf_range(4.0, 8.5)})
+	# 판 전역 앰비언트 스파클 — 작은 별(트윙클), 짧고 거의 동시.
+	for j in range(12):
+		var sp: Vector2 = Vector2(bl + randf_range(0.0, bwd), bt + randf_range(0.0, bht))
+		var sl: float = randf_range(0.14, 0.26)
+		impacts.append({"pos": sp, "life": sl, "max": sl, "color": Color(1.0, 1.0, 0.85), "radius": CELL * randf_range(0.08, 0.14), "star": true, "delay": randf_range(0.0, 0.12)})
 
 # 예약된 한 hit를 실제 반영 (그 시점에 데미지·floater·사망/넉백)
 func _apply_hit(h: Dictionary) -> void:
@@ -1827,6 +1905,14 @@ func _apply_hit(h: Dictionary) -> void:
 	if e["hp"] <= 0:
 		# ① 극적 사망: 스케일 팝 + 파편 버스트 + 밝은 플래시 + 히트스톱
 		_spawn_death(etype, ep)
+		# 크로스 교차점서 장갑이 뚫리면 '관통'을 읽힌다(버팀 BLOCK의 반대 — 청록 대응).
+		if bool(h.get("cross", false)) and etype == "tank":
+			impacts.append({"pos": ep, "life": 0.42, "max": 0.42, "color": Color(0.62, 0.96, 1.0), "radius": CELL * 0.62, "star": true})
+			_add_floater(ep + Vector2(0.0, -CELL * 0.42), _t("tell_pierce"), Color(0.74, 0.98, 1.0), 0.7, 20)
+		# 종이비행기 착지 = 흰 별-폭발(레퍼런스 임팩트) — 처치 파편은 _spawn_death가 이미 뿌림
+		if bool(h.get("seeker", false)):
+			impacts.append({"pos": ep, "life": 0.34, "max": 0.34, "color": Color(0.8, 0.98, 1.0), "radius": CELL * 0.52, "star": true})
+			impacts.append({"pos": ep, "life": 0.20, "max": 0.20, "color": Color(1.0, 1.0, 1.0), "radius": CELL * 0.28, "star": true})
 		enemies.remove_at(found)
 		# 분열은 이제 '처치'가 아니라 '분열선 도달'로 발동한다(advance_step). 여기선 안 뱉는다 —
 		#   선 위에서 잡으면 쌍둥이가 아예 안 생김(잡는 게 이득). 웨이브 카운트엔 gen0만: gen1(쌍둥이)은
@@ -2029,6 +2115,8 @@ func _dump_junk(col: int, n: int) -> void:
 func _finish_resolve() -> void:
 	resolving = false
 	resolve_hits = []
+	resolve_cross_plan = []
+	resolve_seeker_plan = []
 	if not clear_done:
 		_burst_lines()   # 안전망: 어떤 경로로든 안 터졌으면 여기서라도 셀을 비운다(보드 정합성)
 	_end_turn()
@@ -2852,6 +2940,16 @@ func _input(event: InputEvent) -> void:
 			_add_endless_score(10000)
 			queue_redraw()
 			return
+		# ⚠플테 전용 DEV: '8'키 = 콤보5 전멸 '전체 시퀀스' 강제(충전→순차파괴→로켓→적 피격→충격파+산개불꽃→적 전진).
+		#   바닥 위 한 줄을 채우고 combo=5로 실제 _begin_resolve를 태운다 = 진짜 전멸 그대로. 출시 전 제거.
+		if pk.pressed and pk.keycode == KEY_8 and not resolving:
+			var dev_row: int = ROWS - 2
+			for dev_c in range(COLS):
+				board[dev_row][dev_c] = COLORS[dev_c % COLORS.size()]
+			last_color = COLORS[0]
+			combo = 5
+			_begin_resolve([dev_row], [])
+			return
 
 	# resolve 재생 중에는 배치/선택 입력 정지 (연출 끝나면 자동 복귀)
 	if resolving:
@@ -2944,6 +3042,18 @@ func _process(delta: float) -> void:
 				rp["launched"] = true
 				rockets.append({"dir": rp["dir"], "idx": rp["idx"], "t": 0.0, "dur": ROCKET_DUR, "combo": flash_combo})
 				_spawn_muzzle(rp["dir"], rp["idx"])
+		# 크로스 관통 섬광 발사 — 교차점에서 십자 빔이 터지고 짧은 멈칫(단일 타격점이라 히트스톱이 '턱'
+		#   아니라 '펀치'로 읽힌다 — 다줄과 다름). 청록 = 장갑(청록 방패)을 뚫는 색 대응.
+		for cp in resolve_cross_plan:
+			if not cp["fired"] and resolve_timer >= cp["at"]:
+				cp["fired"] = true
+				cross_beams.append({"cell": cp["cell"], "t": 0.0, "dur": 0.42})
+				hitstop = maxf(hitstop, 0.035)
+		# 유도 로켓 발사 — 거점서 곧 샐 적으로 호밍(도착 시각에 맞춰 아래 resolve_hits가 처치)
+		for sp in resolve_seeker_plan:
+			if not sp["fired"] and resolve_timer >= sp["launch"]:
+				sp["fired"] = true
+				seekers.append({"from": sp["from"], "to_pos": sp["to_pos"], "t": 0.0, "dur": sp["arrive"] - sp["launch"]})
 		for h in resolve_hits:
 			if not h["done"] and resolve_timer >= h["at"]:
 				h["done"] = true
@@ -2959,6 +3069,22 @@ func _process(delta: float) -> void:
 		flash_timer = maxf(0.0, flash_timer - delta)
 	if praise_t > 0.0:
 		praise_t = maxf(0.0, praise_t - delta)
+	# 리듬 계단시차(C90): 파괴 후 PRAISE_LEAD 만료 시 칭찬 단어를 팝인(터짐→단어 한 박 뒤).
+	if praise_delay > 0.0:
+		praise_delay = maxf(0.0, praise_delay - delta)
+		if praise_delay == 0.0 and praise_pending_combo >= 2:
+			praise_t = PRAISE_DUR
+			praise_combo = praise_pending_combo
+			praise_pending_combo = 0
+	# 점수 롤업(C90): 표시 점수가 실제로 또르르. 표시가 최고를 '넘는 순간' PB 판전체 폭발 1회 발화(차오름→돌파).
+	if endless_score_shown < float(endless_score):
+		var _sdiff: float = float(endless_score) - endless_score_shown
+		var _sstep: float = maxf(_sdiff * SCORE_ROLL_RATE, SCORE_ROLL_MIN) * delta
+		endless_score_shown = minf(endless_score_shown + _sstep, float(endless_score))
+		if endless_best > 0 and not endless_beat_best and endless_score_shown > float(endless_best):
+			endless_beat_best = true
+			pb_pop_t = PB_POP_DUR   # 판전체 폭발 팝인 — 표시 숫자가 크라운을 넘는 그 순간.
+			_spawn_confetti()       # 산개 컨페티(C90) — 폭발과 함께 쏟아짐
 	if outline_timer > 0.0:
 		outline_timer = maxf(0.0, outline_timer - delta)
 	if red_flash > 0.0:
@@ -2999,6 +3125,18 @@ func _process(delta: float) -> void:
 			impacts.append({"pos": _rocket_pos(rockets[rk], 1.0), "life": 0.18, "max": 0.18, "color": Color(1.0, 0.9, 0.5), "radius": CELL * 0.28, "star": false})
 			rockets.remove_at(rk)
 		rk -= 1
+	var cb: int = cross_beams.size() - 1
+	while cb >= 0:
+		cross_beams[cb]["t"] += delta
+		if cross_beams[cb]["t"] >= cross_beams[cb]["dur"]:
+			cross_beams.remove_at(cb)
+		cb -= 1
+	var sk: int = seekers.size() - 1
+	while sk >= 0:
+		seekers[sk]["t"] += delta
+		if seekers[sk]["t"] >= seekers[sk]["dur"]:
+			seekers.remove_at(sk)
+		sk -= 1
 	var ch: int = core_hits.size() - 1
 	while ch >= 0:
 		core_hits[ch]["life"] -= delta
@@ -3131,9 +3269,12 @@ func _process(delta: float) -> void:
 	# 임팩트/막음 링 감쇠
 	var im: int = impacts.size() - 1
 	while im >= 0:
-		impacts[im]["life"] -= delta
-		if impacts[im]["life"] <= 0.0:
-			impacts.remove_at(im)
+		if impacts[im].get("delay", 0.0) > 0.0:
+			impacts[im]["delay"] -= delta          # 시차 발화(C90 산개 불꽃) — delay 소진 전엔 아직 안 태어남
+		else:
+			impacts[im]["life"] -= delta
+			if impacts[im]["life"] <= 0.0:
+				impacts.remove_at(im)
 		im -= 1
 	if kill_pulse > 0.0:
 		kill_pulse = maxf(0.0, kill_pulse - delta)
@@ -3281,7 +3422,15 @@ func _draw() -> void:
 
 	# 타격 임팩트 (팽창 링 + 별 버스트 마크) / 탱크 막음 링
 	for imp in impacts:
+		if imp.get("delay", 0.0) > 0.0:
+			continue                               # 시차 발화 대기 중 — 아직 안 그림
 		var ip: float = clampf(imp["life"] / imp["max"], 0.0, 1.0)
+		if imp.get("flash", false):
+			# 채워진 순간 플래시(C90) — 확장 링(파동) 아님. 밝게 떴다 빠르게 꺼짐 = '팍'.
+			var fc: Color = imp["color"]
+			fc.a = ip * ip                         # 제곱 페이드(초반 밝고 끝 빠르게)
+			draw_circle(imp["pos"], imp["radius"] * (0.85 + (1.0 - ip) * 0.25), fc)
+			continue
 		var irr: float = imp["radius"] * (1.0 + (1.0 - ip) * 0.9)
 		var icol: Color = imp["color"]
 		icol.a = ip
@@ -3306,24 +3455,42 @@ func _draw() -> void:
 		var fint: float = 0.14 + 0.045 * float(mini(flash_combo, 8))
 		var fcol: Color = Color(1.0, 1.0, 1.0).lerp(Color(1.0, 0.66, 0.26), clampf(float(flash_combo - 2) / 5.0, 0.0, 1.0))
 		draw_rect(Rect2(0, 0, VW_BASE, vh), Color(fcol.r, fcol.g, fcol.b, t * fint))
-		if flash_label != "":
-			var ls: int = 96 if flash_climax else 40 + flash_lines * 6
-			var lcol: Color = Color(1.0, 0.95, 0.5, t) if flash_climax else Color(1.0, 0.85, 0.1, t)
-			var lw: float = fnt.get_string_size(flash_label, HORIZONTAL_ALIGNMENT_LEFT, -1, ls).x
-			_draw_text_outlined(fnt, Vector2(400.0 - lw * 0.5, 458.0), flash_label, ls, lcol)
 
 	# 칭찬 텍스트 — 섬광과 분리된 전용 타이머. 팍 등장(작게→큼) → 유지(풀 알파) → 페이드. 오래 읽힌다.
 	if praise_t > 0.0 and praise_combo >= 2:
+		var dfnt: Font = _font_display if _font_display != null else fnt   # 축하 전용 디스플레이 폰트(Baloo2)
 		var r: float = praise_t / PRAISE_DUR                     # 1→0
+		var prog: float = 1.0 - r                                # 등장 진행 0→1
 		var pa: float = clampf(r / 0.32, 0.0, 1.0)               # 앞 68% 풀 알파 → 뒤 32%만 페이드
-		var appear: float = clampf((1.0 - r) * 7.0, 0.0, 1.0)    # 등장 팝(앞 ~14%): 작게 튀어나옴
+		# 등장 펀치(C90): 오버슛 스냅(0.55→~1.1→1.0) — 슬쩍 자람 대신 '팍' 튀고 정착. 전용 오버레이라 바운스 OK.
+		var ip: float = clampf(prog / 0.14, 0.0, 1.0)            # 앞 ~14%(≈0.16s)에 걸쳐 등장
+		var scl: float = 0.55 + (1.0 - pow(1.0 - ip, 3.0)) * 0.45 + sin(ip * PI) * 0.15
+		# 흰빛 펀치: 첫 ~0.07s는 흰색에 가깝게 → 등급색으로 가라앉음(밝은 "팡"). 색-변화가 리듬을 눈에 박는다.
+		var flash: float = clampf(1.0 - prog / 0.06, 0.0, 1.0)
 		var pr: Dictionary = _combo_praise(praise_combo)
 		var cs: String = pr["text"]
 		var base_sz: int = 46 + mini(praise_combo, 8) * 8
-		var csz: int = int(float(base_sz) * (0.72 + 0.28 * appear))
-		var cw: float = fnt.get_string_size(cs, HORIZONTAL_ALIGNMENT_LEFT, -1, csz).x
-		var pcol: Color = pr["col"]
-		_draw_text_outlined(fnt, Vector2(400.0 - cw * 0.5, 402.0), cs, csz, Color(pcol.r, pcol.g, pcol.b, pa))
+		var csz: int = int(float(base_sz) * scl)
+		var cw: float = dfnt.get_string_size(cs, HORIZONTAL_ALIGNMENT_LEFT, -1, csz).x
+		var pcol: Color = (pr["col"] as Color).lerp(Color(1.0, 1.0, 1.0), flash)
+		# 보드 세로 정중앙(board_y 파생 = 반응형 안전). BB는 칭찬 텍스트를 보드 중심에 띄운다(원본 프레임 확인). 402 고정 폐기.
+		var py: float = float(board_y) + float(ROWS * CELL) * 0.5
+		var tp: Vector2 = Vector2(400.0 - cw * 0.5, py)
+		# BB식 '스티커' 렌더 — 이중 아웃라인(어두운 겹 + 흰 겹)으로 어떤 배경에서도 대비 확보.
+		#   텍스트가 보드 중심=황금 후광 링과 겹치는데, 흰 아웃라인만으론 '밝은 링 위에서' 흰색이 묻힌다.
+		#   → 흰 테두리 밑에 어두운 테두리를 한 겹 더 깔아 어두운 판·밝은 링 양쪽 다 분리(C90).
+		var ow: float = maxf(3.0, float(csz) * 0.07)   # 흰 아웃라인 두께 = 크기 비례
+		draw_string(dfnt, tp + Vector2(0.0, ow + 5.0), cs, HORIZONTAL_ALIGNMENT_LEFT, -1, csz, Color(0.0, 0.0, 0.0, 0.4 * pa))   # 드롭섀도(살짝 아래, 입체)
+		var darkc: Color = Color(0.05, 0.03, 0.09, 0.96 * pa)   # 어두운 겹
+		var owc: Color = Color(1.0, 1.0, 1.0, pa)               # 흰 겹
+		for k in range(16):
+			var oa: float = float(k) / 16.0 * TAU
+			var dir: Vector2 = Vector2(cos(oa), sin(oa))
+			draw_string(dfnt, tp + dir * (ow + 3.0), cs, HORIZONTAL_ALIGNMENT_LEFT, -1, csz, darkc)   # ① 어두운 겹(더 큼)
+		for k2 in range(16):
+			var oa2: float = float(k2) / 16.0 * TAU
+			draw_string(dfnt, tp + Vector2(cos(oa2), sin(oa2)) * ow, cs, HORIZONTAL_ALIGNMENT_LEFT, -1, csz, owc)   # ② 흰 겹
+		draw_string(dfnt, tp, cs, HORIZONTAL_ALIGNMENT_LEFT, -1, csz, Color(pcol.r, pcol.g, pcol.b, pa))            # ③ 색 채움
 
 	# 첫 등장 콜아웃 배너 (상단-중앙, 보드 위에 얹힘)
 	if callout_timer > 0.0 and not game_over and not game_clear:
@@ -3369,6 +3536,7 @@ func _draw() -> void:
 	# PB 돌파 — 순간 버스트(방사광+링, 1회)는 pb_pop_t 창에서만. 스티커는 넘은 뒤 판 끝까지 상주(계속 갱신 중).
 	if pb_pop_t >= 0.0:
 		_draw_pb_burst()
+		_draw_pb_ribbon(fnt)    # 리본 배너(돌파 점수) — 폭발 위
 	if endless_beat_best:
 		_draw_pb_sticker(fnt)   # 버스트 위(최상단 헤드라인)
 
@@ -3398,29 +3566,80 @@ func _zone_flash() -> float:
 	var p: float = 1.0 - zone_trans_t / ZONE_TRANS_DUR
 	return clampf(1.0 - p / 0.3, 0.0, 1.0) * 0.22
 
-# PB 돌파 순간 버스트 — 방사광+shockwave 링(1회). 시선을 '점수' 카드로 끌어당긴다. 전부 오버레이(기본 UI 무간섭).
+# PB 돌파 판전체 폭발(C90) — 코너 속삭임을 판 전체 이벤트로 승격. 전부 오버레이(HUD 카드 무간섭).
+#   레이어: ① 보드 테두리 네온 플래시 ② 중심 갓레이 ③ 코어 플래시 (+리본은 _draw_pb_ribbon).
 func _draw_pb_burst() -> void:
 	var p: float = clampf(1.0 - pb_pop_t / PB_POP_DUR, 0.0, 1.0)   # 진행 0→1
-	var a: float = 1.0
-	if p < 0.06:
-		a = p / 0.06
-	elif p > 0.7:
-		a = clampf((1.0 - p) / 0.3, 0.0, 1.0)
-	var cc: Vector2 = Vector2((800.0 - 464.0) * 0.5 + 125.0, 56.0 + safe_top)   # 점수 카드 중심 (293,56)
-	# ① shockwave 링 — 시선 유도. 옆 '적 이동' 카드(좌단 x=442) 안 넘게 반경 제한.
-	for k in range(2):
-		var rk: float = clampf((p - float(k) * 0.14) / 0.6, 0.0, 1.0)
-		if rk <= 0.0 or rk >= 1.0:
-			continue
-		draw_arc(cc, lerp(28.0, 128.0 + float(k) * 34.0, rk), 0.0, TAU, 40,
-				Color(1.0, 0.92, 0.6, a * (1.0 - rk) * 0.55), 3.0)
-	# ② 방사광 — 더 밝게·짧게(near-white, 길이 42→84 → x최대 377 < 442). 피크 p≈0.1 뒤 빠르게 사그라듦(펀치).
-	var ray_a: float = a * clampf(1.0 - absf(p - 0.1) / 0.18, 0.0, 1.0) * 0.85
+	var bx: float = float(BOARD_X)
+	var by: float = float(board_y)
+	var bw: float = float(COLS * CELL)
+	var bh: float = float(ROWS * CELL)
+	var cx: float = bx + bw * 0.5
+	var emb: Vector2 = Vector2(cx, by + bh * 0.30)   # 엠블럼 앵커(상단 1/3) — 칭찬 단어(중심)·리본(하단)과 세로 스택
+	var gold: Color = Color(1.0, 0.85, 0.35)
+	# ① 보드 테두리 네온 플래시 — 밝게 확 떴다 페이드(앞 55%). 여러 겹 = 글로우.
+	var edge_a: float = clampf(1.0 - p / 0.55, 0.0, 1.0)
+	if edge_a > 0.01:
+		var rect: Rect2 = Rect2(bx, by, bw, bh)
+		for g in range(4):
+			draw_rect(rect.grow(float(g) * 3.0), Color(gold.r, gold.g, gold.b, edge_a * (0.55 - float(g) * 0.12)), false, 4.0)
+	# ② 갓레이 — 왕관 뒤에서 방사(피크 p≈0.12 뒤 사그라듦). 밝은 골드.
+	var ray_a: float = clampf(1.0 - absf(p - 0.12) / 0.24, 0.0, 1.0) * 0.7
 	if ray_a > 0.01:
-		for i in range(12):
-			var ang: float = p * 0.35 + float(i) * TAU / 12.0
-			var dir: Vector2 = Vector2(cos(ang), sin(ang))
-			draw_line(cc + dir * 40.0, cc + dir * 84.0, Color(1.0, 0.98, 0.82, ray_a), 5.0)
+		var n: int = 16
+		var outer: float = lerp(90.0, bw * 0.42, clampf(p / 0.45, 0.0, 1.0))
+		for i in range(n):
+			var ang: float = p * 0.16 + float(i) * TAU / float(n)
+			var d: Vector2 = Vector2(cos(ang), sin(ang))
+			draw_line(emb + d * 40.0, emb + d * outer, Color(1.0, 0.95, 0.65, ray_a), 6.0)
+	# ③ 코어 플래시 — 짧은 흰 광폭발(왕관 자리).
+	var core_a: float = clampf(1.0 - p / 0.28, 0.0, 1.0) * 0.6
+	if core_a > 0.01:
+		draw_circle(emb, lerp(20.0, 78.0, clampf(p / 0.28, 0.0, 1.0)), Color(1.0, 0.98, 0.85, core_a))
+	# ④ 왕관 — 엠블럼 앵커에 오버슛 팝인(갓레이가 뒤에서 뻗는 BB 구도). 이모지(_font OS 폴백).
+	var cr_ip: float = clampf(p / 0.14, 0.0, 1.0)
+	var cr_scale: float = (1.0 - pow(1.0 - cr_ip, 2.0)) + sin(clampf(cr_ip, 0.0, 1.0) * PI) * 0.16
+	var cr_a: float = 1.0
+	if p > 0.75:
+		cr_a = clampf((1.0 - p) / 0.25, 0.0, 1.0)
+	if cr_a > 0.01 and _font != null:
+		var cfs: int = int(88.0 * cr_scale)
+		if cfs > 6:
+			var crw: float = _font.get_string_size("👑", HORIZONTAL_ALIGNMENT_LEFT, -1, cfs).x
+			draw_string(_font, emb + Vector2(-crw * 0.5, float(cfs) * 0.34), "👑", HORIZONTAL_ALIGNMENT_LEFT, -1, cfs, Color(1.0, 1.0, 1.0, cr_a))
+
+# PB 리본 배너(C90) — 보드 하단 1/3에 "NEW BEST + 돌파 점수" 띠. 스윕인→홀드→페이드. BB 시그니처.
+#   칭찬 단어는 보드 중심 → 리본은 그 아래라 겹치지 않음(스택). 전부 오버레이.
+func _draw_pb_ribbon(fnt: Font) -> void:
+	var p: float = clampf(1.0 - pb_pop_t / PB_POP_DUR, 0.0, 1.0)
+	var by: float = float(board_y)
+	var bh: float = float(ROWS * CELL)
+	var bw: float = float(COLS * CELL)
+	var cx: float = float(BOARD_X) + bw * 0.5
+	var ry: float = by + bh * 0.66
+	var sweep: float = clampf(p / 0.16, 0.0, 1.0)          # 앞 0.16에 좌우 확장
+	var ease: float = 1.0 - pow(1.0 - sweep, 3.0)
+	var rib_a: float = 1.0
+	if p > 0.72:
+		rib_a = clampf((1.0 - p) / 0.28, 0.0, 1.0)         # 뒤 0.28에 페이드
+	if rib_a <= 0.01:
+		return
+	var half: float = bw * 0.5 * ease
+	var rh: float = 74.0
+	# 띠 — 레드 리본(BB) + 상/하 골드 테두리 + 상단 하이라이트
+	draw_rect(Rect2(cx - half, ry - rh * 0.5, half * 2.0, rh), Color(0.86, 0.15, 0.24, 0.93 * rib_a))
+	draw_rect(Rect2(cx - half, ry - rh * 0.5, half * 2.0, 4.0), Color(1.0, 0.86, 0.4, 0.9 * rib_a))
+	draw_rect(Rect2(cx - half, ry + rh * 0.5 - 4.0, half * 2.0, 4.0), Color(0.7, 0.09, 0.14, rib_a))
+	# 텍스트 — 스윕 끝나며 등장(디스플레이 폰트). "NEW BEST" 작게 위 + 점수 크게 아래.
+	var txt_a: float = clampf((sweep - 0.45) / 0.55, 0.0, 1.0) * rib_a
+	if txt_a > 0.01:
+		var dfnt: Font = _font_display if _font_display != null else fnt
+		var lbl: String = _t("new_best_ribbon")
+		var lw: float = dfnt.get_string_size(lbl, HORIZONTAL_ALIGNMENT_LEFT, -1, 22).x
+		_draw_text_outlined(dfnt, Vector2(cx - lw * 0.5, ry - 12.0), lbl, 22, Color(1.0, 0.88, 0.4, txt_a), Color(0.4, 0.03, 0.06, 0.9 * txt_a))
+		var sc: String = _comma(roundi(endless_score_shown))
+		var sw2: float = dfnt.get_string_size(sc, HORIZONTAL_ALIGNMENT_LEFT, -1, 40).x
+		_draw_text_outlined(dfnt, Vector2(cx - sw2 * 0.5, ry + 26.0), sc, 40, Color(1.0, 1.0, 1.0, txt_a), Color(0.4, 0.03, 0.06, 0.9 * txt_a))
 
 # "👑 신기록!" 스티커 — 넘은 순간 카드 상단에 비스듬히 '붙어' 판 끝까지 상주(계속 갱신 중이라 안 뗀다).
 #   팝인만 오버슛 원샷(pb_pop_t 창), 이후 고정. 기본 UI('점수' 라벨)를 '가릴' 뿐 안 바꾼다(occlude-don't-mutate).
@@ -3528,6 +3747,19 @@ func _revive() -> void:
 			elif int(e.get("gen", 0)) == 0:
 				spawned = maxi(0, spawned - 1)   # 웨이브로 환원(gen1 쌍둥이는 spawned 밖 → 제외)
 		enemies = kept
+	# 이어하기 = 하단 트레이도 새로 채운다. 죽은 순간의 조각(막힘을 부른 안 맞는 세로 조각 등)을 그대로
+	#   이어받으면 부활 직후 또 못 놓는 소프트락으로 직결된다 — 부활은 '새 국면'이니 손패도 새로 준다.
+	#   비결정 트랙은 _refill_tray가 최소 한 조각 놓이도록 재추첨(24회)해 안전을 함께 보장한다.
+	_refill_tray()
+	# 안전망: 그래도 '못 놓음'이면 소프트락이 된다 — 배치가 없으면 턴 전환이 없고, 막힘 재판정은 턴 끝
+	#   (_end_turn)·판 시작(_init_game)에서만 도니 부활 직후엔 다시 안 걸린다(못 놓음 + 게임오버도 안 뜸).
+	#   결정적 트랙(리롤 금지)이나 거의 만원인 보드에선 리필해도 못 놓을 수 있다. 놓을 자리가 생길 때까지
+	#   하단부터 한 줄씩 더 비운다 — 최악에도 빈 보드가 되어 반드시 한 조각은 놓인다(부활은 놓을 수 있어야 부활).
+	var extra_clear: int = 0
+	while not _has_valid_placement() and extra_clear < ROWS:
+		for c in range(COLS):
+			board[ROWS - 1 - extra_clear][c] = ""
+		extra_clear += 1
 	_cont_hover = false
 
 # 재도전 = 실패면 같은 스테이지, 클리어면 다음(마지막이면 홈)
@@ -4631,7 +4863,7 @@ func _draw_hud(fnt: Font) -> void:
 		var pt_w: float = fnt.get_string_size(ptitle, HORIZONTAL_ALIGNMENT_LEFT, -1, 20).x
 		_draw_text_outlined(fnt, Vector2(goal_r.position.x + gw * 0.5 - pt_w * 0.5, box_y + 30.0), ptitle, 20,
 				Color(0.82, 0.78, 1.0))
-		var sc_str: String = _comma(endless_score)
+		var sc_str: String = _comma(roundi(endless_score_shown))   # 롤업 표시(C90): 스냅 대신 또르르
 		var sc_fs: int = 50
 		var sc_w: float = fnt.get_string_size(sc_str, HORIZONTAL_ALIGNMENT_LEFT, -1, sc_fs).x
 		var sc_col: Color = Color.WHITE.lerp(C_GOLD, kp)
@@ -4644,7 +4876,7 @@ func _draw_hud(fnt: Font) -> void:
 			var rec_lbl: String
 			var rec_col: Color
 			if beat:
-				rec_lbl = "👑 %s" % _comma(maxi(endless_best, endless_score))
+				rec_lbl = "👑 %s" % _comma(maxi(endless_best, roundi(endless_score_shown)))   # 크라운도 롤업과 동기(C90)
 				rec_col = C_GOLD.lerp(Color.WHITE, kp * 0.6)   # 처치마다 흰빛 반짝 = 기록이 실시간으로 새로 쓰인다
 			else:
 				rec_lbl = _t("best_score") % _comma(endless_best)
@@ -4888,7 +5120,14 @@ func _draw_tut_target() -> void:
 			Color(col.r, col.g, col.b, 0.45 + 0.45 * pulse), false, 3.0)
 
 func _draw_board(fnt: Font) -> void:
-	draw_rect(Rect2(BOARD_X - 2, board_y - 2, COLS * CELL + 4, ROWS * CELL + 4), C_BORD, false)
+	# 보드 외곽 프레임. 기록 영역(endless_beat_best)에선 골드 유지(C90) — PB 폭발이 '찰나'로 끝나 그 뒤가 밋밋했다.
+	#   "지금부터 최고 갱신 중"을 판 전체가 계속 신호(색으로, [[hud-signal-by-color-not-text]]). 폭발의 밝은 플래시가 이 지속 골드로 정착.
+	if endless_beat_best:
+		var gp: float = 0.5 + 0.5 * sin(anim_t * 2.2)   # 은은한 맥동(살아있게, 느림)
+		var gcol: Color = Color(0.92, 0.70, 0.20).lerp(Color(1.0, 0.90, 0.5), gp)
+		draw_rect(Rect2(BOARD_X - 3, board_y - 3, COLS * CELL + 6, ROWS * CELL + 6), Color(gcol.r, gcol.g, gcol.b, 0.92), false, 3.0)
+	else:
+		draw_rect(Rect2(BOARD_X - 2, board_y - 2, COLS * CELL + 4, ROWS * CELL + 4), C_BORD, false)
 	# 충전 중인 셀. 그리드 위에 따로 그린다(부푼 블록이 옆 셀 배경에 잘리지 않게).
 	var charging: Dictionary = {}
 	var chg: float = 0.0
@@ -5009,6 +5248,66 @@ func _draw_board(fnt: Font) -> void:
 		draw_circle(head, thick * 1.35, Color(1.0, 0.85, 0.4, 0.5))
 		draw_circle(head, thick, Color(1.0, 0.98, 0.7, 0.98))
 		draw_circle(head, thick * 0.5, Color.WHITE)
+
+	# 크로스 관통 십자 빔 — 교차점에서 청록 십자가 행·열을 따라 뻗으며 페이드. 평행 로켓(따뜻한
+	#   주황)과 확실히 다른 '차가운 관통' 시그니처 = 크로스를 평행 더블과 구분짓는 핵심 신호.
+	#   빔은 보드 안으로 클램프 → '완성된 행 전체 + 열 전체가 번쩍 뚫린다'로 읽힌다.
+	var _bx0: float = float(BOARD_X)
+	var _bx1: float = float(BOARD_X + COLS * CELL)
+	var _by0: float = float(board_y)
+	var _by1: float = float(board_y + ROWS * CELL)
+	for beam in cross_beams:
+		var bt: float = clampf(beam["t"] / beam["dur"], 0.0, 1.0)
+		var bc: Vector2i = beam["cell"]
+		var bctr: Vector2 = _cell_center(bc.x, bc.y)
+		var reach: float = CELL * (0.7 + 4.2 * bt)
+		var ba: float = 1.0 - bt
+		var col_glow := Color(0.42, 0.92, 1.0, ba * 0.5)
+		var col_core := Color(0.86, 1.0, 1.0, ba * 0.95)
+		var w_glow: float = 18.0 * (1.0 - 0.5 * bt)
+		var w_core: float = 6.0 * (1.0 - 0.4 * bt)
+		var hx0: float = maxf(bctr.x - reach, _bx0)
+		var hx1: float = minf(bctr.x + reach, _bx1)
+		var vy0: float = maxf(bctr.y - reach, _by0)
+		var vy1: float = minf(bctr.y + reach, _by1)
+		draw_line(Vector2(hx0, bctr.y), Vector2(hx1, bctr.y), col_glow, w_glow)
+		draw_line(Vector2(hx0, bctr.y), Vector2(hx1, bctr.y), col_core, w_core)
+		draw_line(Vector2(bctr.x, vy0), Vector2(bctr.x, vy1), col_glow, w_glow)
+		draw_line(Vector2(bctr.x, vy0), Vector2(bctr.x, vy1), col_core, w_core)
+		draw_circle(bctr, CELL * 0.5 * ba + 4.0, Color(1.0, 1.0, 1.0, ba * 0.9))
+		draw_circle(bctr, CELL * (0.35 + 1.0 * bt), Color(0.6, 0.96, 1.0, ba * 0.35), false, 3.0)
+
+	# 유도 종이비행기(부스터) — 매치3 레퍼런스 재현(영상 L6qNVI1GetE 2:00~):
+	#   ① 아래 그림자(보드 위를 난다는 깊이) ② 청록 스핀-헤일로(회전 = 어수선한 보드서 확 튐, 가독성 핵심)
+	#   ③ 흰 4점별 반짝임 트레일 ④ 밝은 흰 헤드. 곡선 호밍은 유지(직선 스윕 로켓과 구분).
+	for skm in seekers:
+		var sp2: float = clampf(skm["t"] / skm["dur"], 0.0, 1.0)
+		var a2: Vector2 = skm["from"]
+		var b2: Vector2 = skm["to_pos"]
+		var perp: Vector2 = (b2 - a2).orthogonal().normalized()
+		var arcf: float = 46.0
+		var hpos: Vector2 = a2.lerp(b2, sp2) + perp * (arcf * sin(sp2 * PI))
+		# ① 그림자 — 보드 위를 난다
+		draw_circle(hpos + Vector2(4.0, 18.0), 17.0, Color(0.0, 0.0, 0.0, 0.22))
+		# ③ 흰 4점별 반짝임 트레일(최근 경로)
+		for stx in range(3):
+			var tpf: float = clampf(sp2 - 0.05 * float(stx + 1), 0.0, 1.0)
+			var stp: Vector2 = a2.lerp(b2, tpf) + perp * (arcf * sin(tpf * PI))
+			var sr: float = 9.0 - 2.0 * float(stx)
+			var sa: float = 0.75 / float(stx + 1)
+			draw_line(stp - Vector2(sr, 0.0), stp + Vector2(sr, 0.0), Color(1.0, 1.0, 1.0, sa), 2.5)
+			draw_line(stp - Vector2(0.0, sr), stp + Vector2(0.0, sr), Color(1.0, 1.0, 1.0, sa), 2.5)
+		# ② 청록 스핀-헤일로(회전 점들 + 링) — 어수선한 보드서 확 튀는 가독성 핵심
+		var spin: float = anim_t * 16.0
+		draw_arc(hpos, 27.0, 0.0, TAU, 26, Color(0.45, 0.93, 1.0, 0.5), 4.0)
+		for kk in range(7):
+			var ang: float = spin + float(kk) * TAU / 7.0
+			draw_circle(hpos + Vector2(cos(ang), sin(ang)) * 27.0, 4.5, Color(0.55, 0.95, 1.0, 0.9))
+		# ④ 밝은 헤드(흰 글로우 + 청록 링 + 흰 코어)
+		draw_circle(hpos, 20.0, Color(0.7, 0.97, 1.0, 0.5))
+		draw_circle(hpos, 15.0, Color(1.0, 1.0, 1.0, 0.98))
+		draw_circle(hpos, 9.0, Color(0.5, 0.93, 1.0))
+		draw_circle(hpos, 4.0, Color.WHITE)
 
 	# 착지 프리뷰 — 조각을 '들고 있고', 그 자리에 놓을 수 있을 때만 그린다 (Block Blast 방식).
 	#
