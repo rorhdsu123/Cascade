@@ -40,6 +40,12 @@ const STR: Dictionary = {
 		"st9_tag": "Catch the falling gems — enemies are just the risk",
 		"st10_name": "Two Colors",
 		"st10_tag": "Two gem colors now — fill both, pick your shots",
+		"st11_name": "Defuse",
+		"st11_tag": "Bombs are counting down — clear them before they blow",
+		"st12_name": "Under Fire",
+		"st12_tag": "Bombs among the swarm — pick which to defuse first",
+		"st13_name": "Chain Reaction",
+		"st13_tag": "Bombs set off their neighbors — break the chain first",
 		# ── 설정 모달 ──
 		"settings": "Settings",
 		"sound": "Sound",
@@ -128,6 +134,7 @@ const STR: Dictionary = {
 		"callout_tank": "TANK — big combo!",
 		"callout_swarm": "SWARM — sweep them!",
 		"callout_split": "SPLIT — kill above the line!",
+		"callout_bomb": "BOMB — clear it before the fuse runs out!",
 		# ── 입력 토글(PC 테스트용) ──
 		# 상시 조작·규칙 안내 4줄(how_*/rule_*)은 C79에서 제거 — 키도 함께 지웠다.
 		# 가르치는 몫은 스테이지1 튜토리얼과 화면이 보여주는 것들이 가져간다(_draw_bottom 주석 참조).
@@ -156,6 +163,12 @@ const STR: Dictionary = {
 		"st9_tag": "떨어지는 보석을 낚아채라 — 적은 위험일 뿐",
 		"st10_name": "두 색",
 		"st10_tag": "이제 보석 두 색 — 둘 다 채워라, 골라 쏴라",
+		"st11_name": "해체",
+		"st11_tag": "폭탄이 카운트다운 중 — 터지기 전에 걷어내라",
+		"st12_name": "교전 중",
+		"st12_tag": "무리 속의 폭탄 — 어느 걸 먼저 해체할지 골라라",
+		"st13_name": "연쇄 반응",
+		"st13_tag": "폭탄이 옆 폭탄을 터뜨린다 — 연쇄부터 끊어라",
 		"settings": "설정",
 		"sound": "소리",
 		"music": "배경음",
@@ -236,6 +249,7 @@ const STR: Dictionary = {
 		"callout_tank": "탱크 — 큰 콤보로!",
 		"callout_swarm": "무리 — 쓸어버려!",
 		"callout_split": "분열 — 선 위에서 잡아!",
+		"callout_bomb": "폭탄 — 도화선 다 타기 전에 걷어내라!",
 		"mode_click": "클릭 모드",
 		"mode_drag": "드래그 모드",
 		"mode_switch": "눌러서 전환",

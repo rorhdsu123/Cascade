@@ -36,6 +36,21 @@ func enemy_step(etype: String) -> int:
 	var base_step: int = int(st["step_every"])
 	return maxi(1, base_step - 1) if etype == "fast" else base_step
 
+# 폭탄(Defuse): 점화 적의 도화선 = 남은 배치 수(0이 되면 제자리서 터짐). 터짐 = 거점 bomb_dmg 피해(일반 누수 -1보다 큼).
+func bomb_fuse() -> int:
+	return int(st.get("bomb_fuse", 6))
+
+func bomb_dmg() -> int:
+	return int(st.get("bomb_dmg", 2))
+
+# >0이면 폭발이 HP 대신(또는 겸해) 보드에 잡동사니 블록 N개를 쏟는다(dormant, 현재 미사용 — 매몰은 점착 몫).
+func bomb_junk() -> int:
+	return int(st.get("bomb_junk", 0))
+
+# true면 폭탄이 연쇄 폭발(인접 폭탄 8방 도미노). R3 rung — linchpin 먼저 끊는 새 결정.
+func bomb_chain() -> bool:
+	return bool(st.get("bomb_chain", false))
+
 # 재도전 = 같은/다음 스테이지(코어가 game_clear로 분기). scores()/*_score는 base 상속(무점수).
 func retry_kind() -> String:
 	return "stage"
@@ -109,12 +124,12 @@ func pick_etype(ctx: Dictionary) -> String:
 	var w: Dictionary = st["weights"]
 	var total: int = 0
 	for t in types:
-		total += int(w[t])
+		total += int(w.get(t, 0))   # 키 없는 타입(예: 신규 bomb)은 가중치 0 = 무영향(회귀 시드 보존)
 	if total <= 0:
 		return "basic"
 	var r: int = ctx["rng"].randi() % total
 	for t in types:
-		r -= int(w[t])
+		r -= int(w.get(t, 0))
 		if r < 0:
 			return t
 	return "basic"

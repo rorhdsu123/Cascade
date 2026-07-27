@@ -29,6 +29,19 @@ func enemy_hp(_etype: String, _spawn_index: int, _ctx: Dictionary = {}) -> int:
 func enemy_step(_etype: String) -> int:
 	return 1
 
+# 폭탄 설정 — 베이스는 무해 기본값(StageMode만 st에서 실값). bomb_dmg=1이면 일반 누수와 동일(안전).
+func bomb_fuse() -> int:
+	return 6
+
+func bomb_dmg() -> int:
+	return 1
+
+func bomb_junk() -> int:
+	return 0
+
+func bomb_chain() -> bool:
+	return false
+
 # DDA(동적 난이도) 허용? 기본 = false(무한꼴: 랭크 공정성). StageMode만 true(캠페인 구제).
 func allows_dda() -> bool:
 	return false
