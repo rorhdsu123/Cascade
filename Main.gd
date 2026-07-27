@@ -459,9 +459,9 @@ var piece_idx: int = 0             # featured: 지금까지 뽑은 트랙 조각
 var track_record: bool = false     # featured 시퀀스 기록(사후 점수 검증·결정성 probe용, 평소 off)
 var track_log: Array = []          # [["P", idx, type, color] | ["S", depth, col, etype], ...]
 var cleared: Dictionary = {}     # 스테이지 인덱스 → 클리어 여부 (세션 한정, 저장 없음)
-var hover_stage: int = -1
-var sel_stage: int = 0           # 선택화면에서 고른 스테이지(하단 플레이 버튼이 이 번호를 실행·표시)
 var _play_hover: bool = false    # 하단 시작 버튼 호버
+var sel_scroll: float = 0.0      # 진행 그리드 세로 스크롤(넘칠 때만). _sel_enter가 프런티어로 자동 정렬
+var _sel_drag_y: float = -1.0    # 드래그 스크롤: 마지막 포인터 y(-1=비드래그). 터치=에뮬 마우스로 이 경로 재사용
 var _retry_hover: bool = false   # 결과 팝업 재도전 버튼 호버
 var _home_hover: bool = false    # 결과 팝업 홈 버튼 호버
 
@@ -864,14 +864,11 @@ func _all_cleared() -> bool:
 func _home_mode() -> String:
 	return "menu"
 
-# 허브의 Adventure = '이어하기'. 다음 도전할 스테이지로 바로 들어간다(C80: 복귀 마찰 절반).
-#   단 전부 깼으면 반복 재도전 대신 목록으로 — 그때는 '고르는 것'이 유일하게 남은 행동이다.
+# 허브의 Adventure = 진행 화면을 연다(C92). 진행은 그 화면의 '계속하기' 버튼=프런티어로만 — 유저 지시로
+#   판 직행/타일 선택/재플레이를 폐기. 이 화면은 진행상황 리드아웃이고, 스크롤은 프런티어로 자동 정렬된다.
 func _adventure_go() -> void:
-	if _all_cleared():
-		mode = "select"
-		sel_stage = 0        # 진열장 진입 = 1번부터 고른 상태로(처음부터 다시가 기본값)
-		return
-	_start_stage(_current_stage())
+	mode = "select"
+	_sel_enter()
 
 # 스테이지 시작 — 독립 레벨이라 보드·거점·적을 전부 초기화하고 st만 갈아끼운다
 func _start_stage(idx: int) -> void:
@@ -2752,41 +2749,48 @@ func _input(event: InputEvent) -> void:
 					_start_endless()
 		return
 
-	# ── 레벨 선택 화면 ──
+	# ── 진행 화면(Adventure) ── 타일은 비인터랙티브(진행=프런티어 버튼으로만). 그리드는 세로 스크롤.
 	if mode == "select":
 		var sdy: Vector2 = Vector2(0.0, _ui_dy())
 		if event is InputEventMouseMotion:
-			var mp: Vector2 = (event as InputEventMouseMotion).position - sdy
-			hover_stage = _stage_at(mp)
-			_play_hover = PLAY_BTN.has_point(mp)
+			var mm: InputEventMouseMotion = event as InputEventMouseMotion
+			var mp: Vector2 = mm.position - sdy
+			_play_hover = PLAY_BTN.has_point(mp) and not _all_cleared()
 			_back_hover = BACK_BTN.has_point(mp)
+			# 드래그 스크롤 — 버튼(마우스/터치)이 눌린 채 그리드 위를 끌면 스크롤. 터치=에뮬 마우스로 재사용.
+			if _sel_drag_y >= 0.0 and (mm.button_mask & MOUSE_BUTTON_MASK_LEFT) != 0:
+				_sel_scroll_by(_sel_drag_y - mp.y)
+				_sel_drag_y = mp.y
+			else:
+				queue_redraw()
 		elif event is InputEventMouseButton:
 			var sm: InputEventMouseButton = event as InputEventMouseButton
-			if sm.pressed and sm.button_index == MOUSE_BUTTON_LEFT:
-				var smp: Vector2 = sm.position - sdy
-				if BACK_BTN.has_point(smp):
-					mode = "menu"                       # 허브로 복귀(Classic은 메뉴에)
-				elif PLAY_BTN.has_point(smp):
-					_start_stage(sel_stage)             # 하단 큰 버튼 = 고른 스테이지 실행
+			var smp: Vector2 = sm.position - sdy
+			if sm.button_index == MOUSE_BUTTON_WHEEL_UP and sm.pressed:
+				_sel_scroll_by(-64.0)
+			elif sm.button_index == MOUSE_BUTTON_WHEEL_DOWN and sm.pressed:
+				_sel_scroll_by(64.0)
+			elif sm.button_index == MOUSE_BUTTON_LEFT:
+				if sm.pressed:
+					if BACK_BTN.has_point(smp):
+						mode = "menu"                       # 허브로 복귀
+					elif PLAY_BTN.has_point(smp) and not _all_cleared():
+						_start_stage(_current_stage())      # 하단 버튼 = 프런티어(다음 판)로 진행
+					elif smp.y > SEL_TOP and smp.y < SEL_VIEW_BOT:
+						_sel_drag_y = smp.y                 # 그리드 영역 프레스 = 드래그 스크롤 시작
 				else:
-					var hit: int = _stage_at(smp)   # 타일 탭 = 선택(즉시 실행 아님, 잠긴 건 -1)
-					if hit >= 0:
-						sel_stage = hit
-						queue_redraw()
+					_sel_drag_y = -1.0
 		elif event is InputEventKey:
 			var sk: InputEventKey = event as InputEventKey
 			if sk.pressed and (sk.keycode == KEY_SPACE or sk.keycode == KEY_ENTER):
-				_start_stage(sel_stage)                # 고른 스테이지 실행
+				if not _all_cleared():
+					_start_stage(_current_stage())         # 프런티어로 진행
 			elif sk.pressed and sk.keycode == KEY_ESCAPE:
-				mode = "menu"                          # 뒤로 = 허브
+				mode = "menu"                              # 뒤로 = 허브
 				# ⚠'오늘의 판'(featured) 진입은 C60에서 보류 — 플레이어 노출 제거. 엔진은 tools/probe로만 도달.
-			elif sk.pressed and sk.keycode >= KEY_1 and sk.keycode < KEY_1 + STAGES.size():
-				var pick: int = sk.keycode - KEY_1
-				if _is_unlocked(pick):
-					sel_stage = pick                   # 번호키 = 선택(실행은 Space/버튼)
-					queue_redraw()
 			elif sk.pressed and sk.keycode == KEY_0:
-				dev_unlock_all = not dev_unlock_all   # ⚠플테 전용: 전 스테이지 해금 토글
+				dev_unlock_all = not dev_unlock_all        # ⚠플테 전용: 전 스테이지 해금 토글
+				_sel_enter()                               # 해금 바뀌면 프런티어도 바뀔 수 있어 재정렬
 				queue_redraw()
 		return
 
@@ -4052,10 +4056,11 @@ func _draw_result(fnt: Font) -> void:
 #   번호 그리드만 남기고, 하단 플레이 버튼이 고른 번호를 실행한다(유저 지시 C83).
 #   개수 무관 자동 줄바꿈(SEL_COLS열) — 스테이지가 늘어도 안 깨진다(구: 8개 하드튜닝 세로 바).
 # 좌상단 화살표('홈')로 허브 복귀.
-const SEL_COLS: int = 4
-const SEL_TILE: float = 150.0
-const SEL_GAP: float = 26.0
-const SEL_TOP: float = 216.0   # 그리드 영역 상단(소제목 y=166 아래). 하단은 PLAY_BTN(y=742)
+const SEL_COLS: int = 5
+const SEL_TILE: float = 126.0
+const SEL_GAP: float = 20.0
+const SEL_TOP: float = 216.0        # 그리드 뷰포트 상단(소제목 y=166 아래)
+const SEL_VIEW_BOT: float = 720.0   # 그리드 뷰포트 하단(하단 고정 버튼 위 여백). 넘치면 세로 스크롤(진행 리드아웃).
 const PLAY_BTN: Rect2 = Rect2(150.0, 742.0, 500.0, 126.0)
 
 # ===== 메인 메뉴(허브) 화면 =====
@@ -4071,23 +4076,46 @@ const MENU_LB_BTN: Rect2 = Rect2(560.0, 40.0, 216.0, 60.0)       # 우상단 트
 const BACK_BTN: Rect2 = Rect2(24.0, 24.0, 132.0, 54.0)           # select/리더보드 → 메뉴 복귀
 const LB_PLAY_BTN: Rect2 = Rect2(150.0, 786.0, 500.0, 76.0)       # 리더보드 → 무한 도전(peek를 플레이로)
 
-func _stage_rect(i: int) -> Rect2:
+func _sel_grid_h() -> float:
 	var rows: int = int(ceil(float(STAGES.size()) / float(SEL_COLS)))
+	return rows * SEL_TILE + (rows - 1) * SEL_GAP
+
+func _sel_view_h() -> float:
+	return SEL_VIEW_BOT - SEL_TOP
+
+func _sel_max_scroll() -> float:
+	return maxf(0.0, _sel_grid_h() - _sel_view_h())
+
+# 그리드 원점 y: 뷰포트에 다 들어오면 세로 중앙, 넘치면 스크롤 오프셋만큼 위로 민다.
+func _grid_origin_y() -> float:
+	if _sel_grid_h() <= _sel_view_h():
+		return SEL_TOP + (_sel_view_h() - _sel_grid_h()) * 0.5
+	return SEL_TOP - sel_scroll
+
+func _stage_rect(i: int) -> Rect2:
 	var grid_w: float = SEL_COLS * SEL_TILE + (SEL_COLS - 1) * SEL_GAP
-	var grid_h: float = rows * SEL_TILE + (rows - 1) * SEL_GAP
 	var start_x: float = (800.0 - grid_w) * 0.5
-	var region_h: float = PLAY_BTN.position.y - SEL_TOP
-	var start_y: float = SEL_TOP + maxf(0.0, (region_h - grid_h) * 0.5)
+	var start_y: float = _grid_origin_y()
 	var col: int = i % SEL_COLS
 	var row: int = i / SEL_COLS
 	return Rect2(start_x + col * (SEL_TILE + SEL_GAP), start_y + row * (SEL_TILE + SEL_GAP), SEL_TILE, SEL_TILE)
 
-# 잠긴 스테이지는 클릭 대상이 아니다(선형 진행)
-func _stage_at(pos: Vector2) -> int:
-	for i in range(STAGES.size()):
-		if _stage_rect(i).has_point(pos) and _is_unlocked(i):
-			return i
-	return -1
+# 진행 화면 진입 — 스크롤을 프런티어(다음 도전 판)가 뷰포트 중앙에 오도록 맞춘다.
+func _sel_enter() -> void:
+	_sel_drag_y = -1.0
+	var maxs: float = _sel_max_scroll()
+	if maxs <= 0.0:
+		sel_scroll = 0.0
+		return
+	var frow: int = _current_stage() / SEL_COLS
+	var center_in_grid: float = frow * (SEL_TILE + SEL_GAP) + SEL_TILE * 0.5
+	sel_scroll = clampf(center_in_grid - _sel_view_h() * 0.5, 0.0, maxs)
+
+func _sel_scroll_by(dy: float) -> void:
+	var ns: float = clampf(sel_scroll + dy, 0.0, _sel_max_scroll())
+	if ns != sel_scroll:
+		sel_scroll = ns
+		queue_redraw()
 
 # ── 메인 메뉴(허브): 위 로고, 아래 두 갈래 버튼 ──
 func _draw_menu(fnt: Font) -> void:
@@ -4364,7 +4392,67 @@ func _draw_back_button(fnt: Font) -> void:
 
 func _draw_select(fnt: Font) -> void:
 	# 배경은 _draw()가 이미 그렸다(오프셋 밖). 여기선 콘텐츠만.
+	# 진행 리드아웃: 타일은 비인터랙티브(진행은 하단 버튼=프런티어로만). 그리드는 넘치면 세로 스크롤 →
+	#   커스텀 드로우엔 클립이 없으므로 그린 뒤 헤더/푸터 밴드를 C_BG로 덮어 마스킹한다.
+	var frontier: int = _current_stage()
+	var all_done: bool = _all_cleared()
 
+	# ── 그리드(스크롤 레이어) ──
+	for i in range(STAGES.size()):
+		var r: Rect2 = _stage_rect(i)
+		# 뷰포트 밖(스크롤로 가려진) 타일은 건너뛴다 — 마스크가 덮지만 그림 비용도 절약.
+		if r.position.y + r.size.y < SEL_TOP - 4.0 or r.position.y > SEL_VIEW_BOT + 4.0:
+			continue
+		var done: bool = bool(cleared.get(i, false))
+		var open: bool = _is_unlocked(i)
+		var is_front: bool = (i == frontier) and open and not all_done   # 'You are here'
+
+		# 채움: 프런티어만 금빛으로 튀고, 깬 것은 차분히 가라앉히고, 잠긴 것은 더 어둡게.
+		var fill: Color = Color(0.09, 0.09, 0.13)            # 잠김
+		if is_front:
+			fill = Color(0.24, 0.20, 0.10)
+		elif open:
+			fill = Color(0.13, 0.14, 0.20)
+		draw_rect(r, fill)
+		var border: Color = Color(0.28, 0.29, 0.36)
+		if is_front:
+			border = C_GOLD
+		elif open:
+			border = Color(0.30, 0.33, 0.42)
+		draw_rect(r, border, false, 4.0 if is_front else 2.0)
+
+		var cx: float = r.position.x + r.size.x * 0.5
+		var cy: float = r.position.y + r.size.y * 0.5
+		# 번호는 잠김 포함 항상 표시(자물쇠만 있으면 답답). 잠김=dim + 자물쇠를 번호 위에 오버레이.
+		var nstr: String = str(i + 1)
+		var nfs: int = int(SEL_TILE * 0.42)
+		var nsz: Vector2 = fnt.get_string_size(nstr, HORIZONTAL_ALIGNMENT_LEFT, -1, nfs)
+		var ncol: Color
+		if is_front:
+			ncol = Color.WHITE
+		elif open:
+			ncol = Color(0.82, 0.85, 0.92)
+		else:
+			ncol = Color(0.38, 0.40, 0.48)   # 잠김 dim
+		_draw_text_outlined(fnt, Vector2(cx - nsz.x * 0.5, cy + nsz.y * 0.34), nstr, nfs, ncol)
+		# 상태 배지는 우상단 코너로 통일(번호를 안 가림): 깬 것=초록 체크, 잠김=자물쇠.
+		if not open:
+			_draw_lock(Vector2(r.position.x + r.size.x - 20.0, r.position.y + 22.0), 17.0, Color(0.78, 0.80, 0.88))
+		elif done and not is_front:
+			# 프런티어는 금빛 위계라 체크 생략.
+			_draw_check(Vector2(r.position.x + r.size.x - 20.0, r.position.y + 20.0), 8.0, Color(0.4, 0.85, 0.55))
+
+	# ── 스크롤 오버플로우 마스킹(그리드 위에 헤더/푸터 밴드를 배경색으로) ──
+	draw_rect(Rect2(-20.0, -20.0, VW_BASE + 40.0, SEL_TOP + 20.0), C_BG)
+	draw_rect(Rect2(-20.0, SEL_VIEW_BOT, VW_BASE + 40.0, 1000.0 - SEL_VIEW_BOT + 40.0), C_BG)
+	# 더 있음 신호 — 위/아래 셰브론(스크롤 가능할 때만).
+	if _sel_max_scroll() > 0.0:
+		if sel_scroll > 1.0:
+			_draw_scroll_hint(SEL_TOP, true)
+		if sel_scroll < _sel_max_scroll() - 1.0:
+			_draw_scroll_hint(SEL_VIEW_BOT, false)
+
+	# ── 헤더(마스크 위) ──
 	var title: String = "CASCADE"
 	var tw: float = fnt.get_string_size(title, HORIZONTAL_ALIGNMENT_LEFT, -1, 60).x
 	_draw_text_outlined(fnt, Vector2(400.0 - tw * 0.5, 122.0), title, 60, C_GOLD)
@@ -4378,44 +4466,37 @@ func _draw_select(fnt: Font) -> void:
 		var duw: float = fnt.get_string_size(du, HORIZONTAL_ALIGNMENT_LEFT, -1, 16).x
 		_draw_text_outlined(fnt, Vector2(400.0 - duw * 0.5, 196.0), du, 16, Color(1.0, 0.55, 0.3))
 
-	# 번호 그리드. 다 깬 진열장이라 이름·태그·설명 없이 번호만 — 고른 타일이 하단 버튼으로 실행된다.
-	for i in range(STAGES.size()):
-		var r: Rect2 = _stage_rect(i)
-		var done: bool = bool(cleared.get(i, false))
-		var open: bool = _is_unlocked(i)
-		var picked: bool = (i == sel_stage) and open
-		var hot: bool = (i == hover_stage) and open and not picked
-
-		# 채움: 고른 것만 금빛으로 튀고, 나머지(깬 것)는 차분하게 가라앉힌다.
-		var fill: Color = Color(0.09, 0.09, 0.13)            # 잠김
-		if picked:
-			fill = Color(0.24, 0.20, 0.10)
-		elif open:
-			fill = Color(0.17, 0.17, 0.24) if hot else Color(0.13, 0.14, 0.20)
-		draw_rect(r, fill)
-		var border: Color = Color(0.28, 0.29, 0.36)
-		if picked:
-			border = C_GOLD
-		elif open:
-			border = Color(0.5, 0.55, 0.62) if hot else Color(0.30, 0.33, 0.42)
-		draw_rect(r, border, false, 4.0 if picked else 2.0)
-
-		var cx: float = r.position.x + r.size.x * 0.5
-		var cy: float = r.position.y + r.size.y * 0.5
-		if open:
-			var nstr: String = str(i + 1)
-			var nfs: int = 64
-			var nsz: Vector2 = fnt.get_string_size(nstr, HORIZONTAL_ALIGNMENT_LEFT, -1, nfs)
-			var ncol: Color = Color.WHITE if picked else Color(0.82, 0.85, 0.92)
-			_draw_text_outlined(fnt, Vector2(cx - nsz.x * 0.5, cy + nsz.y * 0.34), nstr, nfs, ncol)
-			# 깬 표식 = 우상단 초록 체크(언어 중립). 고른 타일은 금빛 위계라 체크 생략.
-			if done and not picked:
-				_draw_check(Vector2(r.position.x + r.size.x - 22.0, r.position.y + 22.0), 9.0, Color(0.4, 0.85, 0.55))
-		else:
-			_draw_lock(Vector2(cx, cy), 26.0, Color(0.5, 0.52, 0.6))
-
-	_draw_play_button(fnt, sel_stage)
+	# ── 푸터(마스크 위) ── 프런티어가 있으면 '계속하기' 버튼, 다 깼으면 안내(전용 화면은 별도 기획).
+	if all_done:
+		_draw_allclear_footer(fnt)
+	else:
+		_draw_play_button(fnt, frontier)
 	_draw_back_button(fnt)
+
+# 스크롤 셰브론(더 있음 신호). edge_y=뷰포트 가장자리, up=위쪽 힌트.
+func _draw_scroll_hint(edge_y: float, up: bool) -> void:
+	var cx: float = 400.0
+	var col: Color = Color(0.62, 0.66, 0.82, 0.55)
+	if up:
+		draw_colored_polygon(PackedVector2Array([
+			Vector2(cx, edge_y + 8.0), Vector2(cx - 13.0, edge_y + 22.0), Vector2(cx + 13.0, edge_y + 22.0),
+		]), col)
+	else:
+		draw_colored_polygon(PackedVector2Array([
+			Vector2(cx, edge_y - 8.0), Vector2(cx - 13.0, edge_y - 22.0), Vector2(cx + 13.0, edge_y - 22.0),
+		]), col)
+
+# 모두 클리어 = 프런티어 없음. 전용 화면은 별도 기획 예정(유저) — 지금은 '따라잡음' 안내 자리만.
+func _draw_allclear_footer(fnt: Font) -> void:
+	var r: Rect2 = PLAY_BTN
+	draw_rect(r, Color(0.14, 0.15, 0.22))
+	draw_rect(r, Color(0.34, 0.37, 0.48), false, 3.0)
+	var t1: String = _t("caught_up")
+	var w1: float = fnt.get_string_size(t1, HORIZONTAL_ALIGNMENT_LEFT, -1, 30).x
+	_draw_text_outlined(fnt, Vector2(400.0 - w1 * 0.5, r.position.y + 52.0), t1, 30, C_GOLD)
+	var t2: String = _t("frontier_sub")
+	var w2: float = fnt.get_string_size(t2, HORIZONTAL_ALIGNMENT_LEFT, -1, 20).x
+	_draw_text_outlined(fnt, Vector2(400.0 - w2 * 0.5, r.position.y + 92.0), t2, 20, Color(0.78, 0.8, 0.9))
 
 # 천 단위 콤마 (점수 가독성)
 func _comma(n: int) -> String:
