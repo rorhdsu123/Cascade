@@ -612,8 +612,6 @@ var resolve_timer: float = 0.0
 var resolve_total: float = 0.0
 var resolve_hits: Array = []       # [{id, dmg, kb, at, done}] 거점 가까운 순 순차 피격
 var resolve_rocket_plan: Array = []  # [{dir, idx}] 로켓은 충전 뒤에 발사
-var resolve_cross_plan: Array = []   # [{cell, at, fired}] 크로스(행+열) 교차점 관통 섬광 예약
-var cross_beams: Array = []          # [{cell, t, dur}] 십자 관통 섬광(진행) — 크로스만의 청록 빔
 var resolve_seeker_plan: Array = []  # [{to_pos, from, launch, arrive, fired}] 유도 로켓 예약(동시 N줄 → N발)
 var seekers: Array = []              # [{from, to_pos, t, dur}] 유도 로켓(진행) — 거점서 곧 샐 적으로
 var resolve_fx_done: bool = false    # 로켓 발사 트리거됐나
@@ -1044,8 +1042,6 @@ func _init_game() -> void:
 	resolve_total = 0.0
 	resolve_hits = []
 	resolve_rocket_plan = []
-	resolve_cross_plan = []
-	cross_beams = []
 	resolve_seeker_plan = []
 	seekers = []
 	resolve_fx_done = false
@@ -1656,8 +1652,6 @@ func _begin_resolve(rows: Array, cols: Array) -> void:
 	resolve_timer = 0.0
 	resolve_hits = []
 	resolve_rocket_plan = []
-	resolve_cross_plan = []
-	cross_beams = []
 	resolve_seeker_plan = []
 	seekers = []
 	resolve_fx_done = false
@@ -1698,13 +1692,6 @@ func _begin_resolve(rows: Array, cols: Array) -> void:
 			resolve_rocket_plan.append({"dir": "col", "idx": c, "ring": band_cols[c], "launch": fire_t + 0.08 + float(band_cols[c]) * BLAST_RING_DELAY})
 		for r in band_rows:
 			resolve_rocket_plan.append({"dir": "row", "idx": r, "ring": band_rows[r], "launch": fire_t + 0.08 + float(band_rows[r]) * BLAST_RING_DELAY})
-		# 크로스(행+열 동시 클리어) = 교차점 관통. 평행 더블과 달리 '십자'로 읽히게 각 교차 셀에
-		#   청록 관통 빔을 예약한다(로켓이 그 칸을 지나는 박자에). 교차점은 이미 lines=2로 2배 피격
-		#   (아래 hit_list) → 장갑을 뚫는다. 데미지 셈은 안 건드리므로 회귀 불변.
-		if not full_board and rows.size() > 0 and cols.size() > 0:
-			for cr in rows:
-				for cc2 in cols:
-					resolve_cross_plan.append({"cell": Vector2i(int(cc2), int(cr)), "at": fire_t + ROCKET_DUR * 0.6, "fired": false})
 		# 일격량 (콤보 데미지 배수는 '탱커 관통용 부 증폭'으로 소폭 유지)
 		var mult: float = _simul_mult(l) * _streak_mult(combo)
 		var strike: int = roundi(LINE_BASE * mult)
@@ -1741,7 +1728,7 @@ func _begin_resolve(rows: Array, cols: Array) -> void:
 				lines += 1
 				ering = mini(ering, band_rows[e["row"]])
 			if lines > 0:
-				hit_list.append({"id": e["id"], "row": e["row"], "dmg": strike * lines, "kb": kb, "ring": ering, "cross": lines >= 2})
+				hit_list.append({"id": e["id"], "row": e["row"], "dmg": strike * lines, "kb": kb, "ring": ering})
 		# 링 오름차순(안→밖 물결) → 같은 링 내에선 거점 가까운 순(row 큰 순)
 		hit_list.sort_custom(func(a, b):
 			if a["ring"] != b["ring"]:
@@ -1758,7 +1745,7 @@ func _begin_resolve(rows: Array, cols: Array) -> void:
 			max_at = maxf(max_at, at)
 			resolve_hits.append({
 				"id": hit_list[k]["id"], "dmg": hit_list[k]["dmg"], "kb": hit_list[k]["kb"],
-				"at": at, "done": false, "cross": hit_list[k]["cross"],
+				"at": at, "done": false,
 			})
 		# --- 유도 종이비행기 발사: 위서 고른 표적(living[0..n_seek])에 거점서 곡선 호밍 ---
 		#   각 비행기는 표적을 '확정 처치'(dmg=표적 hp) — 밴드서 뺐으니 비행기가 안 잡으면 그 적이 샌다.
@@ -1770,7 +1757,7 @@ func _begin_resolve(rows: Array, cols: Array) -> void:
 			var s_arrive: float = s_launch + 0.30
 			var sdmg: int = maxi(strike, int(tgt["hp"]))
 			resolve_seeker_plan.append({"to_pos": _enemy_pos(tgt["col"], tgt["row"]), "from": seek_from, "launch": s_launch, "arrive": s_arrive, "fired": false})
-			resolve_hits.append({"id": tgt["id"], "dmg": sdmg, "kb": 0, "at": s_arrive, "done": false, "cross": false, "seeker": true})
+			resolve_hits.append({"id": tgt["id"], "dmg": sdmg, "kb": 0, "at": s_arrive, "done": false, "seeker": true})
 			max_at = maxf(max_at, s_arrive)
 		# 총길이 = 마지막 피격 or 마지막 링 로켓 비행 완료 중 늦은 것(바깥 링에 적 없어도 물결 끝까지 재생)
 		var visual_end: float = fire_t + 0.08 + float(max_ring) * BLAST_RING_DELAY + ROCKET_DUR + 0.08
@@ -1905,10 +1892,6 @@ func _apply_hit(h: Dictionary) -> void:
 	if e["hp"] <= 0:
 		# ① 극적 사망: 스케일 팝 + 파편 버스트 + 밝은 플래시 + 히트스톱
 		_spawn_death(etype, ep)
-		# 크로스 교차점서 장갑이 뚫리면 '관통'을 읽힌다(버팀 BLOCK의 반대 — 청록 대응).
-		if bool(h.get("cross", false)) and etype == "tank":
-			impacts.append({"pos": ep, "life": 0.42, "max": 0.42, "color": Color(0.62, 0.96, 1.0), "radius": CELL * 0.62, "star": true})
-			_add_floater(ep + Vector2(0.0, -CELL * 0.42), _t("tell_pierce"), Color(0.74, 0.98, 1.0), 0.7, 20)
 		# 종이비행기 착지 = 흰 별-폭발(레퍼런스 임팩트) — 처치 파편은 _spawn_death가 이미 뿌림
 		if bool(h.get("seeker", false)):
 			impacts.append({"pos": ep, "life": 0.34, "max": 0.34, "color": Color(0.8, 0.98, 1.0), "radius": CELL * 0.52, "star": true})
@@ -2115,7 +2098,6 @@ func _dump_junk(col: int, n: int) -> void:
 func _finish_resolve() -> void:
 	resolving = false
 	resolve_hits = []
-	resolve_cross_plan = []
 	resolve_seeker_plan = []
 	if not clear_done:
 		_burst_lines()   # 안전망: 어떤 경로로든 안 터졌으면 여기서라도 셀을 비운다(보드 정합성)
@@ -3042,13 +3024,6 @@ func _process(delta: float) -> void:
 				rp["launched"] = true
 				rockets.append({"dir": rp["dir"], "idx": rp["idx"], "t": 0.0, "dur": ROCKET_DUR, "combo": flash_combo})
 				_spawn_muzzle(rp["dir"], rp["idx"])
-		# 크로스 관통 섬광 발사 — 교차점에서 십자 빔이 터지고 짧은 멈칫(단일 타격점이라 히트스톱이 '턱'
-		#   아니라 '펀치'로 읽힌다 — 다줄과 다름). 청록 = 장갑(청록 방패)을 뚫는 색 대응.
-		for cp in resolve_cross_plan:
-			if not cp["fired"] and resolve_timer >= cp["at"]:
-				cp["fired"] = true
-				cross_beams.append({"cell": cp["cell"], "t": 0.0, "dur": 0.42})
-				hitstop = maxf(hitstop, 0.035)
 		# 유도 로켓 발사 — 거점서 곧 샐 적으로 호밍(도착 시각에 맞춰 아래 resolve_hits가 처치)
 		for sp in resolve_seeker_plan:
 			if not sp["fired"] and resolve_timer >= sp["launch"]:
@@ -3125,12 +3100,6 @@ func _process(delta: float) -> void:
 			impacts.append({"pos": _rocket_pos(rockets[rk], 1.0), "life": 0.18, "max": 0.18, "color": Color(1.0, 0.9, 0.5), "radius": CELL * 0.28, "star": false})
 			rockets.remove_at(rk)
 		rk -= 1
-	var cb: int = cross_beams.size() - 1
-	while cb >= 0:
-		cross_beams[cb]["t"] += delta
-		if cross_beams[cb]["t"] >= cross_beams[cb]["dur"]:
-			cross_beams.remove_at(cb)
-		cb -= 1
 	var sk: int = seekers.size() - 1
 	while sk >= 0:
 		seekers[sk]["t"] += delta
@@ -5248,34 +5217,6 @@ func _draw_board(fnt: Font) -> void:
 		draw_circle(head, thick * 1.35, Color(1.0, 0.85, 0.4, 0.5))
 		draw_circle(head, thick, Color(1.0, 0.98, 0.7, 0.98))
 		draw_circle(head, thick * 0.5, Color.WHITE)
-
-	# 크로스 관통 십자 빔 — 교차점에서 청록 십자가 행·열을 따라 뻗으며 페이드. 평행 로켓(따뜻한
-	#   주황)과 확실히 다른 '차가운 관통' 시그니처 = 크로스를 평행 더블과 구분짓는 핵심 신호.
-	#   빔은 보드 안으로 클램프 → '완성된 행 전체 + 열 전체가 번쩍 뚫린다'로 읽힌다.
-	var _bx0: float = float(BOARD_X)
-	var _bx1: float = float(BOARD_X + COLS * CELL)
-	var _by0: float = float(board_y)
-	var _by1: float = float(board_y + ROWS * CELL)
-	for beam in cross_beams:
-		var bt: float = clampf(beam["t"] / beam["dur"], 0.0, 1.0)
-		var bc: Vector2i = beam["cell"]
-		var bctr: Vector2 = _cell_center(bc.x, bc.y)
-		var reach: float = CELL * (0.7 + 4.2 * bt)
-		var ba: float = 1.0 - bt
-		var col_glow := Color(0.42, 0.92, 1.0, ba * 0.5)
-		var col_core := Color(0.86, 1.0, 1.0, ba * 0.95)
-		var w_glow: float = 18.0 * (1.0 - 0.5 * bt)
-		var w_core: float = 6.0 * (1.0 - 0.4 * bt)
-		var hx0: float = maxf(bctr.x - reach, _bx0)
-		var hx1: float = minf(bctr.x + reach, _bx1)
-		var vy0: float = maxf(bctr.y - reach, _by0)
-		var vy1: float = minf(bctr.y + reach, _by1)
-		draw_line(Vector2(hx0, bctr.y), Vector2(hx1, bctr.y), col_glow, w_glow)
-		draw_line(Vector2(hx0, bctr.y), Vector2(hx1, bctr.y), col_core, w_core)
-		draw_line(Vector2(bctr.x, vy0), Vector2(bctr.x, vy1), col_glow, w_glow)
-		draw_line(Vector2(bctr.x, vy0), Vector2(bctr.x, vy1), col_core, w_core)
-		draw_circle(bctr, CELL * 0.5 * ba + 4.0, Color(1.0, 1.0, 1.0, ba * 0.9))
-		draw_circle(bctr, CELL * (0.35 + 1.0 * bt), Color(0.6, 0.96, 1.0, ba * 0.35), false, 3.0)
 
 	# 유도 종이비행기(부스터) — 매치3 레퍼런스 재현(영상 L6qNVI1GetE 2:00~):
 	#   ① 아래 그림자(보드 위를 난다는 깊이) ② 청록 스핀-헤일로(회전 = 어수선한 보드서 확 튐, 가독성 핵심)
