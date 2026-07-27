@@ -257,8 +257,10 @@ const STAGES: Array = [
 	},
 ]
 
-# 조각 색 키 (시각용만)
-const COLORS: Array = ["R", "B", "Y"]
+# 조각 색 키 (시각용만 — 클리어는 순수 기하, 색-매칭 기전 없음).
+#   6색 카테고리컬 팔레트: 빨(R)·주(O)·노(Y)·초(G)·파(B)·보-마젠타(P). 색상환 6방향 = 각각 다른 카테고리.
+#   색 뽑기는 randi() 1회 유지 → 조각 '모양' 시퀀스 불변(회귀 byte-identical). 헥스·근거는 아래 색상 상수 참조.
+const COLORS: Array = ["R", "O", "Y", "G", "B", "P"]
 
 # 트레이 UI
 const TRAY_SLOT_W: int = 120
@@ -314,9 +316,18 @@ const CORE_HOLD: float = 0.35        # 텅 빈 보드를 보는 시간
 const CORE_GRAVITY: float = 6500.0   # px/s² — CORE_FALL_DUR 안에 화면을 벗어나는 세기
 
 # 색상
-const C_RED  := Color("#e5484d")
-const C_BLUE := Color("#3b82f6")
-const C_YELL := Color("#eab308")
+# 조각 6색 = 색상환 6방향(빨·주·노·초·파·보) 카테고리컬 팔레트. 색은 순수 장식(클리어=기하, 색-매칭 없음).
+#   설계: 사람은 색을 '이름'으로 범주화 → 같은 계열(빨/핑크·파/시안)은 '같은 색'으로 인지됨. 그래서
+#   따뜻한색 구역에 몰지 않고 색상환 전체에 펼쳐 각각 다른 카테고리로 만든다. 지각거리 CIELAB 상호 최소 ΔE≈39
+#   (전 쌍 >25=명확 구분), 밝기 L* 57~86까지 변주(색상 외 이중 인코딩). 색맹 제약 없음(색=무의미 장식).
+#   적과의 분리는 색이 아니라 어두운 rim+실루엣이 구조로 보장([[C_E_RIM]]) → 블록이 적 색상계열을 피할 필요 없음.
+#   보라(P)만 상시 적 basic(#a855f7)과 근접해 마젠타 쪽으로 밀어 ΔE=32 확보(thief=16, thief는 rare+후드 form).
+const C_RED    := Color("#ff5a52")   # 빨강
+const C_ORANGE := Color("#ff8c1a")   # 주황
+const C_YELL   := Color("#ffd23b")   # 노랑
+const C_GREEN  := Color("#35cf7a")   # 초록(swarm 라임 #a3e635과 계열 다름 + rim)
+const C_BLUE   := Color("#4a90ff")   # 파랑
+const C_PURPLE := Color("#d94fc8")   # 보라-마젠타(basic 바이올렛서 밀어냄)
 const C_BG   := Color("#0d0d1a")
 const C_BG_PB := Color("#2a2470")     # 존1(밝은 인디고). 여백·상하단바가 절대점수 존마다 이 계열로 이산 전환. 8×8 셀은 원색 유지(다크 아일랜드).
 # ── 절대점수 존 = '밤하늘 상승'(이산 단계, 매 판) ── 난이도(PB 너머, 개인축)와 분리한 '스펙터클' 축(절대점수).
@@ -1407,10 +1418,16 @@ func _color_of(key: String) -> Color:
 	match key:
 		"R":
 			return C_RED
-		"B":
-			return C_BLUE
+		"O":
+			return C_ORANGE
 		"Y":
 			return C_YELL
+		"G":
+			return C_GREEN
+		"B":
+			return C_BLUE
+		"P":
+			return C_PURPLE
 		"#":
 			return C_DEBRIS   # 뿌리(잠긴 셀) — 충전 연출 경로가 이 색을 읽는다
 		"H":
@@ -2088,7 +2105,7 @@ func _reveal_detonations() -> void:
 #   RNG 없음(결정적) = 회귀 안전. 지울 수 있는 블록이라 라인으로 파낼 수 있으되, 어정쩡하게 쌓여 패킹을 무너뜨린다.
 func _dump_junk(col: int, n: int) -> void:
 	var order: Array = [col, col - 1, col + 1, col - 2, col + 2]
-	var palette: Array = ["R", "B", "Y"]
+	var palette: Array = COLORS   # 6색 통일(pk % size로 결정적 순환 — RNG 없음, 회귀 안전)
 	var placed: int = 0
 	var pk: int = 0
 	while placed < n:
