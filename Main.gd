@@ -14,10 +14,12 @@ const HUD_H: float = 144.0      # 상단 HUD 띠 높이(상단 고정)
 const TRAY_PANEL_H: float = 300.0  # 하단 트레이 패널 높이(하단 고정) = 원본 1000-700
 const CORE_BLOCK_H: float = 758.0  # 보드(720=ROWS*CELL)+거점 띠(strip 32+여백 6) = board_y부터 tray까지 확보할 세로
 
-# 적 타입 (basic/fast/tank/swarm/split/bomb)
+# 적 타입 (basic/fast/tank/swarm/split/bomb/thief)
 # ⚠신규 타입은 반드시 배열 끝 — pick_etype iteration 순서가 회귀 시드에 물려 있다(끝+weight0/키없음 = 무영향).
 #   bomb=Defuse 동사(점화 적, 도화선=남은 배치 수, 0이면 제자리 폭발로 거점 큰 피해). 걷어내면 해체=깨끗한 승리 길.
-const ENEMY_TYPES: Array = ["basic", "fast", "tank", "swarm", "split", "bomb"]
+#   thief=Protect 동사(도둑). 거점 도달 시 거점을 안 때리고 금고(vault)서 훔쳐 되돌아 위로 도망 → 위로 탈출 시 영구 손실.
+#     뺏기 전 처치=완전 저지 · 물고 도망칠 때 처치=회수(금고로 되돌림). 금고 0이면 패(거점사와 별개 상실축).
+const ENEMY_TYPES: Array = ["basic", "fast", "tank", "swarm", "split", "bomb", "thief"]
 # 분열 자식 HP = 부모 maxhp × 이 비율(결정적 — randi 안 씀). 손자 없음(gen1은 안 쪼개짐).
 const SPLIT_CHILD_FRAC: float = 0.5
 # 분열선: gen0가 이 행에 닿으면 '죽여서'가 아니라 '너무 내려와서' 저절로 쪼개진다.
@@ -234,6 +236,22 @@ const STAGES: Array = [
 		"spawn_every": 2, "step_every": 3, "onboard": 3, "floor": 3, "surge_at": 0.80,
 		"weights": {"basic": 62, "bomb": 38}, "pool": POOL_STD,
 	},
+	# ── Protect R1 도입: 도둑(thief) 동사 = 상실(loss aversion). 거점 도달 시 거점을 안 때리고 금고서 훔쳐 되돌아 위로 도망. ──
+	#   3결과: 뺏기 전 처치=완전 저지 · 물고 도망칠 때 처치=회수(금고로 되돌림) · 위로 탈출=영구 손실.
+	#   승리 = 웨이브 소탕(탈출=leaked로 회계 보존) + 금고>0. 패 = 거점사 or 금고 전소(상실축, 거점사와 별개).
+	# ⚠설계 발견(thief_probe): Defuse식 '무압력 격리 R1'은 Protect엔 불가 — 막기(block)가 일반 클리어와 겹쳐 공짜라
+	#   좋은 봇이 도둑을 거의 다 걷어내 금고가 안 준다(동사가 죽은 리스킨화). 손실이 실제로 나려면 '두 전선 경쟁'이 필수:
+	#   thief_step 1(도둑 blitz하강=대개 막기 불가→낚아채기가 기본)로 낮은 전선을 뚫리게 하고, carry_step 1(빠른 도주)로
+	#   회수 창을 좁혀 도망을 위험케 → 게임이 '거점방어(아래) vs 회수추격(위)'의 공간적 기회비용이 된다. step_every 2(빠른 밀물)가
+	#   그 경쟁 압력. 격리 로스터(basic↔thief)는 유지. thief_hp 저(0.35×)=포지셔닝 위협이지 HP벽 아님(HP↑면 넉백이 하강을 늦춰 오히려 쉬워짐).
+	#   실측(thief_probe N80): 승률 71%·거점사6·금고전소7·막힘10, 금고 4→2.9(판당 −1.1 체감), 낚/회/탈 3.6/2.5/0.8(회수=생존 스킬, load-bearing).
+	{
+		"name": "st14_name", "tag": "st14_tag", "protect": true, "vault_start": 4, "steal": 1,
+		"thief_step": 1, "thief_carry_step": 1, "thief_hp_mult": 0.35,
+		"total": 32, "core_hp": 5, "base_hp": 30, "hp_ramp": 0.2, "tank_mult": 2.5,
+		"spawn_every": 2, "step_every": 2, "onboard": 3, "floor": 2, "surge_at": 0.80,
+		"weights": {"basic": 52, "thief": 48}, "pool": POOL_STD,
+	},
 ]
 
 # 조각 색 키 (시각용만)
@@ -331,6 +349,10 @@ const C_E_SPLIT := Color("#60a5fa")   # 파랑 — 로스터에서 유일한 한
 #   착지칸(누수 경고) 전용 신호라, 폭탄의 긴급색은 몸이 아니라 '타들어가는 도화선 불꽃 + 카운트다운 숫자'가 맡는다.
 const C_E_BOMB := Color("#434a5c")      # 숯색(약간 밝힘 — 어두운 보드서 묻히지 않게, 후광이 주 분리)
 const C_E_BOMB_HI := Color("#6d7688")   # 구 하이라이트(둥근 느낌)
+# 도둑(Protect) = 후드 쓴 도적. 색은 로스터 미사용 마젠타/자홍(basic 바이올렛·gem 로즈와 확연히 다름), form(복면+자루+웅크림)이 '도둑'을 말한다.
+#   훔쳐 도망 중(carrying)엔 자루에 빛나는 보석 + 위로 도망 쉐브론(자가설명). 몸색은 처치 파편/후광에도 재사용.
+const C_E_THIEF := Color("#e879f9")     # 자홍(후드 몸통)
+const C_E_THIEF_DK := Color("#a21caf")  # 후드 그늘·복면 띠
 
 # 잔해(감시자가 뻗는 뿌리 셀 "#") — 무채색 강철회색. 조각 3색·적 색과 모두 분리(죽은 칸임을 색으로 말함).
 const C_DEBRIS := Color("#4a4a55")
@@ -464,6 +486,16 @@ var boss_hp: int = 0            # 보스(감시자) 스테이지 전용 — 잔�
 var boss_hp_max: int = 0
 var collected_by_type: Array = []   # 받기형 수집 — 타입별 수집 수(길이=타입 수). 각 collect_targets[i] 도달 = 그 타입 완료, 전부 완료 = 클리어.
 var gem_flights: Array = []          # 잡은 보석이 상단 카운터로 빨려가는 연출 {from,to,t,dur,gtype,color}. 도착 시 카운트+1.
+# 보호(Protect) — 금고(vault): 도둑이 거점 도달 시 여기서 훔쳐 도망. 0이면 패(상실축, 거점사와 별개).
+#   낚아채기=grab(vault--·carrying=true·바닥 반등 후 상승), 처치 회수=vault++. 승리는 표준(웨이브 소탕, 탈출=leaked)+vault>0.
+var vault: int = 0                   # 현재 금고 잔량
+var vault_max: int = 0               # 시작 잔량(결과 델타·카드 표시용)
+var vault_pop: float = 0.0           # 금고 카운터 변화 시 톡 튐(감소=붉게, 회수=초록)
+var vault_flash: float = 0.0         # 도난/손실 순간 카드 붉은 경보 펄스
+var pending_vault_dead: bool = false # 이번 스텝에 금고가 0이 됨(거점사와 병렬 게임오버 경로)
+var dbg_grab: int = 0                # 프로브 계측 — 낚아채기/회수/탈출 횟수(연출 아님, 튜닝용)
+var dbg_recover: int = 0
+var dbg_escape: int = 0
 var collect_pop: Array = []          # 타입별 카운터 도착 팝(스케일 바운스) 타이머
 # 폭탄 피해 비행(보석 비행의 역방향): 폭발이 뱉은 '깨진 하트 −N' 토큰이 HP 바의 곧-깎일 구간으로 날아가 착지하며 바를 부순다.
 var dmg_flights: Array = []          # [{from,to,t,dur,dmg}] 도착 시 core_hp_vis -= dmg + 바 파쇄
@@ -910,6 +942,14 @@ func _init_game() -> void:
 		collected_by_type.append(0)
 		collect_pop.append(0.0)
 	gem_flights = []
+	vault = int(st.get("vault_start", 0))
+	vault_max = vault
+	vault_pop = 0.0
+	vault_flash = 0.0
+	pending_vault_dead = false
+	dbg_grab = 0
+	dbg_recover = 0
+	dbg_escape = 0
 	if bool(st.get("boss", false)):
 		_setup_boss_head()   # 머리 셀을 board에 심고 boss_hp = 머리 셀 수
 	place_count = 0
@@ -1797,6 +1837,12 @@ func _apply_hit(h: Dictionary) -> void:
 		var is_primary: bool = not (etype == "split" and int(e.get("gen", 0)) == 1)
 		if is_primary:
 			killed += 1
+		# 도둑 회수: 훔쳐 도망치던 놈을 잡으면 금고로 되돌린다(vault++). 뺏기 전 처치는 무손실이라 회수 없음.
+		#   시작 잔량(vault_max) 초과 불가 = '되돌림'이지 증식 아님. 초록 팝으로 만회를 못 박음(연출 확장은 렌더 단계).
+		if etype == "thief" and bool(e.get("carrying", false)):
+			vault = mini(vault_max, vault + director.steal_amount())
+			dbg_recover += 1
+			vault_pop = 0.42
 		_add_endless_score(director.kill_score(combo))   # 처치×콤보(주 지표), 감독 소유. 쌍둥이도 팝하면 보상(잡는 게 이득 = 분열 재설계와 결), C52·C61
 		kill_pulse = 0.35   # ④ 킬 → 헤드라인 펄스
 		hitstop = maxf(hitstop, 0.045)   # 처치 순간 멈칫(손맛)
@@ -2025,6 +2071,13 @@ func _end_turn() -> void:
 		else:
 			_begin_core_death()
 		return
+	# 금고 전소 = 상실축 패배(거점사와 병렬 경로). 도둑에게 다 털린 게임오버 — 거점은 멀쩡해도 진다.
+	if pending_vault_dead:
+		game_over = true
+		pending_vault_dead = false
+		fail_streak[stage_idx] = int(fail_streak.get(stage_idx, 0)) + 1
+		_begin_core_death()   # TODO(렌더): 금고-전소 전용 연출로 분기(현재는 거점 붕괴 재사용)
+		return
 	_boss_foul()             # 보스 스테이지: 감시자가 이번 턴에 잔해를 떨굴 수 있다(막힘 판정 전 = 파울이 스터크 유발 가능)
 	_check_win()
 	if not game_clear and not _has_valid_placement():
@@ -2134,10 +2187,16 @@ func advance_step() -> void:
 		#   0 이하가 되면 아래 누수/폭발 루프에서 제자리 폭발(거점 bomb_dmg 피해).
 		if e["etype"] == "bomb":
 			e["fuse"] = int(e.get("fuse", 0)) - 1
+		# 도둑이 훔치고 도망 중(carrying)이면 되돌아 위로 올라간다(row 감소). carry_step>0이면 그 주기로(R1=느리게=회수 쉬움).
+		var carrying: bool = e["etype"] == "thief" and bool(e.get("carrying", false))
 		var base_step: int = e.get("step_every", director.hud_step_every())
+		if carrying:
+			var cs: int = director.thief_carry_step()
+			if cs > 0:
+				base_step = cs
 		var step_every: int = director.effective_step_every(base_step, ctx)
 		if place_count % step_every == 0:
-			e["row"] += 1
+			e["row"] += (-1 if carrying else 1)   # 도망 중이면 상승(탈출로), 아니면 하강(거점으로)
 			e["stepped"] = true          # 이번 스텝에 전진 → 박자 링
 			any_advanced = true
 		else:
@@ -2192,10 +2251,33 @@ func advance_step() -> void:
 	pending_leaks = []
 	while i >= 0:
 		var en: Dictionary = enemies[i]
+		# 도둑 탈출: 훔친 채(carrying) 화면 위로 빠져나감 = 영구 손실 확정(금고는 grab서 이미 차감). 웨이브 회계는 leak과 동일.
+		if en["etype"] == "thief" and bool(en.get("carrying", false)) and int(en["row"]) < 0:
+			leaked += 1                  # 도둑도 gen0 = 웨이브 카운트로 반환(spawned==killed+leaked+onboard 불변식)
+			dbg_escape += 1
+			var tep: Vector2 = _enemy_pos(int(en["col"]), 0)
+			impacts.append({"pos": tep, "life": 0.4, "max": 0.4, "color": Color(0.85, 0.35, 0.42), "radius": CELL * 0.5, "star": false})
+			vault_flash = 0.55
+			enemies.remove_at(i)
+			i -= 1
+			continue
 		# 폭탄 폭발: chained에 든 폭탄(=fuse 소진 씨앗 + 연쇄 전파분). 제자리서 터진다(데드라인 위협).
 		var detonated: bool = en["etype"] == "bomb" and chained.has(int(en["id"]))
 		if en["row"] >= ROWS or detonated:
-			if en["etype"] == "gem":
+			if en["etype"] == "thief":
+				# 낚아채기(grab): 거점을 안 때리고 금고서 훔쳐 되돌아 위로 도망. 금고 즉시 차감·carrying·바닥 반등.
+				#   제거 안 함(계속 온보드) → 위로 탈출하거나 처치(회수)될 때까지 웨이브 미종료 = 긴장 유지.
+				var steal: int = director.steal_amount()
+				vault = maxi(0, vault - steal)
+				dbg_grab += 1
+				vault_pop = 0.42
+				vault_flash = 0.55
+				en["carrying"] = true
+				en["row"] = ROWS - 1     # 바닥서 반등 → 다음 스텝부터 상승(탈출로)
+				en["vis_row"] = float(ROWS - 1)
+				var stp: Vector2 = _enemy_pos(int(en["col"]), ROWS - 1)
+				impacts.append({"pos": stp, "life": 0.3, "max": 0.3, "color": Color(0.95, 0.55, 0.5), "radius": CELL * 0.45, "star": true})
+			elif en["etype"] == "gem":
 				# 보석 놓침 — 거점 무피해, 진행 손해일 뿐. 바닥에서 회색 파프로 '놓쳤다'를 짧게 알림(보석이 중요함을 학습).
 				var gmp: Vector2 = _enemy_pos(int(en["col"]), ROWS - 1)
 				impacts.append({"pos": gmp, "life": 0.32, "max": 0.32, "color": Color(0.5, 0.5, 0.56), "radius": CELL * 0.42, "star": false})
@@ -2222,8 +2304,10 @@ func advance_step() -> void:
 				enemies.remove_at(i)
 		i -= 1
 	pending_core_dead = core_hp <= 0
-	if pending_core_dead:
-		return   # 거점 파괴 스텝: 블라스트 없이 누수 연출 후 게임오버
+	# 금고 전소 = 상실축 패배(거점사와 병렬). protect 판에서만 발화.
+	pending_vault_dead = bool(st.get("protect", false)) and vault <= 0
+	if pending_core_dead or pending_vault_dead:
+		return   # 거점 파괴/금고 전소 스텝: 블라스트 없이 연출 후 게임오버
 
 	# 스폰: 감독이 스케줄(밀도 하한 floor + 스로틀·온보딩·swarm 클러스터)을 결정하고, 코어는 spec을 실행만.
 	#   ⚠감독의 randi 순서는 원본과 정확히 일치(floor=열→타입 / throttle=타입→(swarm:count→shuffle | col)).
@@ -2318,6 +2402,8 @@ func _spawn_one(col: int, etype: String, step_override: int = 0) -> void:
 	var ed: Dictionary = {"col": col, "row": 0, "vis_row": 0.0, "hp": hp, "maxhp": hp, "etype": etype, "id": enemy_seq, "step_every": step_every}
 	if etype == "bomb":
 		ed["fuse"] = director.bomb_fuse()   # 도화선 = 남은 배치 수(advance_step마다 1 감소)
+	elif etype == "thief":
+		ed["carrying"] = false              # 훔치기 전. 거점 도달 시 grab → carrying=true(되돌아 위로 도망)
 	enemies.append(ed)
 	enemy_seq += 1
 	spawned += 1
@@ -2335,6 +2421,8 @@ func _spawn_one(col: int, etype: String, step_override: int = 0) -> void:
 				_set_callout(_t("callout_split"))   # 이제 파랑 점선이 실제로 보인다(공간 기준)
 			"bomb":
 				_set_callout(_t("callout_bomb"))
+			"thief":
+				_set_callout(_t("callout_thief"))
 
 # 분열선 도달 → 부모는 절반 HP로 남고(gen0 유지=웨이브 카운트 불변, split_done로 재분열 봉쇄),
 #   빈 인접 열 하나에 절반 HP 쌍둥이(gen1)를 뱉는다. 결정적 배치(randi 없음) = 회귀 시드 불변.
@@ -3045,6 +3133,10 @@ func _process(delta: float) -> void:
 		im -= 1
 	if kill_pulse > 0.0:
 		kill_pulse = maxf(0.0, kill_pulse - delta)
+	if vault_pop > 0.0:
+		vault_pop = maxf(0.0, vault_pop - delta)
+	if vault_flash > 0.0:
+		vault_flash = maxf(0.0, vault_flash - delta)
 	if step_beat > 0.0:
 		step_beat = maxf(0.0, step_beat - delta)
 	if pb_pop_t >= 0.0:
@@ -3668,6 +3760,22 @@ func _draw_stage_intro(fnt: Font) -> void:
 			gx0 += float(g_ws[gi2]) + g_gap
 		return
 
+	# 보호: 💀 대신 '보물 아이콘 + 지킬 금고 수'를 선언(도킹은 상단 금고 카드로). "이만큼을 지켜라".
+	if bool(st.get("protect", false)):
+		var pv: int = int(st.get("vault_start", vault_max))
+		var p_hold: Vector2 = Vector2(cx, r.position.y + r.size.y * 0.62)
+		var p_chip: Vector2 = p_hold.lerp(Vector2(293.0, 66.0), dock)
+		var pcs: float = lerpf(1.0, 0.47, dock)
+		var p_a: float = appear * (1.0 - clampf((dock - 0.72) / 0.28, 0.0, 1.0))
+		var p_icon: float = 52.0 * pcs
+		var p_fs: int = maxi(1, int(56.0 * pcs))
+		var pnw: float = fnt.get_string_size(str(pv), HORIZONTAL_ALIGNMENT_LEFT, -1, p_fs).x
+		var p_total: float = p_icon + 8.0 * pcs + pnw
+		var px0: float = p_chip.x - p_total * 0.5
+		_draw_gem_icon(Vector2(px0 + p_icon * 0.5, p_chip.y), p_icon, 0)
+		_draw_text_outlined(fnt, Vector2(px0 + p_icon + 8.0 * pcs, p_chip.y + float(p_fs) * 0.35), str(pv), p_fs, Color(1.0, 0.92, 0.62, p_a))
+		return
+
 	# ② 💀 처치 수(히어로) + 작은 '처치' 접미사 — 도킹 동안 중앙 → 상단 목표 카드로 날아가 녹아든다.
 	#    수는 크게(목표의 핵심), 접미사는 작게(무슨 수인지 못 박기). 인트로=목표 선언, HUD=남은 수 추적.
 	var goal_s: String = str(director.enemy_total())
@@ -3719,6 +3827,36 @@ func _draw_result_collect(fnt: Font, p: Rect2, cx: float) -> void:
 		var col: Color = Color(0.55, 0.95, 0.65) if rem2 <= 0 else Color(1.0, 0.55, 0.5)
 		_draw_text_outlined(fnt, Vector2(x + icon_s + 8.0, row_y + 16.0), str(rem2), num_fs, col)
 		x += float(widths[i]) + gap
+
+# 보호 결과 — 지킨 금고를 핍 열로(채움=지킴 금 다이아, 빈=뺏김). 게임 중 금고 카드와 같은 언어.
+#   승리=대부분 금(초록 톤 수), 금고 전소=전부 빈 슬롯(빨강 0). '얼마나 지켰나'가 성적.
+func _draw_result_protect(fnt: Font, p: Rect2, cx: float) -> void:
+	var cap: String = _t("result_vault")
+	var cap_fs: int = 18
+	var cw: float = fnt.get_string_size(cap, HORIZONTAL_ALIGNMENT_LEFT, -1, cap_fs).x
+	_draw_text_outlined(fnt, Vector2(cx - cw * 0.5, p.position.y + 176.0), cap, cap_fs, Color(0.95, 0.85, 0.5))
+	var vm: int = maxi(1, vault_max)
+	var pip_s: float = clampf(230.0 / float(vm) - 8.0, 12.0, 34.0)
+	var gap: float = 8.0
+	var row_w: float = pip_s * float(vm) + gap * float(vm - 1)
+	var x: float = cx - row_w * 0.5
+	var row_y: float = p.position.y + 220.0
+	for i in range(vm):
+		var px: float = x + pip_s * 0.5
+		if i < vault:
+			_draw_gem_icon(Vector2(px, row_y), pip_s, 0)
+		else:
+			var pts: PackedVector2Array = _gem_shape_points(Vector2(px, row_y), pip_s * 0.42, 0)
+			var closed: PackedVector2Array = pts.duplicate()
+			closed.append(pts[0])
+			draw_colored_polygon(pts, Color(0.0, 0.0, 0.0, 0.30))
+			draw_polyline(closed, Color(0.62, 0.5, 0.3, 0.7), 1.5)
+		x += pip_s + gap
+	var cnt: String = "%d / %d" % [vault, vault_max]
+	var c_fs: int = 22
+	var c_w: float = fnt.get_string_size(cnt, HORIZONTAL_ALIGNMENT_LEFT, -1, c_fs).x
+	var c_col: Color = Color(0.55, 0.95, 0.65) if vault > 0 else Color(1.0, 0.5, 0.5)
+	_draw_text_outlined(fnt, Vector2(cx - c_w * 0.5, row_y + 34.0), cnt, c_fs, c_col)
 
 func _draw_result(fnt: Font) -> void:
 	# 스크림 — 팝업 뒤의 보드를 '멈춘 배경'으로 눌러둔다(모달 표시)
@@ -3813,6 +3951,9 @@ func _draw_result(fnt: Font) -> void:
 	elif bool(st.get("collect", false)):
 		# 받기형 수집: 남은 적이 아니라 '색별 남은 보석'을 보여준다(게임 중 목표 카드와 같은 언어).
 		_draw_result_collect(fnt, p, cx)
+	elif bool(st.get("protect", false)):
+		# 보호: 지킨 금고(vault/max)를 핍으로 — 게임 중 금고 카드와 같은 언어(지킨 만큼 금, 뺏긴 만큼 빈 슬롯).
+		_draw_result_protect(fnt, p, cx)
 	else:
 		# 정의는 HUD 목표 카드와 동일(total - killed - leaked) → 게임 중 보던 그 숫자가 그대로.
 		var remaining: int = maxi(0, director.enemy_total() - killed - leaked)
@@ -4393,6 +4534,9 @@ func _draw_hud(fnt: Font) -> void:
 	# 받기형 수집: GOAL 카드 = 보석 수집(N/K). ADVANCE 카드(적 전진 시계)는 아래서 그대로 유지 — 적이 밀려오니까.
 	if bool(st.get("collect", false)):
 		_draw_collect_goal(fnt, goal_r, gw, box_y)
+	elif bool(st.get("protect", false)):
+		# 보호: GOAL 카드 = 금고 잔량(핍). 빈 슬롯이 곧 '도난당한 양' = 상실을 눈으로 못 박음(loss aversion).
+		_draw_protect_goal(fnt, goal_r, gw, box_y)
 	elif director.scores():
 		# 점수 모드: GOAL 카드 = 점수(리더보드 지표). 최고 넘으면 카드·제목·숫자가 금색으로(실시간 갱신 신호).
 		#   깊이·최고는 좌상단, 콤보는 우상단.
@@ -4492,6 +4636,41 @@ func _draw_collect_goal(fnt: Font, goal_r: Rect2, gw: float, box_y: float) -> vo
 		var done: bool = remaining <= 0
 		var num_col: Color = Color(0.45, 0.85, 0.5) if done else Color.WHITE.lerp(gcol, clampf(kill_pulse / 0.35, 0.0, 1.0))
 		_draw_text_outlined(fnt, Vector2(gl + icon_s + 6.0, box_y + 68.0), num_str, num_fs, num_col)
+
+# 보호(Protect) GOAL 카드 — 금고 잔량을 핍으로. 채워진 핍=남은 보석(금 다이아), 빈 핍=도난당함(어두운 슬롯).
+#   빈 슬롯이 곧 손실량 = 상실을 눈으로 못 박는다(loss aversion). vault_flash=도난/손실 순간 붉은 경보 테두리,
+#   vault_pop=경계 핍 톡 튐. 카드색 C_GEM(보물 금색) = 지킬 대상이 '보물'임을 색으로. [[hud-signal-by-color-not-text]]
+func _draw_protect_goal(fnt: Font, goal_r: Rect2, gw: float, box_y: float) -> void:
+	_draw_card(goal_r, C_GEM)
+	if vault_flash > 0.0:
+		var fa: float = clampf(vault_flash / 0.55, 0.0, 1.0)
+		draw_rect(goal_r, Color(1.0, 0.3, 0.32, 0.85 * fa), false, 3.0)   # 도난/손실 순간 붉은 경보
+	var title: String = _t("vault")
+	var t_w: float = fnt.get_string_size(title, HORIZONTAL_ALIGNMENT_LEFT, -1, 16).x
+	_draw_text_outlined(fnt, Vector2(goal_r.position.x + gw * 0.5 - t_w * 0.5, box_y + 24.0), title, 16, Color(1.0, 0.9, 0.6))
+	var vm: int = maxi(1, vault_max)
+	var pip_gap: float = 6.0
+	var pip_s: float = clampf((gw - pip_gap * float(vm + 1)) / float(vm), 10.0, 30.0)
+	var row_w: float = pip_s * float(vm) + pip_gap * float(vm - 1)
+	var x0: float = goal_r.position.x + gw * 0.5 - row_w * 0.5
+	var py: float = box_y + 58.0
+	var pop: float = clampf(vault_pop / 0.42, 0.0, 1.0)
+	for i in range(vm):
+		var px: float = x0 + (pip_s + pip_gap) * float(i) + pip_s * 0.5
+		if i < vault:
+			var bump: float = 0.24 * pop if i == vault - 1 else 0.0   # 경계(최근 변화) 핍만 톡
+			_draw_gem_icon(Vector2(px, py), pip_s * (1.0 + bump), 0)   # 남은 보석 = 금 다이아
+		else:
+			var pts: PackedVector2Array = _gem_shape_points(Vector2(px, py), pip_s * 0.42, 0)  # 도난 = 빈 구멍
+			var closed: PackedVector2Array = pts.duplicate()
+			closed.append(pts[0])
+			draw_colored_polygon(pts, Color(0.0, 0.0, 0.0, 0.30))
+			draw_polyline(closed, Color(0.62, 0.5, 0.3, 0.75), 1.5)
+	var cnt: String = "%d / %d" % [vault, vault_max]
+	var c_fs: int = 16
+	var c_w: float = fnt.get_string_size(cnt, HORIZONTAL_ALIGNMENT_LEFT, -1, c_fs).x
+	var c_col: Color = Color(1.0, 0.55, 0.5) if vault_flash > 0.0 else Color(0.95, 0.85, 0.55)
+	_draw_text_outlined(fnt, Vector2(goal_r.position.x + gw * 0.5 - c_w * 0.5, box_y + 90.0), cnt, c_fs, c_col)
 
 # 보석 타입별 실루엣 — 0=다이아(4각), 1=육각, 2=5각 별. 색(GEM_COLORS)과 함께 이중 신호(색맹에도 구분).
 func _gem_shape_points(center: Vector2, h: float, shape: int) -> PackedVector2Array:
@@ -4867,11 +5046,13 @@ func _draw_board(fnt: Font) -> void:
 		# ── 전진 텔레그래프 = 두 채널(글로벌 카드 대체). remain = 이 적이 몇 배치 뒤 전진하나(자기 시계).
 		#   신호를 구석 카드가 아니라 적 위에 얹는다([[signal-layer-above-occluders]]·[[hud-signal-by-color-not-text]]).
 		var remain: int = int(e.get("remain", 99))
+		# 도둑이 훔쳐 위로 도망 중(carrying)이면 하강 텔레그래프(자세·붉은 착지칸)를 끈다 — 아래가 아니라 위로 간다.
+		var fleeing: bool = e["etype"] == "thief" and bool(e.get("carrying", false))
 		# 채널 A — 자세(lean): 전역·조용. 아래(다음 칸) 쪽으로 기울어 "곧 내려간다"를 몸으로.
 		#   ⚠몸의 꿈틀 = "다음 배치에 이동" 약속이다. remain==1일 때만 켠다. 예전엔 remain==2에도 살짝
 		#   꿈틀댔는데, 실제론 안 움직이는데 움직일 것처럼 읽혀 약속을 어겼다(유저 확인) → 제거.
 		#   '곧'의 예고는 몸이 아니라 붉은 착지칸(채널 B)이 바닥 밴드에서만 맡는다.
-		var lean_amt: float = 1.0 if remain == 1 else 0.0
+		var lean_amt: float = 1.0 if remain == 1 and not fleeing else 0.0
 		var bob: float = lean_amt * (0.6 + 0.4 * sin(anim_t * 5.0)) * CELL * 0.16
 		var cx: float = BOARD_X + ec * CELL + CELL * 0.5 + jit.x
 		# 몸통은 셀 중심보다 E_BODY_DY 아래 — 위쪽은 HP 게이지 자리다(_enemy_pos와 같은 셈).
@@ -4879,7 +5060,7 @@ func _draw_board(fnt: Font) -> void:
 		# 채널 B — 붉은 착지칸: 시끄럽지만 '깊이(누수까지)'로 게이팅. 상단(depth≈0)엔 안 뜨고 바닥으로
 		#   내려올수록 차오른다 → 위협 있는 곳에서만 정확한 착지점. 전 깊이 알람(구 방식)의 정신없음을 없앰.
 		#   depth: row4=0 → row7=1 완만 램프. imm: remain 1=꽉, 2=먼저 흐리게(와인드업).
-		if er + 1 < ROWS:
+		if er + 1 < ROWS and not fleeing:
 			var depth: float = clampf((float(er) - 4.0) / 3.0, 0.0, 1.0)
 			var imm: float = (1.0 if remain == 1 else (0.5 if remain == 2 else 0.0))
 			var box_a: float = depth * imm
@@ -5008,6 +5189,33 @@ func _draw_board(fnt: Font) -> void:
 				var ns: int = 27 + int(6.0 * urg * bpulse)
 				_draw_text_outlined(fnt, Vector2(cx - 7.0, cy - 13.0), str(maxi(0, fuse)), ns, num_c)
 				rad = br
+			"thief":
+				# 도둑 = 후드 쓴 도적: 둥근 후드 몸 + 복면 띠(눈 두 점) + 옆구리 자루. form만으로 '도둑'을 말한다.
+				#   carrying(훔쳐 도망 중): ①따뜻한 회수-촉구 후광 ②자루에 빛나는 보석 ③머리 위 상승 쉐브론(위로 도망).
+				var carrying2: bool = bool(e.get("carrying", false))
+				var tr: float = CELL * 0.32
+				if carrying2:
+					var cp: float = 0.5 + 0.5 * sin(anim_t * 8.0)
+					draw_circle(Vector2(cx, cy), tr * (1.5 + 0.2 * cp), Color(1.0, 0.82, 0.32, 0.16 + 0.12 * cp))  # 회수 촉구 후광(앰버)
+				draw_circle(Vector2(cx, cy), tr, C_E_THIEF)                              # 몸통
+				draw_circle(Vector2(cx, cy - tr * 0.34), tr * 0.86, C_E_THIEF_DK)        # 후드(위쪽 그늘)
+				draw_circle(Vector2(cx, cy), tr, C_E_RIM, false, C_E_RIM_W)
+				var eye_y: float = cy - tr * 0.04
+				draw_rect(Rect2(cx - tr * 0.82, eye_y - tr * 0.17, tr * 1.64, tr * 0.34), C_E_THIEF_DK)  # 복면 띠
+				draw_circle(Vector2(cx - tr * 0.32, eye_y), tr * 0.1, Color(1.0, 0.95, 0.7))             # 눈
+				draw_circle(Vector2(cx + tr * 0.32, eye_y), tr * 0.1, Color(1.0, 0.95, 0.7))
+				var sack: Vector2 = Vector2(cx + tr * 0.74, cy + tr * 0.52)
+				draw_circle(sack, tr * 0.34, C_E_THIEF_DK)                               # 자루
+				draw_circle(sack, tr * 0.34, C_E_RIM, false, C_E_RIM_W - 0.5)
+				if carrying2:
+					var gp2: float = 0.5 + 0.5 * sin(anim_t * 9.0)
+					draw_circle(sack, tr * (0.2 + 0.06 * gp2), Color(1.0, 0.9, 0.42))    # 훔친 보석 빛남
+					var chy: float = cy - tr * 1.42
+					var chs: float = tr * 0.34
+					var cha: float = 0.4 + 0.6 * (0.5 + 0.5 * sin(anim_t * 10.0))
+					draw_line(Vector2(cx - chs, chy + chs * 0.6), Vector2(cx, chy - chs * 0.4), Color(1.0, 0.85, 0.35, cha), 3.0)  # 상승 쉐브론
+					draw_line(Vector2(cx + chs, chy + chs * 0.6), Vector2(cx, chy - chs * 0.4), Color(1.0, 0.85, 0.35, cha), 3.0)
+				rad = tr
 			_:
 				# basic: 바이올렛 원 (hp 비율로 살짝 명암 — 어두워져도 빨강엔 안 닿는다)
 				var bcol: Color = C_E_BASIC.lerp(Color(0.30, 0.10, 0.48), 1.0 - ratio)

@@ -46,6 +46,8 @@ const STR: Dictionary = {
 		"st12_tag": "Bombs among the swarm — pick which to defuse first",
 		"st13_name": "Chain Reaction",
 		"st13_tag": "Bombs set off their neighbors — break the chain first",
+		"st14_name": "Vault",
+		"st14_tag": "Thieves loot your vault and flee — block them or chase them down",
 		# ── 설정 모달 ──
 		"settings": "Settings",
 		"sound": "Sound",
@@ -118,6 +120,8 @@ const STR: Dictionary = {
 		"boss": "Warden",
 		"debris": "Debris",
 		"collect": "Collect",
+		"vault": "Vault",
+		"result_vault": "Vault kept",
 		"callout_gem": "Gems! — catch them, don't just clear",
 		# ── 거점(보드 하단 방어선) ──
 		"core_hp": "Core  %d / %d",
@@ -135,6 +139,7 @@ const STR: Dictionary = {
 		"callout_swarm": "SWARM — sweep them!",
 		"callout_split": "SPLIT — kill above the line!",
 		"callout_bomb": "BOMB — clear it before the fuse runs out!",
+		"callout_thief": "THIEF — stop it before it loots the vault, or chase it down!",
 		# ── 입력 토글(PC 테스트용) ──
 		# 상시 조작·규칙 안내 4줄(how_*/rule_*)은 C79에서 제거 — 키도 함께 지웠다.
 		# 가르치는 몫은 스테이지1 튜토리얼과 화면이 보여주는 것들이 가져간다(_draw_bottom 주석 참조).
@@ -169,6 +174,8 @@ const STR: Dictionary = {
 		"st12_tag": "무리 속의 폭탄 — 어느 걸 먼저 해체할지 골라라",
 		"st13_name": "연쇄 반응",
 		"st13_tag": "폭탄이 옆 폭탄을 터뜨린다 — 연쇄부터 끊어라",
+		"st14_name": "금고",
+		"st14_tag": "도둑이 금고를 털어 도망친다 — 막거나 쫓아가 되찾아라",
 		"settings": "설정",
 		"sound": "소리",
 		"music": "배경음",
@@ -234,6 +241,8 @@ const STR: Dictionary = {
 		"boss": "감시자",
 		"debris": "잔해",
 		"collect": "수집",
+		"vault": "금고",
+		"result_vault": "지킨 금고",
 		"callout_gem": "보석! — 그냥 치우지 말고 낚아채라",
 		"core_hp": "거점  %d / %d",
 		# ⚠아래 콜아웃/tell·온보딩의 한국어는 초안(원문이 영어라 대응 한글이 없었음). 검수/조정 여지.
@@ -250,6 +259,7 @@ const STR: Dictionary = {
 		"callout_swarm": "무리 — 쓸어버려!",
 		"callout_split": "분열 — 선 위에서 잡아!",
 		"callout_bomb": "폭탄 — 도화선 다 타기 전에 걷어내라!",
+		"callout_thief": "도둑 — 금고 털기 전에 막거나, 훔쳐 도망칠 때 쫓아가 잡아라!",
 		"mode_click": "클릭 모드",
 		"mode_drag": "드래그 모드",
 		"mode_switch": "눌러서 전환",
