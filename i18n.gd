@@ -79,6 +79,7 @@ const STR: Dictionary = {
 		# 마지막 스테이지 클리어 = 완주 아님, '콘텐츠 따라잡음'(프런티어) → 무한 깔때기. 시점 약속 회피.
 		"caught_up": "All caught up!",
 		"frontier_sub": "New stages keep coming",
+		"frontier_home": "Endless awaits back home",
 		"play_endless": "Play Endless",
 		# ── 메인 메뉴(허브) ── (소제목 adv_sub·endless_sub는 C82서 제거 — 유저 요청)
 		"adv_big": "Adventure",
@@ -205,6 +206,7 @@ const STR: Dictionary = {
 		# 마지막 스테이지 클리어 = 완주 아님, '콘텐츠 따라잡음'(프런티어) → 무한 깔때기. 시점 약속 회피.
 		"caught_up": "다 따라잡았어요!",
 		"frontier_sub": "새 스테이지는 계속 추가돼요",
+		"frontier_home": "그동안 무한은 홈에서",
 		"play_endless": "무한 도전",
 		"adv_big": "스테이지",
 		"endless_big": "무한",

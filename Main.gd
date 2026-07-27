@@ -4486,17 +4486,19 @@ func _draw_scroll_hint(edge_y: float, up: bool) -> void:
 			Vector2(cx, edge_y - 8.0), Vector2(cx - 13.0, edge_y - 22.0), Vector2(cx + 13.0, edge_y - 22.0),
 		]), col)
 
-# 모두 클리어 = 프런티어 없음. 전용 화면은 별도 기획 예정(유저) — 지금은 '따라잡음' 안내 자리만.
+# 모두 클리어 = 프런티어 없음. 버튼 없는 순수 안내(유저 확정) — 모드 선택은 허브 한 곳.
+#   버튼-박스/테두리 없음(비활성 버튼처럼 안 보이게). '따라잡음'은 허브 버튼·헤더 "N/N"이 이미 말하므로
+#   여기선 반복하지 않고, 허브가 못 준 것만 준다: ①앞을 보는 약속(끝 아님) ②길 안내(그래서 어디로).
 func _draw_allclear_footer(fnt: Font) -> void:
 	var r: Rect2 = PLAY_BTN
-	draw_rect(r, Color(0.14, 0.15, 0.22))
-	draw_rect(r, Color(0.34, 0.37, 0.48), false, 3.0)
-	var t1: String = _t("caught_up")
-	var w1: float = fnt.get_string_size(t1, HORIZONTAL_ALIGNMENT_LEFT, -1, 30).x
-	_draw_text_outlined(fnt, Vector2(400.0 - w1 * 0.5, r.position.y + 52.0), t1, 30, C_GOLD)
-	var t2: String = _t("frontier_sub")
-	var w2: float = fnt.get_string_size(t2, HORIZONTAL_ALIGNMENT_LEFT, -1, 20).x
-	_draw_text_outlined(fnt, Vector2(400.0 - w2 * 0.5, r.position.y + 92.0), t2, 20, Color(0.78, 0.8, 0.9))
+	# ① 약속 — '이건 끝이 아니다'. 결과화면 frontier_sub와 같은 톤(연한 파랑).
+	var t1: String = _t("frontier_sub")
+	var w1: float = fnt.get_string_size(t1, HORIZONTAL_ALIGNMENT_LEFT, -1, 24).x
+	_draw_text_outlined(fnt, Vector2(400.0 - w1 * 0.5, r.position.y + 56.0), t1, 24, Color(0.72, 0.78, 1.0))
+	# ② 길 안내 — 좌상단 뒤로화살표가 가리키는 곳(허브의 파란 무한). 여기서 실행 아님, 표지판일 뿐.
+	var t2: String = _t("frontier_home")
+	var w2: float = fnt.get_string_size(t2, HORIZONTAL_ALIGNMENT_LEFT, -1, 18).x
+	_draw_text_outlined(fnt, Vector2(400.0 - w2 * 0.5, r.position.y + 92.0), t2, 18, Color(0.58, 0.6, 0.72))
 
 # 천 단위 콤마 (점수 가독성)
 func _comma(n: int) -> String:
