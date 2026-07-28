@@ -71,12 +71,39 @@ R1에서 실배선: `ad_requested` · `ad_filled` / `ad_no_fill` · `ad_shown` �
 ### R1 — 코드만 (계정 0, 실광고 0)
 `ad_service.gd` 이음새(`leaderboard.gd`·`analytics.gd`와 동형) + **페이크 백엔드**. 페이크는 fill / no-fill / 유저취소 / SDK오류를 토글로 재현하므로, 실광고 없이 위 상태 기계 전부를 데스크톱에서 검증할 수 있다. 헤드리스(회귀·시뮬·프로브)에선 서비스가 스스로 꺼져 하네스를 오염시키지 않는다.
 
-### R2 — SDK + 빌드 (여기가 진짜 지뢰)
-AdMob 계정·테스트 유닛 ID → [Poing Studios 플러그인](https://github.com/poingstudios/godot-admob-plugin)(Godot 4.2+, UMP 동의·에디터 목 광고·미디에이션 어댑터 포함, 무료·오픈소스) → **⚠gradle 커스텀 빌드 전환**.
+### R2 — SDK + 빌드 ✅코드·빌드 완료(2026-07-28) / 실기기 관측만 남음
 
-> 현재 `export_presets.cfg`가 `gradle_build/use_gradle_build=false`다. 안드로이드 플러그인은 커스텀 빌드 템플릿을 요구하므로, W1에서 겨우 성사시킨 APK 빌드 경로(27MB·arm64·`com.yujin.cascade`)가 **한 번 통째로 바뀌고 재검증이 필요하다.** 로드맵이 "1인 개발 최대 지뢰(통상 2~4주)"라 부른 게 이 지점이다. 툴체인·함정은 [[android-build-toolchain-setup]].
+[Poing Studios 플러그인](https://github.com/poingstudios/godot-admob-plugin) **v5.0.0** 배선 완료. **AdMob 계정은 결국 필요 없었다** — 구글 공개 테스트 유닛(앱 ID `…~3347511713`, 리워드 `…/5224354917`)으로 실기기 검증까지 간다. 계정은 R3(실 유닛) 몫.
 
-R2 완료 정의 = 실기기에서 **테스트 광고**로 부활 성사 + no-fill 폴백 둘 다 관측.
+배선 요약:
+
+| 무엇 | 어디 |
+|---|---|
+| 플러그인 | `addons/admob/` (v5.0.0). 샘플 앱은 뺐다 — 샘플 번역이 `project.godot`에 등록되면 우리 커스텀 `_t()` i18n과 무관한 로케일 파일이 딸려 온다 |
+| 안드로이드 네이티브 바이너리 | `addons/admob/android/bin/` — **일부러 커밋한다**(업스트림 기본은 무시). 안 하면 헤드리스 export가 매번 GitHub에서 aar을 내려받는다(`binary_installer.gd`는 *헤드리스일 때만* 자동 설치 = 정확히 우리 CLI 빌드 경로) |
+| 활성화 | `project.godot` `[editor_plugins]`. ⚠Godot이 `project.godot`을 저장할 때 **주석을 전부 지운다** — 이 파일엔 설명을 달지 말 것 |
+| App ID | 프로젝트 설정 기본값(= 구글 테스트 앱 ID)이라 `project.godot`에 안 적힌다(값이 기본값과 같으면 Godot이 저장을 생략). R3에서 실 ID로 바꾸면 그때 파일에 남는다 |
+| 유닛 ID | `ad_service.gd` 상단 상수 4개 |
+| 실 백엔드 스위치 | `_platform_on` — 안드로이드/iOS면 자동, 데스크톱은 `--ad-mock`을 줬을 때만 |
+
+**⚠지뢰 3개(밟은 순서대로)**
+
+1. **gradle 커스텀 빌드 전환** — 네이티브 플러그인의 유일한 전제. 선행 완료(de6d2c3). APK 경로가 프리빌트→로컬 컴파일로 한 번 갈아엎어졌다.
+2. **compileSdk 35 → 36** — v5.0.0의 aar이 Google Mobile Ads **Next-Gen SDK v25**라 `compileSdk ≥ 36`을 요구하는데 Godot 4.6.2가 깔아주는 템플릿은 35다. 빌드가 `requires ... compile against version 36 or later`로 거절된다. compileSdk는 export preset이 노출하지 않는 값(min/target만)이라 **템플릿을 직접 고쳐야 한다** → `tools/android_template_patch.py`. `android/`는 .gitignore라 저장소가 이 수정을 기억 못 하므로 **템플릿을 재설치할 때마다 스크립트를 다시 돌린다.** 선행 = `sdkmanager "platforms;android-36" "build-tools;36.0.0"`.
+3. **플러그인 부재가 페이크로 위장되는 것** — 실기기에서 네이티브 플러그인이 안 붙었는데 페이크 백엔드로 흘러가면 광고가 *도는 것처럼* 보인다. 수익은 0인데 사고는 안 드러나고 소프트런치 데이터가 통째로 거짓이 된다. 그래서 **기기에서 플러그인이 없으면 서비스를 끈다**(유저는 공짜 부활로 안 다치고, `ad_*` 지표가 통째로 비어 즉시 눈에 띈다).
+
+**부수 결정**: APK에 안 넣는 것 = 목 광고 UI·샘플 자산·C#·iOS 바이너리(`export_presets.cfg` `exclude_filter`). 안 빼면 목 광고용 `music.ogg` 1.8MB가 그대로 실린다.
+
+**남은 것 = 실기기 관측(기기 미연결).** 완료 정의 = 테스트 광고로 **부활 성사** + **no-fill 폴백** 둘 다 눈으로 확인.
+
+```bash
+# 빌드 (툴체인·함정은 [[android-build-toolchain-setup]])
+PATH="/opt/homebrew/opt/openjdk@17/bin:$PATH" godot --headless --export-debug "Android" build/android/cascade.apk
+ADB=/opt/homebrew/share/android-commandlinetools/platform-tools/adb
+$ADB install -r build/android/cascade.apk
+$ADB logcat -c && $ADB logcat | grep -iE "Ads|admob|AdService"
+```
+관측 절차: ①무한 모드로 죽는다 → '이어하기' → **테스트 광고**가 뜨고 끝까지 보면 부활(logcat에 `ad_rewarded`) ②기내 모드로 바꾸고 다시 죽는다 → 광고가 안 뜨고 **바로 공짜 부활**(= no-fill 폴백) ③광고를 중간에 끄면 부활 안 되고 팝업이 남아 **다시 누를 수 있다**.
 
 ### R3 — 출시 직전
 실 유닛 ID · UMP 동의 흐름 · Play Console 데이터 안전성 신고 + 광고 ID 권한 · 미디에이션(데이터 후).
@@ -95,13 +122,24 @@ R2 완료 정의 = 실기기에서 **테스트 광고**로 부활 성사 + no-fi
 
 추가: **회귀 byte-identical** — 광고 서비스는 게임 RNG를 안 쓰고 헤드리스서 꺼지므로 기존 골든이 그대로 맞아야 한다.
 
+**R2는 다른 걸 재야 한다.** 위 6시나리오는 *우리가 쓴 상태 기계*를 재는데, 실 SDK가 붙어도 그건 안 변한다. R2에서 새로 생긴 위험 구간은 **플러그인 콜백 → 우리 상태 기계 사이의 번역**뿐이고, 기기 없이 그걸 밟는 유일한 방법이 플러그인의 **에디터 목 광고**다 → `tools/ad_mock_probe.gd` (창 모드 + `--ad-mock`, 30검사):
+
+- 로드→시청→보상→닫힘 = 부활 / 로드 실패(code 3) = 공짜 부활 / 보상 없이 닫힘 = 부활 안 됨+기회 유지 / 표시 실패 = 공짜 부활
+- **타임아웃 2종**(불변식 ⑥) — 실 SDK는 콜백을 영영 안 줄 수 있고, 그게 "결과는 반드시 1회"가 깨지는 유일한 현실 경로다. 로드 10초·표시 시작 8초를 넘기면 no-fill/오류로 닫아 공짜 부활로 흘린다. 늦게 도착한 광고는 버리지 않고 다음 요청용으로 쥔다.
+- 게임 통합 1건 — 결과 팝업의 '이어하기'가 실 콜백 경로를 지나 부활까지.
+
+```bash
+godot --headless --path . --script tools/ad_probe.gd            # 29 — 정책·상태 기계(페이크)
+godot --path . --script tools/ad_mock_probe.gd -- --ad-mock     # 30 — 실 SDK 콜백 번역(목 광고)
+```
+
 ---
 
 ## 7. 코드 밖 (유저 몫) + 비용
 
 | 항목 | 비용 | 시점 |
 |---|---|---|
-| AdMob 계정 개설·앱 등록·테스트 유닛 ID | **무료** (정산받을 때만 주소·세금 정보 + 첫 $10에 PIN 우편 확인) | R2 시작 전 |
+| AdMob 계정 개설·앱 등록·**실** 유닛 ID | **무료** (정산받을 때만 주소·세금 정보 + 첫 $10에 PIN 우편 확인) | ~~R2 시작 전~~ → **R3**. R2는 구글 공개 테스트 유닛으로 계정 없이 끝났다 |
 | Firebase 프로젝트 (W1 잔여) | **무료 티어로 충분** | 같은 구글 계정으로 묶기 |
 | **Google Play 개발자 계정** | **$25 1회** (환불 불가, 평생) | W4 클로즈드 트랙 업로드 필수 |
 | 소액 유료 UA | 수백 달러 | W4 (로드맵 기존 항목) |

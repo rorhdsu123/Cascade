@@ -23,11 +23,12 @@ window/stretch/mode="canvas_items"
 window/stretch/aspect="expand"
 window/handheld/orientation="portrait"
 
+[editor_plugins]
+
+enabled=PackedStringArray("res://addons/admob/plugin.cfg")
+
 [rendering]
 
 renderer/rendering_method="gl_compatibility"
 renderer/rendering_method.mobile="gl_compatibility"
-; 안드로이드 export가 요구하는 텍스처 압축(ETC2/ASTC). 없으면 export가 'configuration errors'로
-; 거절하는데 문구가 빈 줄로만 찍혀 원인이 안 보인다(에디터 언어 무관). 이 게임은 커스텀 draw라
-; 압축 대상 텍스처가 사실상 없어(폰트는 별개) 렌더 결과·회귀에는 영향이 없다.
 textures/vram_compression/import_etc2_astc=true
