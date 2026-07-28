@@ -91,171 +91,11 @@ const DDA_CANDIDATES: int = 6     # 후보 조각 수(많을수록 개입이 세
 const DDA_DEADZONE: float = 0.34  # |dda|가 이보다 작으면 무개입(무작위)
 const DDA_GOD_FAILS: int = 2      # 같은 스테이지 연속 실패 이 횟수부터 '갓 모드'(강한 구제)
 
-# ===== 스테이지 (밸런스 정본) =====
-# 기준 ① 데미지는 난이도 손잡이가 아니다.
-#   일격 = LINE_BASE(120) × 동시줄배수 × 콤보배수 → 1줄 기준 콤보1=120 / 콤보2=180 / 콤보3=240.
-#   basic HP는 어느 스테이지든 120 미만 = 항상 원샷. HP를 올려도 어느 순간 갑자기 안 죽는 '절벽'이라
-#   손잡이로 못 씀. (C24: 증폭축 = 데미지 아닌 커버리지)
-# 기준 ② 난이도는 '커버리지 요구'에서 온다. 적 타입이 서로 다른 걸 요구하는 게 난이도의 정체:
-#   swarm = 인접 열 클러스터 → 1레인으론 못 쓸어냄 → 콤보 '레인 수'(범위) 요구
-#   tank  = tank_mult로 HP를 콤보2~3 구간에 앉힘      → 콤보 '배수'(관통) 요구
-#   fast  = 전진 2배(step_every 절반) → 누수 시계 압박 → '템포' 요구
-# 기준 ③ 누수 봉쇄: 필요 처치 = total − (core_hp − 1). core_hp가 total에 가까우면
-#   '흘려보내며 이기기'가 성립(구 25/28 = 파탄). core_hp는 '허용 누수 횟수 + 1'로 읽는다.
-# 기준 ④ 누수 시계 = ROWS × step_every 배치 (fast는 절반). 유입 = spawn_every 배치당 1회.
-# 기준 ⑤ 디펜스 축 손잡이는 core_hp(허용 누수) + total(적 수) 둘뿐이다. 나머지는 실측상 못 쓴다:
-#   step_every 3→2 = 절벽(스5 승률 61%→2.5%). 누수 시계가 24→16배치로 줄면 그냥 안 됨.
-#   spawn_every는 비단조 — 2→1로 조이면 스3이 오히려 쉬워졌다(63%→75%). 적이 뭉쳐 들어와
-#   한 레인 청소에 더 많이 쓸려나가기 때문. '더 빨리 온다'가 '더 어렵다'가 아니다.
-# 기준 ⑥ 퍼즐 축 손잡이 = pool(조각 분포, C51 축·기전 / C54 아크 authoring). line-maker(I5) 비율이 주 dial이고,
-#   core_hp가 그 위에 단조로 겹쳐 얹힌다(2D 난이도면). 디펜스 축이 소진된 자리를 여기서 채운다.
-
-# 조각 풀 프리셋 — {조각키: 가중치}. 공통 '변주 base'(테트로미노·직사각 = 손맛)에 I5만 다르게.
-# sim(pool_probe, basic-only) 실측: I5 0%→50%면 승률 5%→84% 단조 상승. 공정성은 _pool_piece
-# 의 fit-guard(지금 보드에 최소 1칸 놓이는 조각만 배급)가 보장 = 강제 즉사 draw 없음.
-const POOL_RICH: Dictionary = {   # 줄-풍부: 온보딩·숨통 (I5 최다)
-	"1": 1, "D2h": 3, "D2v": 3, "I3h": 5, "I3v": 5, "L3a": 3, "L3b": 3, "L3c": 3, "L3d": 3,
-	"O": 4, "T": 4, "S": 3, "Z": 3, "L": 4, "J": 4, "R32": 3, "R23": 3, "I5h": 20, "I5v": 20}
-const POOL_STD: Dictionary = {    # 표준: I5 중간
-	"1": 1, "D2h": 3, "D2v": 3, "I3h": 5, "I3v": 5, "L3a": 3, "L3b": 3, "L3c": 3, "L3d": 3,
-	"O": 4, "T": 4, "S": 3, "Z": 3, "L": 4, "J": 4, "R32": 3, "R23": 3, "I5h": 11, "I5v": 11}
-const POOL_LEAN: Dictionary = {   # 줄-굶김: 퍼즐 축 압박 (I5 희소)
-	"1": 1, "D2h": 3, "D2v": 3, "I3h": 5, "I3v": 5, "L3a": 3, "L3b": 3, "L3c": 3, "L3d": 3,
-	"O": 4, "T": 4, "S": 3, "Z": 3, "L": 4, "J": 4, "R32": 3, "R23": 3, "I5h": 4, "I5v": 4}
-
-const STAGES: Array = [
-	{
-		# 온보딩: basic만 + core_hp 넉넉 + pool RICH(I5 최다) = 퍼즐 무압박으로 '줄 완성' 코어만 가르침
-		"name": "st1_name", "tag": "st1_tag",
-		"total": 20, "core_hp": 7, "base_hp": 30, "hp_ramp": 0.0, "tank_mult": 2.5,
-		"spawn_every": 3, "step_every": 3, "onboard": 20, "floor": 4, "surge_at": 0.85,
-		"weights": {"basic": 100, "fast": 0, "tank": 0, "swarm": 0, "split": 0}, "pool": POOL_RICH,
-	},
-	{
-		# desync로 무리 절반이 base_step−1로 더 빨리 전진 → 행·열로 흩어져 한 줄론 못 쓸어냄
-		"name": "st2_name", "tag": "st2_tag",
-		"total": 30, "core_hp": 3, "base_hp": 32, "hp_ramp": 0.4, "tank_mult": 2.5,
-		"spawn_every": 2, "step_every": 3, "onboard": 4, "floor": 5, "surge_at": 0.82,
-		"weights": {"basic": 40, "fast": 0, "tank": 0, "swarm": 60, "split": 0}, "pool": POOL_RICH,
-	},
-	{
-		"name": "st3_name", "tag": "st3_tag",
-		"total": 34, "core_hp": 3, "base_hp": 34, "hp_ramp": 0.5, "tank_mult": 2.5,
-		"spawn_every": 2, "step_every": 3, "onboard": 3, "floor": 5, "surge_at": 0.80,
-		"weights": {"basic": 40, "fast": 50, "tank": 0, "swarm": 10, "split": 0}, "pool": POOL_STD,
-	},
-	{
-		# 퍼즐 축 고립(C54): 새 적 없이 pool LEAN(I5 희소)만으로 압박 = '손이 곧 위협'.
-		# 적은 basic/swarm(이미 배운 것)이라 난이도는 전적으로 조각 분포에서 나온다.
-		"name": "st4_name", "tag": "st4_tag",
-		"total": 36, "core_hp": 3, "base_hp": 36, "hp_ramp": 0.4, "tank_mult": 2.5,
-		"spawn_every": 2, "step_every": 3, "onboard": 3, "floor": 5, "surge_at": 0.80,
-		"weights": {"basic": 55, "fast": 0, "tank": 0, "swarm": 45, "split": 0}, "pool": POOL_LEAN,
-	},
-	# ── 변주 슬롯 ①: 첫 보석 수집(S5) — 코어 방어 학습(S1~4) 직후 동사 전환('처치'→'수집'). ──
-	#   ⚠name 키는 위치가 아니라 안정 ID(추가 순서). 이 판은 st9_* 문자열을 쓰지만 배열 위치는 5번.
-	#   collect 기전 상세 주석은 하단 두 번째 보석판(Two Colors) 위 참조.
-	{
-		# 1종 수집. 보석이 전경이 되도록 튜닝: 보석 두껍게(gem_every 2) + 적 얇게(spawn_every 3·floor 2) = 적은 '가끔 끼는 세금'.
-		# gem_fast=보석이 위협보다 한 단계 빨리 떨어져 데드라인 조임(전용 클리어 강제). 목표 15개(공급이 두꺼워 grind 아님).
-		"name": "st9_name", "tag": "st9_tag", "collect": true, "collect_targets": [15], "gem_every": 2, "gem_fast": true,
-		"total": 300, "core_hp": 3, "base_hp": 30, "hp_ramp": 0.2, "tank_mult": 2.5,
-		"spawn_every": 3, "step_every": 3, "onboard": 3, "floor": 2, "surge_at": 0.0,
-		"weights": {"basic": 50, "fast": 50, "tank": 0, "swarm": 0, "split": 0}, "pool": POOL_STD,
-	},
-	# ── Defuse R1 도입(S6): 코어 방어(S1~4)+수집(S5) 배운 직후 새 동사. 격리(basic↔bomb)라 난이도가 전적으로 새 기전에서. ──
-	# 점화 적(bomb)이 도화선(bomb_fuse=남은 배치 수)을 달고 온다. 0이 되기 전에 걷어내면 해체(깨끗한 처치),
-	#   놓치면 제자리서 터져 거점 bomb_dmg 피해(일반 누수 -1보다 큼) = 데드라인 위협. 새 결정 = "이 라인을 폭탄에 쓸까".
-	# 격리 도입(basic↔bomb만) = 난이도가 전적으로 새 기전에서(split 도입판 S7과 동형). core_hp 4 = 한두 번 실수 여유.
-	{
-		"name": "st11_name", "tag": "st11_tag", "bomb_fuse": 8, "bomb_dmg": 2,
-		"total": 26, "core_hp": 6, "base_hp": 30, "hp_ramp": 0.2, "tank_mult": 2.5,
-		"spawn_every": 3, "step_every": 3, "onboard": 3, "floor": 2, "surge_at": 0.80,
-		"weights": {"basic": 85, "bomb": 15}, "pool": POOL_STD,
-	},
-	{
-		# tank HP를 콤보3(240) 구간에 앉힌다: base 44~50 × 4.5 = 198~227 → 콤보2(180)로는 안 뚫림.
-		"name": "st5_name", "tag": "st5_tag",
-		"total": 44, "core_hp": 2, "base_hp": 44, "hp_ramp": 0.3, "tank_mult": 4.5,
-		"spawn_every": 2, "step_every": 3, "onboard": 3, "floor": 5, "surge_at": 0.80,
-		"weights": {"basic": 40, "fast": 0, "tank": 55, "swarm": 5, "split": 0}, "pool": POOL_STD,
-	},
-	{
-		"name": "st6_name", "tag": "st6_tag",
-		"total": 48, "core_hp": 2, "base_hp": 46, "hp_ramp": 0.4, "tank_mult": 4.2,
-		"spawn_every": 2, "step_every": 3, "onboard": 2, "floor": 6, "surge_at": 0.78,
-		"weights": {"basic": 20, "fast": 35, "tank": 25, "swarm": 20, "split": 0}, "pool": POOL_STD,
-	},
-	# ── act-3: 하드 로스터 도입(분열) = 랭크 무한 예고편 (C57, C56 ⑥ 실행) ──
-	{
-		# 분열 격리 도입: 적은 basic↔split만(split_probe 믹스와 동형) = 난이도가 전적으로 새 기전에서.
-		# 스킬 축 = 우선순위·템포(C56 ⑤): '높이 있을 때 잡아라 — 깊으면 자식이 거점 코앞에서 갈라진다'.
-		# pool은 STD(퍼즐 굶김으로 이중 압박 안 함, S5 장갑이 tank를 STD로 격리한 것과 동형).
-		# core_hp 3 = 새 위협을 배울 한 칸 여유(다음 스테이지에서 2로 조인다).
-		# ⚠도입은 climax보다 물러야 한다: total·base_hp를 S5/S6 최댓값에서 내리고 split 40%로 격리 —
-		#   split 55%+total52+hp48은 sim서 도입이 climax만큼 가혹(23→10 절벽). 새 기전만 변수로 세운다.
-		"name": "st7_name", "tag": "st7_tag",
-		"total": 48, "core_hp": 3, "base_hp": 44, "hp_ramp": 0.35, "tank_mult": 4.2,
-		"spawn_every": 2, "step_every": 3, "onboard": 3, "floor": 6, "surge_at": 0.80,
-		"weights": {"basic": 60, "fast": 0, "tank": 0, "swarm": 0, "split": 40}, "pool": POOL_STD,
-	},
-	{
-		# act-3 클라이맥스 = 전 로스터 + 분열 + core_hp 2 (S1 '첫 방어선'과 수미상관 '최종 방어선').
-		# 분열은 방어축 레버(거점사 지배)라 청소 처리량을 굶기는 tank/fast/swarm 위에 겹쳐 얹힌다.
-		# split 25%(수확 시작점) — 100%가 아니라, 다른 위협과 섞여야 '전부 온다'가 성립.
-		"name": "st8_name", "tag": "st8_tag",
-		"total": 56, "core_hp": 2, "base_hp": 50, "hp_ramp": 0.4, "tank_mult": 4.2,
-		"spawn_every": 2, "step_every": 3, "onboard": 2, "floor": 6, "surge_at": 0.78,
-		"weights": {"basic": 15, "fast": 25, "tank": 20, "swarm": 15, "split": 25}, "pool": POOL_STD,
-	},
-	# ── 변주 슬롯 ②: 두 번째 보석 수집(S10, 프런티어) — 보석 사다리 G2. 첫 보석판(S5)과 떨어뜨려 배치. ──
-	# 받기형 수집 기전(C81, 첫 보석판과 공유): 보석(gem)이 적들 사이로 같이 내려온다. 블라스트가 닿으면 획득(collected++),
-	#   거점 밑으로 빠지면 사라짐(거점 무피해). 적은 순수 위협(그리디의 비용) — 안 막으면 거점사. 다 잡을 필요 없음.
-	# 승리 = 보석 collect_target개 수집. 실패 = 거점사. 새 결정 = "이 클리어를 보석에 쓸까 적에 쓸까"(주의 배분).
-	#   긴장 급소: 보석과 적이 다른 열/타이밍에 오게 → 한 클리어로 둘 다 못 하게. gem_every 배치마다 보석 1개.
-	{
-		# 2종 수집(G2 심화). 보석은 S5처럼 전경(gem_every 2·floor 2)이되, 사다리는 물량이 아니라 '필요한 색 고르기 + tank 방어압'으로.
-		# 두 색 quota 8+8을 동시에 채워야 = 아무 보석이나 못 줍고 '필요한 색'을 골라 조준(새 결정 深). tank↑로 질(質)의 압박.
-		"name": "st10_name", "tag": "st10_tag", "collect": true, "collect_targets": [8, 8], "gem_every": 2, "gem_fast": true,
-		"total": 300, "core_hp": 3, "base_hp": 32, "hp_ramp": 0.2, "tank_mult": 3.0,
-		"spawn_every": 3, "step_every": 3, "onboard": 2, "floor": 2, "surge_at": 0.0,
-		"weights": {"basic": 45, "fast": 40, "tank": 15, "swarm": 0, "split": 0}, "pool": POOL_STD,
-	},
-	# ── Defuse R2: 통합 + 트리아지 — 폭탄이 방어 로스터(속공·무리)와 섞이고 밀도↑로 가끔 두 폭탄이 동시에 탄다. ──
-	#   새 결정: ①클리어를 폭탄에 쓸까 밀려오는 적에 쓸까(위협 경제 합류) ②둘 다 못 잡을 때 어느 폭탄부터(트리아지).
-	#   격리(R1)보다 fuse 조이고(7) spawn_every 2로 동시성↑. 2번째 rung이라 목표 승률 R1(71%)보다 낮게(~55%).
-	{
-		"name": "st12_name", "tag": "st12_tag", "bomb_fuse": 8, "bomb_dmg": 2,
-		"total": 32, "core_hp": 6, "base_hp": 30, "hp_ramp": 0.25, "tank_mult": 2.5,
-		"spawn_every": 2, "step_every": 3, "onboard": 3, "floor": 3, "surge_at": 0.80,
-		"weights": {"basic": 47, "fast": 20, "swarm": 15, "bomb": 18}, "pool": POOL_STD,
-	},
-	# ── Defuse R3: 연쇄 폭탄(bomb_chain) — 하나가 터지면 인접 폭탄(8방)도 도미노 폭발, HP 벌 합산 = 큰 한 방. ──
-	#   새 결정: R1(제때 닿나)·R2(어느 걸 먼저)와 달리, "연쇄를 끊는 linchpin(임박한 하나)을 먼저 해체해 도미노를 막아라".
-	#   폭탄 밀도↑(뭉쳐서 연쇄 성립)·spawn_every 2로 인접 유도. 연쇄가 -HP를 곱하니 core_hp 여유(연쇄 못 끊으면 급사).
-	{
-		"name": "st13_name", "tag": "st13_tag", "bomb_fuse": 8, "bomb_dmg": 2, "bomb_chain": true,
-		"total": 32, "core_hp": 7, "base_hp": 30, "hp_ramp": 0.2, "tank_mult": 2.5,
-		"spawn_every": 2, "step_every": 3, "onboard": 3, "floor": 3, "surge_at": 0.80,
-		"weights": {"basic": 62, "bomb": 38}, "pool": POOL_STD,
-	},
-	# ── Protect R1 도입: 도둑(thief) 동사 = 상실(loss aversion). 거점 도달 시 거점을 안 때리고 금고서 훔쳐 되돌아 위로 도망. ──
-	#   3결과: 뺏기 전 처치=완전 저지 · 물고 도망칠 때 처치=회수(금고로 되돌림) · 위로 탈출=영구 손실.
-	#   승리 = 웨이브 소탕(탈출=leaked로 회계 보존) + 금고>0. 패 = 거점사 or 금고 전소(상실축, 거점사와 별개).
-	# ⚠설계 발견(thief_probe): Defuse식 '무압력 격리 R1'은 Protect엔 불가 — 막기(block)가 일반 클리어와 겹쳐 공짜라
-	#   좋은 봇이 도둑을 거의 다 걷어내 금고가 안 준다(동사가 죽은 리스킨화). 손실이 실제로 나려면 '두 전선 경쟁'이 필수:
-	#   thief_step 1(도둑 blitz하강=대개 막기 불가→낚아채기가 기본)로 낮은 전선을 뚫리게 하고, carry_step 1(빠른 도주)로
-	#   회수 창을 좁혀 도망을 위험케 → 게임이 '거점방어(아래) vs 회수추격(위)'의 공간적 기회비용이 된다. step_every 2(빠른 밀물)가
-	#   그 경쟁 압력. 격리 로스터(basic↔thief)는 유지. thief_hp 저(0.35×)=포지셔닝 위협이지 HP벽 아님(HP↑면 넉백이 하강을 늦춰 오히려 쉬워짐).
-	#   실측(thief_probe N80): 승률 71%·거점사6·금고전소7·막힘10, 금고 4→2.9(판당 −1.1 체감), 낚/회/탈 3.6/2.5/0.8(회수=생존 스킬, load-bearing).
-	{
-		"name": "st14_name", "tag": "st14_tag", "protect": true, "vault_start": 4, "steal": 1,
-		"thief_step": 1, "thief_carry_step": 1, "thief_hp_mult": 0.35,
-		"total": 32, "core_hp": 5, "base_hp": 30, "hp_ramp": 0.2, "tank_mult": 2.5,
-		"spawn_every": 2, "step_every": 2, "onboard": 3, "floor": 2, "surge_at": 0.80,
-		"weights": {"basic": 52, "thief": 48}, "pool": POOL_STD,
-	},
-]
+# ===== 스테이지 데이터 (stage_data.gd로 분리) =====
+# 캠페인 판 정본 + POOL 프리셋은 res://stage_data.gd에 있다(저작 섬, 병렬 충돌 감소).
+# 여기선 별칭 const만 재노출 → 기존 참조(STAGES, g.STAGES, main.STAGES)와 외부 툴 전부 무변경.
+const SD = preload("res://stage_data.gd")
+const STAGES := SD.STAGES
 
 # 조각 색 키 (시각용만 — 클리어는 순수 기하, 색-매칭 기전 없음).
 #   6색 카테고리컬 팔레트: 빨(R)·주(O)·노(Y)·초(G)·파(B)·보-마젠타(P). 색상환 6방향 = 각각 다른 카테고리.
@@ -634,8 +474,6 @@ var resolve_timer: float = 0.0
 var resolve_total: float = 0.0
 var resolve_hits: Array = []       # [{id, dmg, kb, at, done}] 거점 가까운 순 순차 피격
 var resolve_rocket_plan: Array = []  # [{dir, idx}] 로켓은 충전 뒤에 발사
-var resolve_cross_plan: Array = []   # [{cell, at, fired}] 크로스(행+열) 교차점 관통 섬광 예약
-var cross_beams: Array = []          # [{cell, t, dur}] 십자 관통 섬광(진행) — 크로스만의 청록 빔
 var resolve_seeker_plan: Array = []  # [{to_pos, from, launch, arrive, fired}] 유도 로켓 예약(동시 N줄 → N발)
 var seekers: Array = []              # [{from, to_pos, t, dur}] 유도 로켓(진행) — 거점서 곧 샐 적으로
 var resolve_fx_done: bool = false    # 로켓 발사 트리거됐나
@@ -1168,8 +1006,6 @@ func _init_game() -> void:
 	resolve_total = 0.0
 	resolve_hits = []
 	resolve_rocket_plan = []
-	resolve_cross_plan = []
-	cross_beams = []
 	resolve_seeker_plan = []
 	seekers = []
 	resolve_fx_done = false
@@ -1797,8 +1633,6 @@ func _begin_resolve(rows: Array, cols: Array) -> void:
 	resolve_timer = 0.0
 	resolve_hits = []
 	resolve_rocket_plan = []
-	resolve_cross_plan = []
-	cross_beams = []
 	resolve_seeker_plan = []
 	seekers = []
 	resolve_fx_done = false
@@ -1839,13 +1673,6 @@ func _begin_resolve(rows: Array, cols: Array) -> void:
 			resolve_rocket_plan.append({"dir": "col", "idx": c, "ring": band_cols[c], "launch": fire_t + 0.08 + float(band_cols[c]) * BLAST_RING_DELAY})
 		for r in band_rows:
 			resolve_rocket_plan.append({"dir": "row", "idx": r, "ring": band_rows[r], "launch": fire_t + 0.08 + float(band_rows[r]) * BLAST_RING_DELAY})
-		# 크로스(행+열 동시 클리어) = 교차점 관통. 평행 더블과 달리 '십자'로 읽히게 각 교차 셀에
-		#   청록 관통 빔을 예약한다(로켓이 그 칸을 지나는 박자에). 교차점은 이미 lines=2로 2배 피격
-		#   (아래 hit_list) → 장갑을 뚫는다. 데미지 셈은 안 건드리므로 회귀 불변.
-		if not full_board and rows.size() > 0 and cols.size() > 0:
-			for cr in rows:
-				for cc2 in cols:
-					resolve_cross_plan.append({"cell": Vector2i(int(cc2), int(cr)), "at": fire_t + ROCKET_DUR * 0.6, "fired": false})
 		# 일격량 (콤보 데미지 배수는 '탱커 관통용 부 증폭'으로 소폭 유지)
 		var mult: float = _simul_mult(l) * _streak_mult(combo)
 		var strike: int = roundi(LINE_BASE * mult)
@@ -1882,7 +1709,7 @@ func _begin_resolve(rows: Array, cols: Array) -> void:
 				lines += 1
 				ering = mini(ering, band_rows[e["row"]])
 			if lines > 0:
-				hit_list.append({"id": e["id"], "row": e["row"], "dmg": strike * lines, "kb": kb, "ring": ering, "cross": lines >= 2})
+				hit_list.append({"id": e["id"], "row": e["row"], "dmg": strike * lines, "kb": kb, "ring": ering})
 		# 링 오름차순(안→밖 물결) → 같은 링 내에선 거점 가까운 순(row 큰 순)
 		hit_list.sort_custom(func(a, b):
 			if a["ring"] != b["ring"]:
@@ -1899,7 +1726,7 @@ func _begin_resolve(rows: Array, cols: Array) -> void:
 			max_at = maxf(max_at, at)
 			resolve_hits.append({
 				"id": hit_list[k]["id"], "dmg": hit_list[k]["dmg"], "kb": hit_list[k]["kb"],
-				"at": at, "done": false, "cross": hit_list[k]["cross"],
+				"at": at, "done": false,
 			})
 		# --- 유도 종이비행기 발사: 위서 고른 표적(living[0..n_seek])에 거점서 곡선 호밍 ---
 		#   각 비행기는 표적을 '확정 처치'(dmg=표적 hp) — 밴드서 뺐으니 비행기가 안 잡으면 그 적이 샌다.
@@ -1911,7 +1738,7 @@ func _begin_resolve(rows: Array, cols: Array) -> void:
 			var s_arrive: float = s_launch + 0.30
 			var sdmg: int = maxi(strike, int(tgt["hp"]))
 			resolve_seeker_plan.append({"to_pos": _enemy_pos(tgt["col"], tgt["row"]), "from": seek_from, "launch": s_launch, "arrive": s_arrive, "fired": false})
-			resolve_hits.append({"id": tgt["id"], "dmg": sdmg, "kb": 0, "at": s_arrive, "done": false, "cross": false, "seeker": true})
+			resolve_hits.append({"id": tgt["id"], "dmg": sdmg, "kb": 0, "at": s_arrive, "done": false, "seeker": true})
 			max_at = maxf(max_at, s_arrive)
 		# 총길이 = 마지막 피격 or 마지막 링 로켓 비행 완료 중 늦은 것(바깥 링에 적 없어도 물결 끝까지 재생)
 		var visual_end: float = fire_t + 0.08 + float(max_ring) * BLAST_RING_DELAY + ROCKET_DUR + 0.08
@@ -2046,10 +1873,6 @@ func _apply_hit(h: Dictionary) -> void:
 	if e["hp"] <= 0:
 		# ① 극적 사망: 스케일 팝 + 파편 버스트 + 밝은 플래시 + 히트스톱
 		_spawn_death(etype, ep)
-		# 크로스 교차점서 장갑이 뚫리면 '관통'을 읽힌다(버팀 BLOCK의 반대 — 청록 대응).
-		if bool(h.get("cross", false)) and etype == "tank":
-			impacts.append({"pos": ep, "life": 0.42, "max": 0.42, "color": Color(0.62, 0.96, 1.0), "radius": CELL * 0.62, "star": true})
-			_add_floater(ep + Vector2(0.0, -CELL * 0.42), _t("tell_pierce"), Color(0.74, 0.98, 1.0), 0.7, 20)
 		# 종이비행기 착지 = 흰 별-폭발(레퍼런스 임팩트) — 처치 파편은 _spawn_death가 이미 뿌림
 		if bool(h.get("seeker", false)):
 			impacts.append({"pos": ep, "life": 0.34, "max": 0.34, "color": Color(0.8, 0.98, 1.0), "radius": CELL * 0.52, "star": true})
@@ -2257,7 +2080,6 @@ func _dump_junk(col: int, n: int) -> void:
 func _finish_resolve() -> void:
 	resolving = false
 	resolve_hits = []
-	resolve_cross_plan = []
 	resolve_seeker_plan = []
 	if not clear_done:
 		_burst_lines()   # 안전망: 어떤 경로로든 안 터졌으면 여기서라도 셀을 비운다(보드 정합성)
@@ -3212,13 +3034,6 @@ func _process(delta: float) -> void:
 				rp["launched"] = true
 				rockets.append({"dir": rp["dir"], "idx": rp["idx"], "t": 0.0, "dur": ROCKET_DUR, "combo": flash_combo})
 				_spawn_muzzle(rp["dir"], rp["idx"])
-		# 크로스 관통 섬광 발사 — 교차점에서 십자 빔이 터지고 짧은 멈칫(단일 타격점이라 히트스톱이 '턱'
-		#   아니라 '펀치'로 읽힌다 — 다줄과 다름). 청록 = 장갑(청록 방패)을 뚫는 색 대응.
-		for cp in resolve_cross_plan:
-			if not cp["fired"] and resolve_timer >= cp["at"]:
-				cp["fired"] = true
-				cross_beams.append({"cell": cp["cell"], "t": 0.0, "dur": 0.42})
-				hitstop = maxf(hitstop, 0.035)
 		# 유도 로켓 발사 — 거점서 곧 샐 적으로 호밍(도착 시각에 맞춰 아래 resolve_hits가 처치)
 		for sp in resolve_seeker_plan:
 			if not sp["fired"] and resolve_timer >= sp["launch"]:
@@ -3295,12 +3110,6 @@ func _process(delta: float) -> void:
 			impacts.append({"pos": _rocket_pos(rockets[rk], 1.0), "life": 0.18, "max": 0.18, "color": Color(1.0, 0.9, 0.5), "radius": CELL * 0.28, "star": false})
 			rockets.remove_at(rk)
 		rk -= 1
-	var cb: int = cross_beams.size() - 1
-	while cb >= 0:
-		cross_beams[cb]["t"] += delta
-		if cross_beams[cb]["t"] >= cross_beams[cb]["dur"]:
-			cross_beams.remove_at(cb)
-		cb -= 1
 	var sk: int = seekers.size() - 1
 	while sk >= 0:
 		seekers[sk]["t"] += delta
@@ -5464,34 +5273,6 @@ func _draw_board(fnt: Font) -> void:
 		draw_circle(head, thick * 1.35, Color(1.0, 0.85, 0.4, 0.5))
 		draw_circle(head, thick, Color(1.0, 0.98, 0.7, 0.98))
 		draw_circle(head, thick * 0.5, Color.WHITE)
-
-	# 크로스 관통 십자 빔 — 교차점에서 청록 십자가 행·열을 따라 뻗으며 페이드. 평행 로켓(따뜻한
-	#   주황)과 확실히 다른 '차가운 관통' 시그니처 = 크로스를 평행 더블과 구분짓는 핵심 신호.
-	#   빔은 보드 안으로 클램프 → '완성된 행 전체 + 열 전체가 번쩍 뚫린다'로 읽힌다.
-	var _bx0: float = float(BOARD_X)
-	var _bx1: float = float(BOARD_X + COLS * CELL)
-	var _by0: float = float(board_y)
-	var _by1: float = float(board_y + ROWS * CELL)
-	for beam in cross_beams:
-		var bt: float = clampf(beam["t"] / beam["dur"], 0.0, 1.0)
-		var bc: Vector2i = beam["cell"]
-		var bctr: Vector2 = _cell_center(bc.x, bc.y)
-		var reach: float = CELL * (0.7 + 4.2 * bt)
-		var ba: float = 1.0 - bt
-		var col_glow := Color(0.42, 0.92, 1.0, ba * 0.5)
-		var col_core := Color(0.86, 1.0, 1.0, ba * 0.95)
-		var w_glow: float = 18.0 * (1.0 - 0.5 * bt)
-		var w_core: float = 6.0 * (1.0 - 0.4 * bt)
-		var hx0: float = maxf(bctr.x - reach, _bx0)
-		var hx1: float = minf(bctr.x + reach, _bx1)
-		var vy0: float = maxf(bctr.y - reach, _by0)
-		var vy1: float = minf(bctr.y + reach, _by1)
-		draw_line(Vector2(hx0, bctr.y), Vector2(hx1, bctr.y), col_glow, w_glow)
-		draw_line(Vector2(hx0, bctr.y), Vector2(hx1, bctr.y), col_core, w_core)
-		draw_line(Vector2(bctr.x, vy0), Vector2(bctr.x, vy1), col_glow, w_glow)
-		draw_line(Vector2(bctr.x, vy0), Vector2(bctr.x, vy1), col_core, w_core)
-		draw_circle(bctr, CELL * 0.5 * ba + 4.0, Color(1.0, 1.0, 1.0, ba * 0.9))
-		draw_circle(bctr, CELL * (0.35 + 1.0 * bt), Color(0.6, 0.96, 1.0, ba * 0.35), false, 3.0)
 
 	# 유도 종이비행기(부스터) — 매치3 레퍼런스 재현(영상 L6qNVI1GetE 2:00~):
 	#   ① 아래 그림자(보드 위를 난다는 깊이) ② 청록 스핀-헤일로(회전 = 어수선한 보드서 확 튐, 가독성 핵심)
