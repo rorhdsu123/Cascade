@@ -74,6 +74,7 @@ const STR: Dictionary = {
 		"result_gems": "Gems left",
 		"result_killed": "Killed",
 		"continue": "Continue",
+		"ad_loading": "Loading ad...",   # 부활 광고 로드 중 — 버튼이 잠긴 이유를 말해준다(W2 R1)
 		"retry": "Retry",
 		"next_stage": "Next Stage",
 		# 마지막 스테이지 클리어 = 완주 아님, '콘텐츠 따라잡음'(프런티어) → 무한 깔때기. 시점 약속 회피.
@@ -198,6 +199,7 @@ const STR: Dictionary = {
 		"result_gems": "남은 보석",
 		"result_killed": "처치",
 		"continue": "이어하기",
+		"ad_loading": "광고 불러오는 중...",
 		"retry": "재도전",
 		"next_stage": "다음 스테이지",
 		# 마지막 스테이지 클리어 = 완주 아님, '콘텐츠 따라잡음'(프런티어) → 무한 깔때기. 시점 약속 회피.

@@ -286,6 +286,7 @@ const EndlessMode = preload("res://modes/endless_mode.gd")
 const FeaturedMode = preload("res://modes/featured_mode.gd")
 const LeaderboardService = preload("res://leaderboard.gd")   # 점수 저장·제출 이음새 (C64)
 const AnalyticsService = preload("res://analytics.gd")       # 이벤트 계측 이음새 (Phase V W1 — 설계 정본 ANALYTICS_TAXONOMY.md)
+const AdService = preload("res://ad_service.gd")             # 광고 이음새 (Phase V W2 R1 — 설계 정본 AD_PLAN.md)
 var director: GameMode = null    # 감독(스폰·난이도·종료 결정). _start_stage에서 st와 함께 세팅
 
 # 무한모드(감독=EndlessMode) — 캠페인 스테이지와 형제. C52 설계·C56 game_rng 분리.
@@ -299,6 +300,10 @@ var _leaderboard := LeaderboardService.new()   # 점수 저장·제출 이음새
 # 계측 이음새 — 이벤트는 전부 이 서비스로만 흘린다(SDK·파일 직접 접근 금지). 헤드리스(회귀·시뮬·프로브)에선
 #   서비스가 스스로 꺼진다. 관찰자라 게임 상태에 아무것도 안 돌려준다 = 회귀 불변.
 var _analytics := AnalyticsService.new()
+# 광고 이음새 — SDK·정책·계측을 전부 서비스가 소유한다. 게임이 아는 건 "부활이 성사됐나"뿐.
+#   헤드리스(회귀·시뮬)에선 서비스가 꺼져 요청이 즉시 폴백으로 떨어진다 = 하네스 무영향.
+var _ads := AdService.new(_analytics)
+var _ad_pending: bool = false      # 부활 광고 요청 중 — 결과 팝업이 대기 상태를 그리고 다른 버튼을 막는다
 var run_max_combo: int = 0         # 이번 판 최대 콤보(계측 combo_peak — 봇 ~7 대비 사람은?). _init_game서 리셋
 var _revive_offer_open: bool = false  # 부활 제안이 떠 있고 아직 수락/거절 안 됨 → 이탈 시 revive_declined 1회
 var endless_prev_best: int = 0     # 런 시작 시점의 베스트(결과 팝업 델타 표시용)
@@ -726,7 +731,9 @@ func _track_run_fail(cause: String) -> void:
 	# 부활 제안 노출 — 판당 1회만 가능(revive_used). 거절은 팝업을 떠날 때 잡는다(_track_revive_dismissed).
 	if not revive_used:
 		_revive_offer_open = true
-		_analytics.log_event("revive_offered", {"cause": cause, "is_ad_ready": false})   # 실광고는 W2, 지금은 스텁
+		# is_ad_ready = 프리로드 실값. false여도 버튼은 뜬다 — 못 채웠으면 공짜로 이어주는 게
+		#   확정 정책이라(AD_PLAN §1-2), 이 값은 '버튼을 띄울까'가 아니라 no-fill율 판독용이다.
+		_analytics.log_event("revive_offered", {"cause": cause, "is_ad_ready": _ads.is_rewarded_ready()})
 	_analytics.run_end(run_max_combo)
 
 # 무한 런 종료 — 점수 축 성과. 깊이 = 배치 횟수(무한 HUD의 '깊이'와 같은 값).
@@ -1018,6 +1025,13 @@ func _init_game() -> void:
 	# 계측: 판 좌표(run_id·mode·seed) 개시. 아래 시작-적 배치·즉시 막힘 판정보다 먼저여야
 	#   '시작하자마자 막힘'도 이 판에 묶인다(그 판만 run_started 없이 run_failed가 뜨는 구멍 방지).
 	_track_run_start()
+	# 광고: 이 판의 부활용 리워드를 미리 채워둔다(결과 팝업이 뜨는 순간 준비돼 있어야 대기가 짧다).
+	#   인터스티셜은 캡 카운터만 돌린다 — 노출은 꺼져 있다(AD_PLAN §3, W4까지 배관만).
+	_ad_pending = false
+	_ads.note_run_started()
+	_ads.preload_rewarded()
+	if _ads.should_show_interstitial():
+		_ads.show_interstitial()
 	if _tut_active():
 		_tut_setup_beat1()
 		return
@@ -2862,6 +2876,10 @@ func _input(event: InputEvent) -> void:
 	if game_over or game_clear:
 		var lay: Dictionary = _result_layout()
 		var has_cont: bool = lay["revivable"]
+		# 광고 대기 중엔 팝업 전체를 잠근다 — 광고가 뜨는 사이 재도전·홈을 잘못 눌러 판이 날아가는
+		#   사고를 막는다. 결과 콜백은 성공이든 실패든 반드시 오므로(ad_service 불변식 ④) 안 풀릴 일은 없다.
+		if _ad_pending:
+			return
 		if event is InputEventMouseMotion:
 			var rp: Vector2 = (event as InputEventMouseMotion).position
 			_retry_hover = (lay["retry"] as Rect2).has_point(rp)
@@ -2871,7 +2889,7 @@ func _input(event: InputEvent) -> void:
 			var mbe: InputEventMouseButton = event as InputEventMouseButton
 			if mbe.pressed and mbe.button_index == MOUSE_BUTTON_LEFT:
 				if has_cont and (lay["cont"] as Rect2).has_point(mbe.position):
-					_revive()
+					_request_revive_ad()
 				elif (lay["retry"] as Rect2).has_point(mbe.position):
 					_track_revive_dismissed("retry")
 					_result_advance()
@@ -2883,7 +2901,7 @@ func _input(event: InputEvent) -> void:
 			# SPACE = 주 동작. 부활 가능하면 '광고 이어하기', 아니면 재도전/다음.
 			if ke.pressed and ke.keycode == KEY_SPACE:
 				if has_cont:
-					_revive()
+					_request_revive_ad()
 				else:
 					_track_revive_dismissed("retry")
 					_result_advance()
@@ -2986,6 +3004,9 @@ func _input(event: InputEvent) -> void:
 
 # ===== 프레임 =====
 func _process(delta: float) -> void:
+	# 광고 비동기 진행 — 어떤 화면이든, 히트스톱 중이든 계속 돌아야 한다. 여기서 멈추면
+	#   결과 팝업의 대기 상태가 안 풀린다(콜백 미도착 = 다른 버튼도 막힌 채 = 소프트락). 유휴면 비용 0.
+	_ads.poll(delta)
 	if mode == "menu" or mode == "select" or mode == "leaderboard":
 		queue_redraw()
 		return
@@ -3668,11 +3689,35 @@ func _result_layout() -> Dictionary:
 #   대칭이다: 거점 파괴=거점에 임박한 하단 적만 제거(위쪽 밀물은 유지), 막힘=하단 보드만 비워
 #   공간 확보(위 구조·적 유지). 전멸/전체 초기화는 '새 판'이라 이어하는 느낌이 죽는다(Block Blast식
 #   부분 개입). 단순 HP 복구만이면 서지 구간 즉사 재발(C47 경계). ⚠광고는 프로토 스텁.
-func _revive() -> void:
+#
+# ▼ 광고 게이트 (W2 R1) — '이어하기'를 누르면 부활 전에 이 문을 지난다. AD_PLAN §2 상태 기계 정본.
+#   버튼 누름 → 광고 요청 → ⓐ끝까지 봄=부활(ad_reward) ⓑ재고없음·오류=공짜 부활(free_fallback)
+#   ⓒ유저가 중간에 끔=아무 일 없음(팝업 유지, 기회 소진 안 됨 — 실수로 스킵한 유저를 죽이지 않는다).
+#   ⚠기회 소진(revive_used)은 오직 _revive() 안에서, 즉 부활이 실제로 성사될 때만 일어난다.
+func _request_revive_ad() -> void:
+	if _ad_pending or _ads.is_busy() or revive_used:
+		return
+	_ad_pending = true
+	_ads.show_rewarded(AdService.PLACEMENT_REVIVE, _on_revive_ad_result)
+
+func _on_revive_ad_result(res: Dictionary) -> void:
+	_ad_pending = false
+	# 결과가 늦게 도착했는데 그 사이 판을 떠났다면(재도전·홈) 조용히 버린다 — 부활은 그 판의 사건이다.
+	if not game_over or revive_used:
+		return
+	if bool(res.get("granted", false)):
+		_revive("ad_reward")
+	elif bool(res.get("fallback", false)):
+		# 광고가 안 나온 건 유저 잘못이 아니다. 여기서 버튼을 죽이면 C60 '억울한 죽음'이 재발한다.
+		_revive("free_fallback")
+	# else: 유저 중도 이탈 — 팝업 그대로 두고 아무것도 하지 않는다(다시 누를 수 있다).
+
+func _revive(method: String = "ad_reward") -> void:
 	var was_stuck: bool = stuck
-	# 계측: 부활 전환(핵심 수익 신호). 지금은 광고 스텁이라 method=stub — W2에서 ad_reward로 승격.
+	# 계측: 부활 전환(핵심 수익 신호). method가 ad_reward(광고 봄)와 free_fallback(재고 없어 공짜)을
+	#   가른다 — 이 분리가 없으면 '부활 전환율'과 '광고 수익'이 한 덩어리로 섞여 판독 불가가 된다.
 	_revive_offer_open = false
-	_analytics.log_event("revive_taken", {"cause": "stuck" if was_stuck else "core_death", "method": "stub"})
+	_analytics.log_event("revive_taken", {"cause": "stuck" if was_stuck else "core_death", "method": method})
 	revive_used = true
 	game_over = false
 	stuck = false
@@ -4178,20 +4223,31 @@ func _draw_result(fnt: Font) -> void:
 	if revivable:
 		var cb: Rect2 = lay["cont"]
 		draw_rect(Rect2(cb.position.x, cb.position.y + 7.0, cb.size.x, cb.size.y), Color(0.4, 0.28, 0.05))
-		var cbase: Color = Color(1.0, 0.86, 0.35) if _cont_hover else Color(0.95, 0.78, 0.25)
+		# 광고 대기 중 = 눌린 상태가 아니라 '지금은 못 누름'. 금색을 톤 다운해 비활성임을 색으로 먼저
+		#   알리고(hud-signal-by-color-not-text), 라벨만 바꾼다 — 버튼 자리·크기는 그대로라 안 튄다.
+		var cbase: Color = Color(0.62, 0.52, 0.20) if _ad_pending \
+				else (Color(1.0, 0.86, 0.35) if _cont_hover else Color(0.95, 0.78, 0.25))
 		draw_rect(cb, cbase)
 		draw_rect(Rect2(cb.position.x, cb.position.y, cb.size.x, cb.size.y * 0.32), Color(1.0, 1.0, 1.0, 0.22))
 		draw_rect(cb, Color(0.5, 0.38, 0.1), false, 4.0)
-		# ▶ 아이콘 + "이어하기"
-		var clab: String = _t("continue")
-		var cfs: int = 34
-		var clw: float = fnt.get_string_size(clab, HORIZONTAL_ALIGNMENT_LEFT, -1, cfs).x
-		var pr: float = 15.0
 		var cmid_y: float = cb.position.y + cb.size.y * 0.5
-		var cin_w: float = pr * 1.7 + 16.0 + clw
-		var cin_l: float = cb.position.x + cb.size.x * 0.5 - cin_w * 0.5
-		_draw_play_icon(Vector2(cin_l + pr * 0.85, cmid_y), pr, Color(0.2, 0.15, 0.02))
-		_draw_text_outlined(fnt, Vector2(cin_l + pr * 1.7 + 16.0, cmid_y + 12.0), clab, cfs, Color(0.2, 0.15, 0.02))
+		if _ad_pending:
+			# 로드 중 — ▶를 지운다(누르면 바로 간다는 약속을 잠깐 거둔다). 실광고(R2) 전엔 즉시 해소돼 안 보인다.
+			var wlab: String = _t("ad_loading")
+			var wfs: int = 28
+			var wlw: float = fnt.get_string_size(wlab, HORIZONTAL_ALIGNMENT_LEFT, -1, wfs).x
+			_draw_text_outlined(fnt, Vector2(cb.position.x + cb.size.x * 0.5 - wlw * 0.5, cmid_y + 10.0),
+					wlab, wfs, Color(0.28, 0.22, 0.06))
+		else:
+			# ▶ 아이콘 + "이어하기"
+			var clab: String = _t("continue")
+			var cfs: int = 34
+			var clw: float = fnt.get_string_size(clab, HORIZONTAL_ALIGNMENT_LEFT, -1, cfs).x
+			var pr: float = 15.0
+			var cin_w: float = pr * 1.7 + 16.0 + clw
+			var cin_l: float = cb.position.x + cb.size.x * 0.5 - cin_w * 0.5
+			_draw_play_icon(Vector2(cin_l + pr * 0.85, cmid_y), pr, Color(0.2, 0.15, 0.02))
+			_draw_text_outlined(fnt, Vector2(cin_l + pr * 1.7 + 16.0, cmid_y + 12.0), clab, cfs, Color(0.2, 0.15, 0.02))
 		# 'AD' 배지 — 우상단 코너. 이게 광고 시청임을 숨기지 않는다.
 		var badge: Rect2 = Rect2(cb.position.x + cb.size.x - 42.0, cb.position.y - 9.0, 38.0, 20.0)
 		draw_rect(badge, Color(0.18, 0.16, 0.22))
@@ -4243,6 +4299,12 @@ func _draw_result(fnt: Font) -> void:
 	var hw2: float = fnt.get_string_size(hs, HORIZONTAL_ALIGNMENT_LEFT, -1, hfs).x
 	_draw_text_outlined(fnt, Vector2(h.position.x + h.size.x * 0.5 - hw2 * 0.5, h.position.y + h.size.y * 0.5 + 7.0), hs, hfs,
 			Color.WHITE if _home_hover else Color(0.75, 0.77, 0.88))
+
+	# 광고 대기 중엔 부차 버튼(재도전·홈)을 덮어 '지금은 못 누름'을 색으로 알린다. 입력은 이미
+	#   막혀 있으므로(_input), 밝게 남겨두면 눌리는 줄 알고 누르는 죽은 버튼이 된다(C78이 고친 결함 유형).
+	if _ad_pending:
+		draw_rect(r, Color(0.10, 0.10, 0.14, 0.62))
+		draw_rect(h, Color(0.10, 0.10, 0.14, 0.62))
 
 	# 키 힌트는 없다(C39). SPACE=주 동작(부활 가능하면 이어하기)·ESC=홈은 그대로 받는다.
 

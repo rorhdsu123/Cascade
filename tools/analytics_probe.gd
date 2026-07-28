@@ -142,8 +142,10 @@ func _run() -> void:
 	print("── 캠페인 1차 종료: 배치 %d · clear=%s over=%s" % [placed, g.game_clear, g.game_over])
 
 	# 부활 수락(revive_taken) → 이어서 같은 판을 마저 죽인다. 부활 뒤 이벤트도 같은 run_id여야 한다.
+	#   ⚠_revive()를 직접 부르지 않는다 — W2부터 플레이어 경로는 광고 게이트를 지나므로(_request_revive_ad),
+	#     여기서 문을 건너뛰면 사람이 못 가는 길을 재는 셈이 된다. 페이크 광고는 즉시 보상으로 해소된다.
 	if g.game_over and not g.revive_used:
-		g._revive()
+		g._request_revive_ad()
 		await process_frame
 		_play_until_end(15)
 		if not (g.game_over or g.game_clear):
