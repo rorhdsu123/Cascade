@@ -68,7 +68,7 @@
 > | ① 사람 플테 5~10명 | 🔄 **빌드는 나옴**(2026-07-27): 안드로이드 디버그 APK 27MB·arm64·`com.yujin.cascade`. 남은 것 = **피험자 5~10명 섭외·실행**(유저 몫, `PLAYTEST_PROTOCOL.md`) |
 > | └ 빌드 방법 | `PATH="/opt/homebrew/opt/openjdk@17/bin:$PATH" godot --headless --export-debug "Android" build/android/cascade.apk` → 기기 연결 후 `adb install -r build/android/cascade.apk`. 툴체인·함정은 [[android-build-toolchain-setup]] |
 > | ② 애널리틱스 택소노미 설계 | ✅ 완료 (P0 이벤트 10여 종 확정, Firebase 채택) / **Firebase 프로젝트 개설 ❌**(계정 작업, 유저 몫) |
-> | ③ AdMob 연동 | ❌ 코드에 SDK 0. 부활은 여전히 프로토 스텁(`Main.gd` "⚠광고는 프로토 스텁") |
+> | ③ AdMob 연동 | 🔄 **R1 완료**(정책·이음새·페이크 백엔드·프로브 29/29 — `track/plumbing` 6beacdf, **main 미병합**) · **R2 전제조건 = gradle 커스텀 빌드 전환 ✅완료**(2026-07-28) · 남은 것 = AdMob 플러그인 실배선(계정 없이 **구글 공개 테스트 유닛**으로 가능) |
 > | ④ 애널리틱스 실배선 | ✅ **P0 전량 배선 완료(2026-07-27)** — `analytics.gd` 이음새 + 판 경계 발화 + 로컬 JSONL 수집 + 판독기(`tools/analytics_report.gd`)·검증 프로브(`tools/analytics_probe.gd`). Firebase SDK 연결만 W2로 남음 |
 > | ⑤ 실 리더보드 + 목업 제거 | ❌ `leaderboard.gd` `_platform_*` 전부 no-op, 친구보드·퍼센타일 목업 그대로 |
 > | ⑥ 안드로이드 서명 파이프라인 | ❌ 미착수 |
@@ -136,6 +136,8 @@
 - 🧹 **브랜치 정리(2026-07-27)**: 병합 완료된 구 브랜치 4개 삭제(c22·c29·feat/stage1-tutorial·refactor/gamemode-director-seam) · `track/color` 병합 · juice·endless·color 워크트리를 main으로 동기화. `track/stage`만 미커밋 WIP(크로스 관통 빔 되돌리기) 보유로 동기화 보류.
 - ⏸️ **오늘의 판(featured 데일리) 보류(C60)**: 첫 사람 플테서 **'억울한 막힘사'**(byte-동일 위해 안전망 제거한 대가) 발견 → 코지 톤 > 결정성 순수. **엔진은 보존, 플레이어 진입만 제거.** 재개 시 = 안전망 on 재설계('byte-동일' 아닌 '같은 도전'). **데이터-먼저: 프리 무한 먼저 제대로 → 데이터 후 데일리 재개.**
 - 🧊 **폴리싱 동결 발효(2026-07-27)** — Phase V ⑦ 조항을 지금 적용. **동결 대상**: 캠페인·셸 폴리싱, 신규 목표 동사/이벤트 저작, 도파민 연출, 색·아트 변주. **동결 예외**: 출시 차단 버그 · 계측/광고/빌드 배관 · 플테에서 드러난 결함. 근거: C82~C93 두 주가 전부 폴리싱으로 흘렀고, 그 사이 "코어가 사람을 붙잡느냐"는 여전히 **0회 검증**. 스펙터클을 더 쌓기 전에 검증이 먼저다.
+- ✅ **gradle 커스텀 빌드 전환(2026-07-28)**: 프리빌트 템플릿 → **로컬 gradle 컴파일**로 전환(`export_presets.cfg` `use_gradle_build=true`). **왜 = 네이티브 플러그인(AdMob·Firebase)의 유일한 전제조건**이고, 동시에 **AAB(클로즈드 트랙 업로드 형식)의 전제조건**이라 W2 ③·W3 ⑥이 둘 다 여기에 걸려 있었음. 선행으로 `platforms;android-35` + `build-tools;35.0.1` 설치(템플릿 요구치 = compileSdk 35). **동등성 정적 검증 = package/version/targetSdk 35/arm64 단독/권한(INTERNET+VIBRATE) 전부 프리빌트와 동일, 압축 전 총량 83.6MB≈83.8MB.** APK 파일 크기만 27MB→76MB(`compress_native_libraries=false` = 네이티브 lib 무압축 저장, 구글 권장·AAB 배포 시 무관. 사이드로드로 뿌릴 땐 압축 켜면 27MB 복귀). **⚠미검증 = 실기기 실행**(기기 미연결, `classes.dex` 5.7→6.1MB로 클래스 경로가 달라져 런타임에서만 드러날 수 있음 → `adb install -r` 1회 필요). 부수 발견 = ① `android/`가 .gitignore라 **빌드 템플릿이 저장소에 없음**(다른 머신/워크트리는 재설치 필요) ② **앱 아이콘 미설정**(`project.godot`에 `config/icon` 없음 → 기본 Godot 아이콘으로 출고, 아트 트랙 스토어 에셋 몫).
+- 🔜 **다음 세션 착수점(광고 R2)**: ⓐ `track/plumbing`(광고 R1, main 미병합)과 정렬 필요 — **다만 워크트리엔 `android/build` 템플릿이 없어 실기기 빌드가 안 됨**(200MB 재설치 필요). 실 SDK 배선은 빌드가 필수라 **R1을 main에 병합해 트렁크에서 진행하는 쪽을 권장**([[parallel-work-worktrees]]의 "모바일 배관=트렁크 소유"와도 일치). ⓑ AdMob 플러그인 붙이기 — **진짜 미지 = Godot 4.6 호환 여부**(안 되면 일정이 흔들리는 종류라 12명 붙이기 전에 밟는 게 목적). ⓒ 대안 순서 = 릴리즈 키스토어 + AAB 산출(⑥, 짧고 확실).
 - 🔜 **다음(우선·진행 중) = ⭐ Phase V W1 실행**: ① **실기기(안드로이드) 플테 빌드 준비** — export preset이 `Web`뿐이라 안드로이드 preset·디버그 APK 경로부터 · ② **애널리틱스 배선**(`ANALYTICS_TAXONOMY.md` P0 이벤트를 `leaderboard.gd`식 서비스 이음새 뒤로, 플랫폼 SDK는 stub) + Firebase 프로젝트 개설(유저 몫) · ③ 피험자 5~10명 섭외(유저 몫, `PLAYTEST_PROTOCOL.md`) → 이후 W2 **광고 SDK**(최대 지뢰, 맨 뒤 금지) → W3 **실 리더보드 + 목업 소셜 제거** → W4 **클로즈드 트랙 + Tier-1 영어권 + 소액 UA + kill/promote 임계값**.
 - 🔜 **후순위(데이터 후)**: 점착 구현(키스톤·막힘문 몫) · 스테이지 12~15 확장 · **Protect R2/R3 + 라이브 이벤트 저작** · 오늘의 판 재개(C60 ② 안전망 on 설계) · 공유 카드 · 캠페인 펀치리스트 #7(첫등장 콜아웃 겹침)·#9(메뉴 세로 여백)
 - ⛔ **폐기**: 조커/개조 · 로그라이트 런 · 색-회로 기계 축 (근거: SPEC 결정 로그 C24·C50)
