@@ -81,7 +81,7 @@ R1에서 실배선: `ad_requested` · `ad_filled` / `ad_no_fill` · `ad_shown` �
 |---|---|
 | 플러그인 | `addons/admob/` (v5.0.0). 샘플 앱은 뺐다 — 샘플 번역이 `project.godot`에 등록되면 우리 커스텀 `_t()` i18n과 무관한 로케일 파일이 딸려 온다 |
 | 안드로이드 네이티브 바이너리 | `addons/admob/android/bin/` — **일부러 커밋한다**(업스트림 기본은 무시). 안 하면 헤드리스 export가 매번 GitHub에서 aar을 내려받는다(`binary_installer.gd`는 *헤드리스일 때만* 자동 설치 = 정확히 우리 CLI 빌드 경로) |
-| 활성화 | `project.godot` `[editor_plugins]`. ⚠Godot이 `project.godot`을 저장할 때 **주석을 전부 지운다** — 이 파일엔 설명을 달지 말 것 |
+| 활성화 | `project.godot` `[editor_plugins]`. ⚠에디터가 이 파일을 다시 쓰면 **주석이 통째로 날아간다**(값은 유지) — 에디터/창 모드 실행 뒤엔 `git diff project.godot`로 주석 소실을 확인할 것 |
 | App ID | 프로젝트 설정 기본값(= 구글 테스트 앱 ID)이라 `project.godot`에 안 적힌다(값이 기본값과 같으면 Godot이 저장을 생략). R3에서 실 ID로 바꾸면 그때 파일에 남는다 |
 | 유닛 ID | `ad_service.gd` 상단 상수 4개 |
 | 실 백엔드 스위치 | `_platform_on` — 안드로이드/iOS면 자동, 데스크톱은 `--ad-mock`을 줬을 때만 |
