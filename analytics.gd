@@ -27,6 +27,8 @@ const P0_EVENTS: Array = [
 	"revive_offered", "revive_taken", "revive_declined",
 	"tutorial_beat_completed", "first_line_cleared",
 	"endless_run_ended", "combo_peak",
+	# P2 — W2 광고 배선(§3-7). 발화 주체는 AdService 자신이다(게임 코드는 광고 계측을 모른다).
+	"ad_requested", "ad_filled", "ad_no_fill", "ad_shown", "ad_rewarded", "ad_closed",
 ]
 
 var enabled: bool = true          # 하네스·헤드리스에선 _init이 false로 내린다
