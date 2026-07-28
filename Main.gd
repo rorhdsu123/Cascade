@@ -257,8 +257,10 @@ const STAGES: Array = [
 	},
 ]
 
-# 조각 색 키 (시각용만)
-const COLORS: Array = ["R", "B", "Y"]
+# 조각 색 키 (시각용만 — 클리어는 순수 기하, 색-매칭 기전 없음).
+#   6색 카테고리컬 팔레트: 빨(R)·주(O)·노(Y)·초(G)·파(B)·보-마젠타(P). 색상환 6방향 = 각각 다른 카테고리.
+#   색 뽑기는 randi() 1회 유지 → 조각 '모양' 시퀀스 불변(회귀 byte-identical). 헥스·근거는 아래 색상 상수 참조.
+const COLORS: Array = ["R", "O", "Y", "G", "B", "P"]
 
 # 트레이 UI
 const TRAY_SLOT_W: int = 120
@@ -314,9 +316,18 @@ const CORE_HOLD: float = 0.35        # 텅 빈 보드를 보는 시간
 const CORE_GRAVITY: float = 6500.0   # px/s² — CORE_FALL_DUR 안에 화면을 벗어나는 세기
 
 # 색상
-const C_RED  := Color("#e5484d")
-const C_BLUE := Color("#3b82f6")
-const C_YELL := Color("#eab308")
+# 조각 6색 = 색상환 6방향(빨·주·노·초·파·보) 카테고리컬 팔레트. 색은 순수 장식(클리어=기하, 색-매칭 없음).
+#   설계: 사람은 색을 '이름'으로 범주화 → 같은 계열(빨/핑크·파/시안)은 '같은 색'으로 인지됨. 그래서
+#   따뜻한색 구역에 몰지 않고 색상환 전체에 펼쳐 각각 다른 카테고리로 만든다. 지각거리 CIELAB 상호 최소 ΔE≈39
+#   (전 쌍 >25=명확 구분), 밝기 L* 57~86까지 변주(색상 외 이중 인코딩). 색맹 제약 없음(색=무의미 장식).
+#   적과의 분리는 색이 아니라 어두운 rim+실루엣이 구조로 보장([[C_E_RIM]]) → 블록이 적 색상계열을 피할 필요 없음.
+#   보라(P)만 상시 적 basic(#a855f7)과 근접해 마젠타 쪽으로 밀어 ΔE=32 확보(thief=16, thief는 rare+후드 form).
+const C_RED    := Color("#ff5a52")   # 빨강
+const C_ORANGE := Color("#ff8c1a")   # 주황
+const C_YELL   := Color("#ffd23b")   # 노랑
+const C_GREEN  := Color("#35cf7a")   # 초록(swarm 라임 #a3e635과 계열 다름 + rim)
+const C_BLUE   := Color("#4a90ff")   # 파랑
+const C_PURPLE := Color("#d94fc8")   # 보라-마젠타(basic 바이올렛서 밀어냄)
 const C_BG   := Color("#0d0d1a")
 const C_BG_PB := Color("#2a2470")     # 존1(밝은 인디고). 여백·상하단바가 절대점수 존마다 이 계열로 이산 전환. 8×8 셀은 원색 유지(다크 아일랜드).
 # ── 절대점수 존 = '밤하늘 상승'(이산 단계, 매 판) ── 난이도(PB 너머, 개인축)와 분리한 '스펙터클' 축(절대점수).
@@ -434,6 +445,7 @@ const StageMode = preload("res://modes/stage_mode.gd")
 const EndlessMode = preload("res://modes/endless_mode.gd")
 const FeaturedMode = preload("res://modes/featured_mode.gd")
 const LeaderboardService = preload("res://leaderboard.gd")   # 점수 저장·제출 이음새 (C64)
+const AnalyticsService = preload("res://analytics.gd")       # 이벤트 계측 이음새 (Phase V W1 — 설계 정본 ANALYTICS_TAXONOMY.md)
 var director: GameMode = null    # 감독(스폰·난이도·종료 결정). _start_stage에서 st와 함께 세팅
 
 # 무한모드(감독=EndlessMode) — 캠페인 스테이지와 형제. C52 설계·C56 game_rng 분리.
@@ -444,6 +456,11 @@ var endless_score: int = 0         # 이번 런 점수 = Σ(줄×기본점 + 처
 var endless_score_shown: float = 0.0  # 표시용 롤업 점수(C90): endless_score로 또르르 이징. HUD·크라운·PB돌파 판정이 이 값을 씀(스냅 대신 리듬).
 var endless_best: int = 0          # 로컬 베스트(리더보드 서비스가 소유, 여기선 읽기 캐시로 미러)
 var _leaderboard := LeaderboardService.new()   # 점수 저장·제출 이음새 — 파일/플랫폼 접근을 여기로만 (기획: endless-leaderboard-design)
+# 계측 이음새 — 이벤트는 전부 이 서비스로만 흘린다(SDK·파일 직접 접근 금지). 헤드리스(회귀·시뮬·프로브)에선
+#   서비스가 스스로 꺼진다. 관찰자라 게임 상태에 아무것도 안 돌려준다 = 회귀 불변.
+var _analytics := AnalyticsService.new()
+var run_max_combo: int = 0         # 이번 판 최대 콤보(계측 combo_peak — 봇 ~7 대비 사람은?). _init_game서 리셋
+var _revive_offer_open: bool = false  # 부활 제안이 떠 있고 아직 수락/거절 안 됨 → 이탈 시 revive_declined 1회
 var endless_prev_best: int = 0     # 런 시작 시점의 베스트(결과 팝업 델타 표시용)
 var endless_new_best: bool = false # 이번 런이 신기록인가(결과 팝업 배지)
 var endless_beat_best: bool = false # 판 중에 이미 최고를 넘었나(HUD 실시간 갱신 신호)
@@ -668,6 +685,7 @@ func _ready() -> void:
 	game_rng.randomize()  # 게임 스트림(프리플레이 기본; 데일리/회귀는 seed_game으로 덮어씀)
 	_load_settings()
 	_load_campaign()
+	_analytics.session_begin()           # 계측 세션 시작(app_opened) — 판·화면보다 먼저여야 첫 판이 이 세션에 묶인다
 	endless_best = _leaderboard.best()   # 로컬 베스트는 LeaderboardService가 소유·로드 — 여기선 캐시로 미러(C64 이음새)
 	_locale = I18N.resolve_locale(OS.get_locale_language())
 	# 번들 폰트(res://) — 시스템폰트 의존 제거. Noto Sans가 라틴/키릴/그리스를 커버(영어 우선 출시).
@@ -798,6 +816,103 @@ func _save_campaign() -> void:
 	if f != null:
 		f.store_32(mask)
 		f.close()
+
+# ===== 계측 (Phase V W1 — 정본: ANALYTICS_TAXONOMY.md) =====
+# 발화를 여기 모은다. 게임 로직 사이에 흩어 놓으면 '무엇을 재고 있나'가 코드에서 안 보이고,
+#   나중에 이벤트를 바꿀 때 놓치는 자리가 생긴다(리더보드 이음새와 같은 원칙 = 접점 한 곳).
+# 규칙 3개:
+#   ① 관찰만 — 이 함수들은 게임 값을 절대 안 바꾼다(회귀 불변). ② 판 경계에서만 — 고빈도 이벤트는
+#   택소노미 §8-1대로 판당 요약으로 접는다. ③ 원인(cause)은 반드시 실린다 — '죽음의 질'이 이 스프린트의 핵심 질문.
+
+# 어느 기둥에서 벌어진 일인가(§2에서 가장 중요한 축). 관측용 플래그를 여기서만 읽는다.
+func _analytics_mode() -> String:
+	if featured:
+		return "featured"
+	if endless:
+		return "endless"
+	return "campaign"
+
+# 목표 동사(4종 확정 — Hold/Collect/Defuse/Protect). 스테이지 정의에서 파생 = 새 스테이지가 늘어도 자동.
+func _analytics_goal() -> String:
+	if bool(st.get("boss", false)):
+		return "boss"
+	if bool(st.get("collect", false)):
+		return "collect"
+	if bool(st.get("protect", false)):
+		return "protect"
+	if int((st.get("weights", {}) as Dictionary).get("bomb", 0)) > 0:
+		return "defuse"
+	return "hold"
+
+# 보드 점유율(%) — 죽음 순간의 압박도. 막힘사/거점사가 각각 어떤 보드에서 나는지 구분한다.
+func _board_fill_pct() -> int:
+	var used: int = 0
+	for r in range(ROWS):
+		for c in range(COLS):
+			if board[r][c] != "":
+				used += 1
+	return int(round(float(used) * 100.0 / float(ROWS * COLS)))
+
+# 판 시작 — _init_game 뒤(상태가 다 선 뒤)에 부른다.
+func _track_run_start() -> void:
+	var p: Dictionary = {"goal_type": _analytics_goal(), "core_hp_max": director.core_hp_max()}
+	if not endless:
+		p["stage_id"] = stage_idx + 1
+		p["attempt_n"] = int(fail_streak.get(stage_idx, 0)) + 1   # 이 스테이지 몇 번째 시도인가(벽 탐지)
+	_analytics.run_begin(_analytics_mode(), game_seed, p)
+
+# 판 실패 — cause가 핵심(core_death=밀물에 밀림 / stuck=패킹 실패 / vault_lost=다 털림).
+#   부활 제안이 뜨는 자리이기도 하다: 제안 노출을 여기서 함께 남겨야 전환율(taken/offered)이 조립된다.
+func _track_run_fail(cause: String) -> void:
+	var p: Dictionary = {
+		"cause": cause,
+		"duration_ms": _analytics.run_duration_ms(),
+		"enemies_leaked": leaked,
+		"kills": killed,
+		"board_fill_pct": _board_fill_pct(),
+		"place_count": place_count,
+		"did_revive": revive_used,
+	}
+	if not endless:
+		p["stage_id"] = stage_idx + 1
+	_analytics.log_event("run_failed", p)
+	if not endless:
+		_analytics.log_event("stage_failed", {
+			"stage_id": stage_idx + 1, "cause": cause,
+			"attempt_n": int(fail_streak.get(stage_idx, 0)),   # _end_turn서 이미 +1 된 값 = 이번이 몇 번째 실패
+		})
+	else:
+		_track_endless_end(cause)
+	# 부활 제안 노출 — 판당 1회만 가능(revive_used). 거절은 팝업을 떠날 때 잡는다(_track_revive_dismissed).
+	if not revive_used:
+		_revive_offer_open = true
+		_analytics.log_event("revive_offered", {"cause": cause, "is_ad_ready": false})   # 실광고는 W2, 지금은 스텁
+	_analytics.run_end(run_max_combo)
+
+# 무한 런 종료 — 점수 축 성과. 깊이 = 배치 횟수(무한 HUD의 '깊이'와 같은 값).
+func _track_endless_end(cause: String) -> void:
+	_analytics.log_event("endless_run_ended", {
+		"score": endless_score, "max_depth": place_count, "kills": killed,
+		"max_combo": run_max_combo, "cause": cause,
+		"beat_pb": endless_score > endless_prev_best, "did_revive": revive_used,
+	})
+
+# 스테이지 클리어 — 캠페인 진행 퍼널. DDA 구제를 얼마나 받았는지가 난이도 해석의 단서.
+func _track_stage_clear() -> void:
+	_analytics.log_event("stage_cleared", {
+		"stage_id": stage_idx + 1, "goal_type": _analytics_goal(),
+		"duration_ms": _analytics.run_duration_ms(), "max_combo": run_max_combo,
+		"kills": killed, "leaked": leaked, "did_revive": revive_used,
+	})
+	_analytics.run_end(run_max_combo)
+
+# 부활 제안을 수락 없이 떠남 = 거절. dismiss_type(retry/home/back)이 '억울한 죽음' 판독의 단서 —
+#   거절 직후 세션이 끝나는 원인(cause)이 있으면 그게 부활 아니라 이탈을 부르는 죽음이다(§5).
+func _track_revive_dismissed(dismiss_type: String) -> void:
+	if not _revive_offer_open:
+		return
+	_revive_offer_open = false
+	_analytics.log_event("revive_declined", {"dismiss_type": dismiss_type})
 
 # 점수 가산 + 판 중 최고 갱신 감지(HUD 실시간 신호). best>0일 때만 = 첫 판(best 0)은 '갱신'이 무의미.
 func _add_endless_score(pts: int) -> void:
@@ -978,6 +1093,8 @@ func _init_game() -> void:
 	combo = 0
 	combo_miss = 0
 	drought = 0
+	run_max_combo = 0        # 계측: 이번 판 최대 콤보(combo_peak)
+	_revive_offer_open = false
 	game_over = false
 	game_clear = false
 	settings_open = false
@@ -1058,6 +1175,9 @@ func _init_game() -> void:
 	tut_leak_taught = false
 	tut_flash_msg = ""
 	tut_flash_t = 0.0
+	# 계측: 판 좌표(run_id·mode·seed) 개시. 아래 시작-적 배치·즉시 막힘 판정보다 먼저여야
+	#   '시작하자마자 막힘'도 이 판에 묶인다(그 판만 run_started 없이 run_failed가 뜨는 구멍 방지).
+	_track_run_start()
 	if _tut_active():
 		_tut_setup_beat1()
 		return
@@ -1074,6 +1194,7 @@ func _init_game() -> void:
 		game_over = true
 		stuck = true
 		_begin_stuck_death()
+		_track_run_fail("stuck_at_start")   # 시작부터 놓을 곳 없음(희귀) — 일반 막힘사와 구분해 둔다
 
 # 튜토리얼(스테이지1 첫 실행) 상태머신. phase 0=off/종료·1=박자1(십자 QUAD)·2=박자2(세로줄 격추).
 # tut_lock 중엔 tut_cells(정확한 목표 칸)에만 놓게 강제 → 전원 동일 경험. 놓는 순간 풀린다(_place_piece).
@@ -1403,10 +1524,16 @@ func _color_of(key: String) -> Color:
 	match key:
 		"R":
 			return C_RED
-		"B":
-			return C_BLUE
+		"O":
+			return C_ORANGE
 		"Y":
 			return C_YELL
+		"G":
+			return C_GREEN
+		"B":
+			return C_BLUE
+		"P":
+			return C_PURPLE
 		"#":
 			return C_DEBRIS   # 뿌리(잠긴 셀) — 충전 연출 경로가 이 색을 읽는다
 		"H":
@@ -2026,6 +2153,7 @@ func _reveal_leaks() -> void:
 		#   여기에 사건 캡션 한 번만 얹어 "왜 아팠나"를 말로 묶어준다(1회성, 강제 아님).
 		if _tut_active() and not tut_leak_taught:
 			tut_leak_taught = true
+			_analytics.log_event("tutorial_beat_completed", {"beat": 3})
 			tut_flash_msg = _t("tut_leak")
 			tut_flash_t = TUT_FLASH_DUR
 	pending_leaks = []
@@ -2071,7 +2199,7 @@ func _reveal_detonations() -> void:
 #   RNG 없음(결정적) = 회귀 안전. 지울 수 있는 블록이라 라인으로 파낼 수 있으되, 어정쩡하게 쌓여 패킹을 무너뜨린다.
 func _dump_junk(col: int, n: int) -> void:
 	var order: Array = [col, col - 1, col + 1, col - 2, col + 2]
-	var palette: Array = ["R", "B", "Y"]
+	var palette: Array = COLORS   # 6색 통일(pk % size로 결정적 순환 — RNG 없음, 회귀 안전)
 	var placed: int = 0
 	var pk: int = 0
 	while placed < n:
@@ -2109,12 +2237,14 @@ func _end_turn() -> void:
 	# 박자1 QUAD 직후 → 박자2 진입: 무대 없이 '정상 플레이 + 안내 문구'. 실제 적이 내려온다(아래 advance_step이 스폰).
 	#   동결·강제 없음 = 진짜 게임을 가르침. 조준 링(놓으면 죽을 적)이 부드러운 힌트로 작동.
 	if tut_phase == 1:
+		_analytics.log_event("tutorial_beat_completed", {"beat": 1})
 		tut_phase = 2
 		tut_msg = _t("tut_kill")
 		tut_cells = []
 		_refill_tray()      # 큰 세로 조각으로 교체(phase==2 분기) → 2~3개로 기둥 세우기
 	# 박자2: 유저가 첫 적을 줄로 잡으면(killed>0) "지우기=공격" 학습 완료 → 튜토리얼 종료.
 	elif tut_phase == 2 and killed > 0:
+		_analytics.log_event("tutorial_beat_completed", {"beat": 2})
 		tut_phase = 0
 		tut_msg = ""
 	advance_step()          # 적 이동(step_every 주기)·누수(거점 피해)·스폰
@@ -2137,6 +2267,7 @@ func _end_turn() -> void:
 			core_death_armed = true   # 하트 착지 틱(_process)에서 _begin_core_death 발화
 		else:
 			_begin_core_death()
+		_track_run_fail("core_death")   # 계측은 연출 지연과 무관하게 판정 순간에 남긴다(연출은 그림, 사실은 여기)
 		return
 	# 금고 전소 = 상실축 패배(거점사와 병렬 경로). 도둑에게 다 털린 게임오버 — 거점은 멀쩡해도 진다.
 	if pending_vault_dead:
@@ -2144,6 +2275,7 @@ func _end_turn() -> void:
 		pending_vault_dead = false
 		fail_streak[stage_idx] = int(fail_streak.get(stage_idx, 0)) + 1
 		_begin_core_death()   # TODO(렌더): 금고-전소 전용 연출로 분기(현재는 거점 붕괴 재사용)
+		_track_run_fail("vault_lost")   # Protect 동사의 고유 패배(상실축) — 거점사와 섞이면 동사 평가가 안 됨
 		return
 	_boss_foul()             # 보스 스테이지: 감시자가 이번 턴에 잔해를 떨굴 수 있다(막힘 판정 전 = 파울이 스터크 유발 가능)
 	_check_win()
@@ -2152,6 +2284,7 @@ func _end_turn() -> void:
 		stuck = true
 		_begin_stuck_death()
 		fail_streak[stage_idx] = int(fail_streak.get(stage_idx, 0)) + 1
+		_track_run_fail("stuck")
 
 # 감시자 머리 설치 — head_cols × head_rows 슬래브를 board 상단에 "H"로 심는다. boss_hp = 그 셀 수.
 # ⚠머리가 한 행을 통째로 채우면 배치 순간 자동 클리어된다 → head_cols는 반드시 일부 열만(양옆 빈칸 남김).
@@ -2543,6 +2676,7 @@ func _check_win() -> void:
 		_save_campaign()               # 진행도 즉시 영속 — 앱을 닫아도 해금 유지
 		fail_streak[stage_idx] = 0     # 깼으니 갓 모드 해제
 		_spawn_confetti()              # 클리어 축하 — 3색 색종이가 위에서 쏟아진다(경축, 공격 아님)
+		_track_stage_clear()
 
 # 클리어 축하 색종이. 화면 위에서 3색(조각 색) 조각이 나풀나풀 떨어진다.
 #   방향(위→아래)이 골드 충격파(중앙→바깥, 공격)와 반대라 '경축'으로 읽힌다. 색은 R/B/Y =
@@ -2667,6 +2801,8 @@ func _place_piece() -> void:
 		combo += 1
 		combo_miss = 0
 		drought = 0
+		run_max_combo = maxi(run_max_combo, combo)   # 계측: 판당 최대 콤보(종료 시 combo_peak로 1회 발화)
+		_analytics.first_line_cleared()              # 세션 첫 줄만 기록(첫 도파민까지 시간) — 서비스가 1회 게이팅
 		_begin_resolve(rows, cols)   # 공격 재생 → 끝나면 _finish_resolve→_end_turn
 	else:
 		# 헛수 1회는 유예(COMBO_GRACE) — 연속으로 더 놓치면 그때 스트릭이 끊긴다
@@ -2723,8 +2859,17 @@ func _return_held() -> void:
 #   껐으므로 여기서 직접 한 단계씩 되돌린다. 안 그러면 판 중에 뒤로가기 한 번으로 앱이 통째로 꺼진다.
 #   사다리: 모달 닫기 → 결과 팝업은 홈 → 플레이 중엔 일시정지(설정) → 하위 화면은 허브 → 허브에서만 종료.
 func _notification(what: int) -> void:
+	# 계측 세션 경계 — 모바일에선 '종료'가 잘 안 오고 백그라운드 전환이 실제 세션 끝이다.
+	#   그래서 PAUSED에서 닫고 RESUMED에서 새로 연다(세션 길이가 실제 체류와 맞아떨어지게).
+	if what == NOTIFICATION_WM_CLOSE_REQUEST or what == NOTIFICATION_APPLICATION_PAUSED:
+		_analytics.session_end()
+		return
+	if what == NOTIFICATION_APPLICATION_RESUMED:
+		_analytics.session_begin()
+		return
 	if what != NOTIFICATION_WM_GO_BACK_REQUEST:
 		return
+	_track_revive_dismissed("back")   # 결과 팝업에서 뒤로가기 = 부활 거절(아래 홈 분기보다 먼저 잡는다)
 	if settings_open:
 		settings_open = false
 	elif mode == "play" and (game_over or game_clear):
@@ -2888,8 +3033,10 @@ func _input(event: InputEvent) -> void:
 				if has_cont and (lay["cont"] as Rect2).has_point(mbe.position):
 					_revive()
 				elif (lay["retry"] as Rect2).has_point(mbe.position):
+					_track_revive_dismissed("retry")
 					_result_advance()
 				elif (lay["home"] as Rect2).has_point(mbe.position):
+					_track_revive_dismissed("home")
 					mode = _home_mode()
 		elif event is InputEventKey:
 			var ke: InputEventKey = event as InputEventKey
@@ -2898,8 +3045,10 @@ func _input(event: InputEvent) -> void:
 				if has_cont:
 					_revive()
 				else:
+					_track_revive_dismissed("retry")
 					_result_advance()
 			elif ke.pressed and ke.keycode == KEY_ESCAPE:
+				_track_revive_dismissed("home")
 				mode = _home_mode()
 		return
 
@@ -3681,6 +3830,9 @@ func _result_layout() -> Dictionary:
 #   부분 개입). 단순 HP 복구만이면 서지 구간 즉사 재발(C47 경계). ⚠광고는 프로토 스텁.
 func _revive() -> void:
 	var was_stuck: bool = stuck
+	# 계측: 부활 전환(핵심 수익 신호). 지금은 광고 스텁이라 method=stub — W2에서 ad_reward로 승격.
+	_revive_offer_open = false
+	_analytics.log_event("revive_taken", {"cause": "stuck" if was_stuck else "core_death", "method": "stub"})
 	revive_used = true
 	game_over = false
 	stuck = false
@@ -3793,9 +3945,11 @@ func _settings_click(pos: Vector2, lay: Dictionary) -> void:
 		_save_settings()
 	elif (lay["home_btn"] as Rect2).has_point(pos):
 		settings_open = false
+		_track_revive_dismissed("home")
 		mode = _home_mode()               # 홈 = 허브(결과팝업 '홈으로'와 동일 경로)
 	elif (lay["replay_btn"] as Rect2).has_point(pos):
 		settings_open = false
+		_track_revive_dismissed("retry")
 		_result_advance()                 # 재시작 = 감독이 정하는 재도전(스테이지=현 스테이지, 무한=새 런)
 	# 그 밖(패널 빈 곳·스크림)은 무시 = 모달. 잘못 눌러 튕기는 사고 방지(결과팝업과 동일 원칙).
 
