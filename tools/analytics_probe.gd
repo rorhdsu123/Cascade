@@ -252,7 +252,9 @@ func _run() -> void:
 			beats[int(de.get("beat", 0))] = true
 	_check("tutorial_beat_completed 박자1", beats.has(1))
 	_check("tutorial_beat_completed 박자2", beats.has(2))
-	_check("tutorial_beat_completed 박자3", beats.has(3), "첫 누수가 안 났다 — 시드/배치예산 재탐색 필요")
+	# ⚠박자3이 FAIL이면 = 이 시드 판에서 첫 누수가 안 났다는 뜻 → CAMPAIGN_SEED 재탐색(PROBE_SEED로 후보 스윕)
+	#   또는 CAMPAIGN_PLACES를 늘린다. 계측 파손이 아니라 판이 바뀐 것일 수 있으니 둘을 구분해서 볼 것.
+	_check("tutorial_beat_completed 박자3", beats.has(3))
 
 	# 공통 좌표(§2) — 판 안에서 난 이벤트엔 mode/run_id가 반드시 붙는다
 	var missing_coord: int = 0
