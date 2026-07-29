@@ -1015,6 +1015,7 @@ func _init_game() -> void:
 	tut_leak_taught = false
 	tut_flash_msg = ""
 	tut_flash_t = 0.0
+	tut_clears = 0
 	# 계측: 판 좌표(run_id·mode·seed) 개시. 아래 시작-적 배치·즉시 막힘 판정보다 먼저여야
 	#   '시작하자마자 막힘'도 이 판에 묶인다(그 판만 run_started 없이 run_failed가 뜨는 구멍 방지).
 	_track_run_start()
@@ -1042,6 +1043,11 @@ var tut_phase: int = 0
 var tut_lock: bool = false
 var tut_cells: Array = []       # 이번 박자에 채워야 할 목표 칸(Vector2i col,row) — 잠금·타깃 큐 공유 출처
 var tut_msg: String = ""        # 상단 안내 문구(박자2 "적이 내려와요…") — 서 있는 상태 지시(지속)
+# 박자2 안전밸브: 줄은 냈는데 적 레인을 못 맞춰 killed==0인 채 계속 도는 걸 막는다.
+#   콤보1은 레인 1개만 때리므로(_blast_band) 기둥을 빈 열에 세우면 처치가 안 난다 —
+#   그 상태로 지시 문구가 영영 남으면 "뭘 더 해야 하지"가 된다. N번 터뜨렸으면 배운 걸로 친다.
+const TUT_BEAT2_MAX_CLEARS: int = 3
+var tut_clears: int = 0         # 박자2 동안 완성한 줄 수(_place_piece서 증가, _init_game서 리셋)
 # 박자3(손해 학습): 첫 누수(거점 피격)에 딱 한 번, 사건에 얹는 짧은 캡션. 스크립트 강제 없이
 #   '진짜로 놓쳤을 때'만 발화 → 방어 절반을 몸으로 배운다. tut_msg(지시)와 별개 채널(사건·타임드).
 const TUT_FLASH_DUR: float = 3.6
@@ -1072,9 +1078,17 @@ func _tut_setup_beat1() -> void:
 	tut_phase = 1
 	tut_lock = true   # 중앙 홈에만 놓게 잠금 → 전원 QUAD 동일 경험
 
-# 박자 2는 별도 세팅 함수가 없다 — 무대 없이 '정상 플레이 + 안내 문구'(_end_turn 참조).
-# 실제 적이 내려오고, 조준 링이 힌트로 작동하며, 유저가 줄로 잡으면 종료. 동결·강제 없음.
-# 단, 트레이만 큰 세로 조각으로 줘서 2~3개로 기둥을 세우기 쉽게 한다(_refill_tray, 부드러운 세로 유도).
+# 박자 2 — 무대 없이 '정상 플레이 + 안내 문구'. 실제 적이 내려오고, 조준 링이 힌트로 작동하며,
+# 유저가 줄로 잡으면 종료. 동결·강제 없음. 유도는 트레이 한 벌뿐이다:
+#   I5v(5) + I3v(3) = 정확히 8칸 = 세로줄 하나. 세 번째 슬롯은 비운다 — 예전엔 Iv(4칸)가 붙어 있어
+#   기둥을 세우고도 남는 조각을 어딘가 버려야 리필이 왔다(엉뚱한 4칸이 보드에 남음).
+# ⚠이 트레이는 박자2 진입 시 딱 한 벌만 준다. 예전엔 _refill_tray가 tut_phase==2인 동안
+#   매 리필마다 같은 세로 3개(색까지 동일)를 다시 깔아서, 첫 처치가 늦으면 3턴·6턴·9턴…
+#   "세로 막대만 계속 나온다"가 됐다. 유도는 1회, 그 뒤는 정상 풀(POOL_RICH)로 돌아간다.
+func _tut_setup_beat2() -> void:
+	tray = [_tut_v_piece("I5v", "B"), _tut_v_piece("I3v", "Y"), {}]
+	sel = 0
+
 func _tut_v_piece(ty: String, col: String) -> Dictionary:
 	return {"type": ty, "color": col, "offsets": (PIECES[ty] as Array).duplicate()}
 
@@ -1327,12 +1341,7 @@ func _tray_any_placeable() -> bool:
 # ⚠공정성: '받자마자 셋 다 못 놓는' 즉사(실측 막힘사망의 11~27%)는 플레이어 실수가 아니라 딜 사고.
 #   최소 하나는 놓을 수 있는 트레이가 나올 때까지 다시 굴린다(막힘은 이제 '스스로 몰린 결과'로만).
 func _refill_tray() -> void:
-	if tut_phase == 2:
-		# 박자2: 큰 세로 조각(I5v+I3v면 8칸 기둥 = 2개로 완성)을 줘서 2~3개로 세로줄을 세워 적을 잡게 한다.
-		#   부드러운 세로 유도 — 자유 배치는 그대로(잠금 없음), 조각 구성만 기둥 세우기 쉽게.
-		tray = [_tut_v_piece("I5v", "B"), _tut_v_piece("I3v", "Y"), _tut_v_piece("Iv", "R")]
-		sel = 0
-		return
+	# ⚠박자2 세로 유도는 여기 없다 — 진입 시 _tut_setup_beat2()가 한 벌만 깐다(반복 배급 금지).
 	if director.deterministic_track():
 		# 결정적 트랙은 재추첨 금지(보드-반응 = 결정성 파괴). 못 놓는 트레이도 그대로 → 막힘사(부활 가능).
 		for i in range(3):
@@ -2081,10 +2090,13 @@ func _end_turn() -> void:
 		tut_phase = 2
 		tut_msg = _t("tut_kill")
 		tut_cells = []
-		_refill_tray()      # 큰 세로 조각으로 교체(phase==2 분기) → 2~3개로 기둥 세우기
+		_tut_setup_beat2()  # 세로 유도 트레이 1회(I5v+I3v = 8칸 기둥). 이후 리필은 정상 풀.
 	# 박자2: 유저가 첫 적을 줄로 잡으면(killed>0) "지우기=공격" 학습 완료 → 튜토리얼 종료.
-	elif tut_phase == 2 and killed > 0:
-		_analytics.log_event("tutorial_beat_completed", {"beat": 2})
+	#   안전밸브: 처치는 못 했어도 줄을 여러 번 냈으면 종료한다(빈 열에 기둥을 세우면 killed==0이
+	#   계속 유지돼 지시 문구가 안 사라짐 — 배운 사람을 붙잡아 두지 않는다).
+	elif tut_phase == 2 and (killed > 0 or tut_clears >= TUT_BEAT2_MAX_CLEARS):
+		# bail = 처치 없이 밸브로 빠져나옴. 완주율(§5)에 섞이면 박자2 이탈이 가려진다.
+		_analytics.log_event("tutorial_beat_completed", {"beat": 2, "bail": killed <= 0})
 		tut_phase = 0
 		tut_msg = ""
 	advance_step()          # 적 이동(step_every 주기)·누수(거점 피해)·스폰
@@ -2652,6 +2664,8 @@ func _place_piece() -> void:
 		combo += 1
 		combo_miss = 0
 		drought = 0
+		if tut_phase == 2:
+			tut_clears += 1              # 박자2 안전밸브 카운터(_end_turn서 판정)
 		run_max_combo = maxi(run_max_combo, combo)   # 계측: 판당 최대 콤보(종료 시 combo_peak로 1회 발화)
 		_analytics.first_line_cleared()              # 세션 첫 줄만 기록(첫 도파민까지 시간) — 서비스가 1회 게이팅
 		_begin_resolve(rows, cols)   # 공격 재생 → 끝나면 _finish_resolve→_end_turn
