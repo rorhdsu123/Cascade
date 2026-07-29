@@ -137,7 +137,9 @@ const STAGES: Array = [
 	{
 		# 2종 수집(G2 심화). 보석은 S5처럼 전경(gem_every 2·floor 2)이되, 사다리는 물량이 아니라 '필요한 색 고르기 + tank 방어압'으로.
 		# 두 색 quota 8+8을 동시에 채워야 = 아무 보석이나 못 줍고 '필요한 색'을 골라 조준(새 결정 深). tank↑로 질(質)의 압박.
-		"name": "st10_name", "tag": "st10_tag", "collect": true, "collect_targets": [8, 8], "gem_every": 2, "gem_fast": true,
+		# gem_even_mix: 수요필터 OFF — 두 색을 균등 낙하시켜, 이미 채운 색을 흘려보내며 부족색을 붙잡는 결정이 실제로 생기게.
+		#   (수요필터는 '필요한 색만' 띄워 이 결정을 원천 제거 → 2색이 1색 두배길이로 붕괴. 이 판만 끈다.)
+		"name": "st10_name", "tag": "st10_tag", "collect": true, "collect_targets": [8, 8], "gem_every": 2, "gem_fast": true, "gem_even_mix": true,
 		"total": 300, "core_hp": 3, "base_hp": 32, "hp_ramp": 0.2, "tank_mult": 3.0,
 		"spawn_every": 3, "step_every": 3, "onboard": 2, "floor": 2, "surge_at": 0.0,
 		"weights": {"basic": 45, "fast": 40, "tank": 15, "swarm": 0, "split": 0}, "pool": POOL_STD,

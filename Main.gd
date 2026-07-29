@@ -2398,17 +2398,28 @@ func _collect_done() -> bool:
 			return false
 	return true
 
-# 보석 1개 스폰 — 아직 확보 덜 된 타입 중에서 무작위(확보한 타입은 안 뱉음 = 쓸데없는 보석 방지).
+# 보석 1개 스폰 — 색 고르기.
+#   기본(수요필터): 아직 확보 덜 된 타입 중에서만 무작위 = 쓸데없는 보석 방지(1색판·과스폰 억제).
+#   gem_even_mix(2색+ 심화판): 수요 무관하게 전 색 균등 낙하 = 이미 채운 색도 계속 떨궈,
+#     "필요없는 색은 흘리고 부족한 색 레인을 적 압력 속에 붙잡기"라는 결정을 강제한다.
+#     수요필터는 화면에 항상 '필요한 색'만 띄워 이 결정을 원천 제거했음(2색=1색 두배길이로 붕괴).
+#     전체 스폰 게이트(_collect_done)가 둘 다 확보되면 멈추므로 승리 후 낭비 스폰은 없다.
 #   gem_fast면 위협보다 한 단계 빨리 하강(데드라인 조임). 첫 등장만 콜아웃.
 func _spawn_gem(col: int) -> void:
 	var tgts: Array = st.get("collect_targets", [])
-	var need: Array = []
-	for i in range(tgts.size()):
-		if _gem_secured(i) < int(tgts[i]):
-			need.append(i)
-	if need.is_empty():
+	if tgts.is_empty():
 		return
-	var gt: int = int(need[game_rng.randi() % need.size()])
+	var gt: int
+	if bool(st.get("gem_even_mix", false)):
+		gt = game_rng.randi() % tgts.size()
+	else:
+		var need: Array = []
+		for i in range(tgts.size()):
+			if _gem_secured(i) < int(tgts[i]):
+				need.append(i)
+		if need.is_empty():
+			return
+		gt = int(need[game_rng.randi() % need.size()])
 	var gstep: int = director.hud_step_every()
 	if bool(st.get("gem_fast", false)):
 		gstep = maxi(1, gstep - 1)
