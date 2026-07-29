@@ -56,15 +56,17 @@ const STAGES: Array = [
 	},
 	{
 		"name": "st3_name", "tag": "st3_tag",
-		"total": 34, "core_hp": 3, "base_hp": 34, "hp_ramp": 0.5, "tank_mult": 2.5,
+		"total": 34, "core_hp": 4, "base_hp": 34, "hp_ramp": 0.5, "tank_mult": 2.5,
 		"spawn_every": 2, "step_every": 3, "onboard": 3, "floor": 5, "surge_at": 0.80,
 		"weights": {"basic": 40, "fast": 50, "tank": 0, "swarm": 10, "split": 0}, "pool": POOL_STD,
 	},
 	{
 		# 퍼즐 축 고립(C54): 새 적 없이 pool LEAN(I5 희소)만으로 압박 = '손이 곧 위협'.
 		# 적은 basic/swarm(이미 배운 것)이라 난이도는 전적으로 조각 분포에서 나온다.
+		# core_hp 5(C96): 온보딩 절벽 완화 — hp3=41% 거점사벽이라 누수 여유만 키움(막힘=퍼즐압은 불변).
+		#   비대칭(st3=4, st4=5): st4가 pool-lean로 구조상 더 어려워 더 큰 보정. sim 41→67.5%.
 		"name": "st4_name", "tag": "st4_tag",
-		"total": 36, "core_hp": 3, "base_hp": 36, "hp_ramp": 0.4, "tank_mult": 2.5,
+		"total": 36, "core_hp": 5, "base_hp": 36, "hp_ramp": 0.4, "tank_mult": 2.5,
 		"spawn_every": 2, "step_every": 3, "onboard": 3, "floor": 5, "surge_at": 0.80,
 		"weights": {"basic": 55, "fast": 0, "tank": 0, "swarm": 45, "split": 0}, "pool": POOL_LEAN,
 	},
@@ -97,8 +99,11 @@ const STAGES: Array = [
 		"weights": {"basic": 40, "fast": 0, "tank": 55, "swarm": 5, "split": 0}, "pool": POOL_STD,
 	},
 	{
+		# 복습판(전 4종 혼합). core_hp 3(C96): hp2=거점사벽 30%로 클라이맥스(st8, 21%)와 동률이라 스파이크 —
+		#   클라이맥스 잠식·비단조 톱니 제거. sim 무릎: hp2→3 +15pt, 3→4 0(패배가 누수사→막힘으로 이동, core_hp 무효).
+		#   복습판은 클라이맥스보다 확실히 위여야 깔때기가 산다. tank_mult/혼합은 성격이라 불변, 누수 여유만.
 		"name": "st6_name", "tag": "st6_tag",
-		"total": 48, "core_hp": 2, "base_hp": 46, "hp_ramp": 0.4, "tank_mult": 4.2,
+		"total": 48, "core_hp": 3, "base_hp": 46, "hp_ramp": 0.4, "tank_mult": 4.2,
 		"spawn_every": 2, "step_every": 3, "onboard": 2, "floor": 6, "surge_at": 0.78,
 		"weights": {"basic": 20, "fast": 35, "tank": 25, "swarm": 20, "split": 0}, "pool": POOL_STD,
 	},
@@ -132,7 +137,9 @@ const STAGES: Array = [
 	{
 		# 2종 수집(G2 심화). 보석은 S5처럼 전경(gem_every 2·floor 2)이되, 사다리는 물량이 아니라 '필요한 색 고르기 + tank 방어압'으로.
 		# 두 색 quota 8+8을 동시에 채워야 = 아무 보석이나 못 줍고 '필요한 색'을 골라 조준(새 결정 深). tank↑로 질(質)의 압박.
-		"name": "st10_name", "tag": "st10_tag", "collect": true, "collect_targets": [8, 8], "gem_every": 2, "gem_fast": true,
+		# gem_even_mix: 수요필터 OFF — 두 색을 균등 낙하시켜, 이미 채운 색을 흘려보내며 부족색을 붙잡는 결정이 실제로 생기게.
+		#   (수요필터는 '필요한 색만' 띄워 이 결정을 원천 제거 → 2색이 1색 두배길이로 붕괴. 이 판만 끈다.)
+		"name": "st10_name", "tag": "st10_tag", "collect": true, "collect_targets": [8, 8], "gem_every": 2, "gem_fast": true, "gem_even_mix": true,
 		"total": 300, "core_hp": 3, "base_hp": 32, "hp_ramp": 0.2, "tank_mult": 3.0,
 		"spawn_every": 3, "step_every": 3, "onboard": 2, "floor": 2, "surge_at": 0.0,
 		"weights": {"basic": 45, "fast": 40, "tank": 15, "swarm": 0, "split": 0}, "pool": POOL_STD,
