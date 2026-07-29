@@ -75,7 +75,7 @@ const CHARGE_TINT: float = 0.45
 # 전부 블록이 사라진 '뒤'에 온다(빛 바 스윕 → 파편 → 텍스트).
 # 사라지는 순간 줄 자리에 색 테두리만 한 순간 남는다 = 소멸의 잔상.
 const LINE_OUTLINE_DUR: float = 0.06
-const PLACE_POP_DUR: float = 0.17   # 블록 착지 팝 지속(짧게 '탁')
+const PLACE_POP_DUR: float = 0.22   # 블록 착지 팝 지속(짧게 '탁'. 0.17은 눈에 안 걸렸다 — 수축은 빠르고 테두리만 더 남는다)
 const REVIVE_CLEAR_ROWS: int = 3    # 막힘 부활 시 비우는 하단 줄 수 (Block Blast식 부분 클리어)
 # 블록이 사라지고 로켓(=빛 바)이 나가기까지의 짧은 빈 줄 간격 (BB 실측 ~0.07s)
 const BURST_GAP: float = 0.07
@@ -2649,9 +2649,36 @@ func _place_piece() -> void:
 	# 착지 팝: 놓은 칸마다 '탁' 들어앉는 신호. 완성 못 시킨 수(절반 이상)도 이제 손맛이 남는다.
 	# 소멸 팝(밖으로 부풂)과 반대로 수축해 '도착'을 말한다. 숫자 없음(C9/C23: 목표는 '남은 적').
 	var place_col: Color = _color_of(active["color"])
+	var dust_col: Color = place_col.lerp(Color(1.0, 1.0, 1.0), 0.7)   # 어두운 보드 위에서 읽히게 밝게
+	var dust_sides: Array = [Vector2i(0, -1), Vector2i(0, 1), Vector2i(-1, 0), Vector2i(1, 0)]
 	for ci2 in cells:
 		var pc2: Vector2i = ci2 as Vector2i
-		place_pops.append({"pos": _cell_center(pc2.x, pc2.y), "life": PLACE_POP_DUR, "max": PLACE_POP_DUR, "color": place_col})
+		var ppos3: Vector2 = _cell_center(pc2.x, pc2.y)
+		place_pops.append({"pos": ppos3, "life": PLACE_POP_DUR, "max": PLACE_POP_DUR, "color": place_col})
+		# 착지 먼지 — 파편 시스템 재사용(마찰+약한 중력이 알아서 가라앉힌다).
+		#   ⚠방향은 '빈 칸 쪽'으로만. 조각 중심 기준 바깥으로 쏘면 I5 같은 일자 조각은 먼지가 통째로
+		#   제 몸통 위에 얹혀 안 보인다(실측). 막힌 칸은 아예 안 튄다 → 보드가 빽빽할수록 저절로 조용해진다.
+		var free_sides: Array = []
+		for sd in dust_sides:
+			var nb: Vector2i = pc2 + (sd as Vector2i)
+			if nb.x < 0 or nb.x >= COLS or nb.y < 0 or nb.y >= ROWS:
+				continue
+			if board[nb.y][nb.x] == "":
+				free_sides.append(sd)
+		if free_sides.is_empty():
+			continue
+		for _k in range(2):
+			var sdv: Vector2i = free_sides[randi() % free_sides.size()] as Vector2i
+			var ddir: Vector2 = Vector2(sdv).rotated(randf_range(-0.45, 0.45))
+			var dlife: float = randf_range(0.22, 0.34)
+			# 셀 '가장자리'에서 태운다 — 중심에서 태우면 수명 내내 자기 칸 안이라 안 보인다(CELL=90).
+			debris.append({
+				"pos": ppos3 + ddir * (CELL * 0.5) + Vector2(sdv.y, sdv.x) * randf_range(-22.0, 22.0),
+				"vel": ddir * randf_range(95.0, 170.0),
+				"life": dlife, "max": dlife,
+				"color": dust_col,
+				"size": randf_range(4.5, 8.0),
+			})
 	# 조각 소비: 트레이 슬롯 비우고 다음 슬롯/리필 (즉시 = 피드백)
 	_consume_slot()
 	# 완성 줄 감지 — 적은 아직 "현재 위치"(이동 전). 로켓이 그 자리 적을 먼저 타격.
@@ -3378,7 +3405,7 @@ func _draw() -> void:
 	# 블록 착지 팝 — 사각형이 '수축'하며 안착(소멸 팝의 부풂과 반대 = 도착). 놓은 색 → 흰 테두리.
 	for ppop in place_pops:
 		var qp: float = clampf(ppop["life"] / ppop["max"], 0.0, 1.0)   # 1→0
-		var psz2: float = CELL * (1.0 + 0.30 * qp)                      # 크게 시작 → 셀 크기로 안착
+		var psz2: float = CELL * (1.0 + 0.34 * qp * qp)                 # 크게 시작 → 빠르게(제곱) 셀 크기로 안착, 테두리만 더 오래 남는다
 		var pcol2: Color = ppop["color"]
 		var ppos2: Vector2 = ppop["pos"]
 		var prect2: Rect2 = Rect2(ppos2 - Vector2(psz2, psz2) * 0.5, Vector2(psz2, psz2))
