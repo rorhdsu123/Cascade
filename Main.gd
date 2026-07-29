@@ -1016,6 +1016,7 @@ func _init_game() -> void:
 	tut_flash_msg = ""
 	tut_flash_t = 0.0
 	tut_clears = 0
+	tut_beat2_dealt = false
 	# 계측: 판 좌표(run_id·mode·seed) 개시. 아래 시작-적 배치·즉시 막힘 판정보다 먼저여야
 	#   '시작하자마자 막힘'도 이 판에 묶인다(그 판만 run_started 없이 run_failed가 뜨는 구멍 방지).
 	_track_run_start()
@@ -1085,7 +1086,18 @@ func _tut_setup_beat1() -> void:
 # ⚠이 트레이는 박자2 진입 시 딱 한 벌만 준다. 예전엔 _refill_tray가 tut_phase==2인 동안
 #   매 리필마다 같은 세로 3개(색까지 동일)를 다시 깔아서, 첫 처치가 늦으면 3턴·6턴·9턴…
 #   "세로 막대만 계속 나온다"가 됐다. 유도는 1회, 그 뒤는 정상 풀(POOL_RICH)로 돌아간다.
+# ⚠배급 시점이 '박자2 진입(_end_turn)'이 아니라 '박자1 조각을 소비하는 순간'인 이유:
+#   _place_piece는 _consume_slot()을 줄 감지보다 먼저 부른다(즉시 피드백). 박자1 트레이는 O 하나뿐이라
+#   놓는 순간 비어서 _refill_tray가 돌고, 그때 phase는 아직 1이다 → 랜덤 3개가 트레이에 깔린다.
+#   그 뒤 QUAD 연출(~0.8s)이 끝나고서야 _end_turn이 박자2 트레이로 갈아치웠다 →
+#   유저 눈엔 "셋팅된 블록 3개가 갑자기 다른 걸로 바뀐다". 그래서 _refill_tray가 phase 1에서
+#   곧장 이 함수로 오고, 아래 플래그로 '어느 경로로 오든 한 벌만'을 보장한다.
+var tut_beat2_dealt: bool = false   # 박자2 트레이를 이미 배급했나(_init_game서 리셋)
+
 func _tut_setup_beat2() -> void:
+	if tut_beat2_dealt:
+		return
+	tut_beat2_dealt = true
 	tray = [_tut_v_piece("I5v", "B"), _tut_v_piece("I3v", "Y"), {}]
 	sel = 0
 
@@ -1341,7 +1353,13 @@ func _tray_any_placeable() -> bool:
 # ⚠공정성: '받자마자 셋 다 못 놓는' 즉사(실측 막힘사망의 11~27%)는 플레이어 실수가 아니라 딜 사고.
 #   최소 하나는 놓을 수 있는 트레이가 나올 때까지 다시 굴린다(막힘은 이제 '스스로 몰린 결과'로만).
 func _refill_tray() -> void:
-	# ⚠박자2 세로 유도는 여기 없다 — 진입 시 _tut_setup_beat2()가 한 벌만 깐다(반복 배급 금지).
+	# 박자1 조각을 놓아 트레이가 빈 순간 여기로 온다(phase는 아직 1 — 전이는 _end_turn서). 랜덤으로
+	#   채우면 QUAD 연출 뒤 박자2 셋업이 그걸 통째로 갈아치워 '블록이 저절로 바뀐다'가 된다.
+	#   → 지금 바로 박자2 트레이를 깔아 스왑 자체를 없앤다(플래그로 1회 보장).
+	if tut_phase == 1:
+		_tut_setup_beat2()
+		return
+	# ⚠박자2 세로 유도는 여기 없다 — 위 1회 배급이 전부다(phase==2 동안 반복 배급 금지).
 	if director.deterministic_track():
 		# 결정적 트랙은 재추첨 금지(보드-반응 = 결정성 파괴). 못 놓는 트레이도 그대로 → 막힘사(부활 가능).
 		for i in range(3):
@@ -2090,7 +2108,7 @@ func _end_turn() -> void:
 		tut_phase = 2
 		tut_msg = _t("tut_kill")
 		tut_cells = []
-		_tut_setup_beat2()  # 세로 유도 트레이 1회(I5v+I3v = 8칸 기둥). 이후 리필은 정상 풀.
+		_tut_setup_beat2()  # 보통은 이미 _refill_tray서 배급됨(플래그로 no-op). 리필이 안 탄 경로 대비.
 	# 박자2: 유저가 첫 적을 줄로 잡으면(killed>0) "지우기=공격" 학습 완료 → 튜토리얼 종료.
 	#   안전밸브: 처치는 못 했어도 줄을 여러 번 냈으면 종료한다(빈 열에 기둥을 세우면 killed==0이
 	#   계속 유지돼 지시 문구가 안 사라짐 — 배운 사람을 붙잡아 두지 않는다).
