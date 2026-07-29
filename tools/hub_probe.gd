@@ -80,21 +80,24 @@ func _run() -> void:
 	await _key(KEY_SPACE)
 	_check("리더보드 SPACE", _state(), "leaderboard")
 
-	print("── 신규: Adventure는 스테이지1(튜토리얼)로 바로 ──")
+	# ⚠기대값 갱신(C92): Adventure는 판으로 직행하지 않는다. 허브 → 진행 리드아웃(select)이고
+	#   실제 진입은 그 화면의 프런티어 버튼 몫 — 판 직행·타일 선택·재플레이는 폐기됐다.
+	#   (여기 기대가 stage0/stage3으로 남아 C92 이후 계속 빨간 채였다. 코드가 아니라 프로브가 낡음.)
+	print("── 신규: Adventure는 진행 화면(select)으로 ──")
 	await _hub({})
 	await _click(ADV)
-	_check("Adventure 클릭", _state(), "stage0")
+	_check("Adventure 클릭", _state(), "select")
 	await _hub({})
 	await _key(KEY_SPACE)
-	_check("SPACE", _state(), "stage0")
+	_check("SPACE", _state(), "select")
 
-	print("── 스테이지1 클리어 후: 무한 해금 + 이어하기 목적지 ──")
+	print("── 스테이지1 클리어 후: 무한 해금 + Adventure는 여전히 진행 화면 ──")
 	await _hub({0: true})
 	await _click(CLASSIC)
 	_check("무한 버튼(해금)", _state(), "endless")
 	await _hub({0: true, 1: true, 2: true})
 	await _click(ADV)
-	_check("이어하기(3개 깸 → 4번째)", _state(), "stage3")
+	_check("Adventure(3개 깸)", _state(), "select")
 
 	print("── 전부 깸: 반복 재도전 대신 목록 ──")
 	var all_c: Dictionary = {}
@@ -110,10 +113,16 @@ func _run() -> void:
 	await _click(CLASSIC)
 	_check("최고점 보유 → 해금", _state(), "endless")
 
-	print("── 리더보드 진입(트로피)은 여전히 열려 있어야 ──")
+	# 진입 스위치(Main.LEADERBOARD_ENABLED)를 따라 기대를 뒤집는다 — 껐으면 '안 열리는 것'이 정답.
+	#   상수를 못 읽어오는 경우는 없다(const도 get으로 읽힌다). 켜면 원래 검사로 자동 복귀.
+	var lb_on: bool = bool(g.get("LEADERBOARD_ENABLED"))
+	print("── 리더보드 진입(트로피): 스위치=%s ──" % ("ON" if lb_on else "OFF"))
 	await _hub({})
 	await _click(LB)
-	_check("트로피", _state(), "leaderboard")
+	_check("트로피", _state(), "leaderboard" if lb_on else "menu")
+	await _hub({})
+	await _key(KEY_L)
+	_check("키보드 L", _state(), "leaderboard" if lb_on else "menu")
 
 	print("\nRESULT: %s (실패 %d)" % ["PASS" if fails == 0 else "FAIL", fails])
 	quit()

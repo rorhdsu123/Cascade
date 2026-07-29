@@ -297,6 +297,12 @@ var endless_score: int = 0         # 이번 런 점수 = Σ(줄×기본점 + 처
 var endless_score_shown: float = 0.0  # 표시용 롤업 점수(C90): endless_score로 또르르 이징. HUD·크라운·PB돌파 판정이 이 값을 씀(스냅 대신 리듬).
 var endless_best: int = 0          # 로컬 베스트(리더보드 서비스가 소유, 여기선 읽기 캐시로 미러)
 var _leaderboard := LeaderboardService.new()   # 점수 저장·제출 이음새 — 파일/플랫폼 접근을 여기로만 (기획: endless-leaderboard-design)
+# 리더보드 화면 진입 스위치(2026-07-29 유저 결정). false면 허브 트로피 버튼·L키가 사라진다.
+#   왜 껐나: 화면의 히어로 두 줄(퍼센타일·친구 순위)이 아직 목업이고, Play Games를 붙여도
+#   소프트런치 인구(테스터 12명+소액 UA)로는 여전히 빈 방이라 지금 켜 두면 가짜 소셜 증거만 남는다.
+#   ⚠끈 것은 '진입'뿐 — 화면(_draw_leaderboard)·입력 분기·LeaderboardService는 그대로 살아 있다.
+#     (점수 영속·PB 램프가 서비스를 계속 쓴다.) 나중에 실 배선하며 이 상수만 true로 되돌리면 부활.
+const LEADERBOARD_ENABLED: bool = false
 # 계측 이음새 — 이벤트는 전부 이 서비스로만 흘린다(SDK·파일 직접 접근 금지). 헤드리스(회귀·시뮬·프로브)에선
 #   서비스가 스스로 꺼진다. 관찰자라 게임 상태에 아무것도 안 돌려준다 = 회귀 불변.
 var _analytics := AnalyticsService.new()
@@ -2767,7 +2773,7 @@ func _input(event: InputEvent) -> void:
 			var mmp: Vector2 = (event as InputEventMouseMotion).position - mdy
 			_adv_hover = MENU_ADV_BTN.has_point(mmp)
 			_classic_hover = MENU_CLASSIC_BTN.has_point(mmp) and _endless_unlocked()
-			_lb_hover = MENU_LB_BTN.has_point(mmp)
+			_lb_hover = LEADERBOARD_ENABLED and MENU_LB_BTN.has_point(mmp)
 		elif event is InputEventMouseButton:
 			var mb: InputEventMouseButton = event as InputEventMouseButton
 			if mb.pressed and mb.button_index == MOUSE_BUTTON_LEFT:
@@ -2778,7 +2784,7 @@ func _input(event: InputEvent) -> void:
 					if _endless_unlocked():
 						_start_endless()           # 무한 모드 바로 시작
 					# 잠겼으면 무반응 — 선택화면의 잠긴 카드와 같은 어휘(자물쇠는 이유를 이미 적어 둠)
-				elif MENU_LB_BTN.has_point(mbp):
+				elif LEADERBOARD_ENABLED and MENU_LB_BTN.has_point(mbp):
 					# ⚠mbp(=dy 보정 좌표)여야 한다. raw position을 쓰면 그리는 자리와 눌리는 자리가
 					#   _ui_dy만큼 어긋나 1000보다 높은 모든 화면(=모든 폰)에서 이 버튼이 죽는다.
 					#   호버는 보정 좌표라 '불은 들어오는데 안 눌리는' 형태로 숨는다. (tools/ux_hit_probe.gd)
@@ -2790,7 +2796,7 @@ func _input(event: InputEvent) -> void:
 			elif mk.pressed and (mk.keycode == KEY_E or mk.keycode == KEY_0):
 				if _endless_unlocked():
 					_start_endless()               # E/0 = Classic(무한). 잠금은 버튼과 같은 게이트를 탄다
-			elif mk.pressed and mk.keycode == KEY_L:
+			elif mk.pressed and mk.keycode == KEY_L and LEADERBOARD_ENABLED:
 				mode = "leaderboard"               # L = 리더보드
 		return
 
@@ -4155,15 +4161,14 @@ func _draw_result(fnt: Font) -> void:
 	_draw_text_outlined(fnt, Vector2(cx - mw * 0.5, p.position.y + 84.0), msg, mfs, msg_col)
 
 	# ② 사유 — 판정을 받쳐주는 한 줄. 작게 둔다(헤드라인과 안 싸우게).
-	if director.scores():
-		var cause: String = _t("cause_stuck") if stuck else _t("cause_core")
-		var er: String = _t("depth_cause") % [place_count, cause]
-		var erw: float = fnt.get_string_size(er, HORIZONTAL_ALIGNMENT_LEFT, -1, 20).x
-		_draw_text_outlined(fnt, Vector2(cx - erw * 0.5, p.position.y + 124.0), er, 20, Color(0.8, 0.78, 1.0))
-	elif game_over:
+	#   무한도 '왜 끝났나'만 말한다 — 깊이(place_count)는 뺐다(2026-07-29 유저 결정): 점수가 이미
+	#   헤드라인이라 두 번째 숫자는 시선을 나눌 뿐이고, 깊이는 플레이 중 HUD가 계속 보여준 값이다.
+	#   두 갈래는 이제 색만 다르다(무한=보라 톤, 캠페인 실패=붉은 톤).
+	if director.scores() or game_over:
 		var reason: String = _t("cause_stuck") if stuck else _t("cause_core")
+		var rcol: Color = Color(0.8, 0.78, 1.0) if director.scores() else Color(1.0, 0.5, 0.5)
 		var rw: float = fnt.get_string_size(reason, HORIZONTAL_ALIGNMENT_LEFT, -1, 20).x
-		_draw_text_outlined(fnt, Vector2(cx - rw * 0.5, p.position.y + 124.0), reason, 20, Color(1.0, 0.5, 0.5))
+		_draw_text_outlined(fnt, Vector2(cx - rw * 0.5, p.position.y + 124.0), reason, 20, rcol)
 	elif frontier:
 		# 프런티어: 완봉/처치 성적 대신 '새 스테이지는 계속 온다'는 안내(무한 유도는 주CTA가 담당).
 		var fs: String = _t("frontier_sub")
@@ -4177,14 +4182,23 @@ func _draw_result(fnt: Font) -> void:
 
 	# ── 버튼 바로 위: 점수 모드=최고 기록(신기록 배지), 캠페인=못 처치하고 남긴 적/처치.
 	if director.scores():
-		# 캡션 = 신기록이면 델타를 접어 넣음(획득감), 아니면 '최고'. 델타 별도 줄은 이어하기 버튼과 충돌.
+		# 캡션 = 신기록이면 델타를 접어 넣음(획득감), 아니면 '최고까지 N점'(다음 판을 부르는 거리).
+		#   델타 별도 줄은 이어하기 버튼과 충돌 → 라벨 자리를 그대로 쓴다(레이아웃 불변).
+		# 왜 남이 아니라 나인가: 리더보드가 재도전을 만드는지 보려면 비교가 '죽은 직후'에 있어야 하는데,
+		#   플랫폼 보드는 인구가 없어 빈 방이다. 자기 기록은 첫날부터·오프라인에도 채워진다.
+		#   [[endless-leaderboard-design]] 진입 비활성(LEADERBOARD_ENABLED)과 한 쌍의 결정.
+		var gap: int = endless_best - endless_score
 		var ecap: String
 		if endless_new_best:
 			ecap = _t("first_record") if endless_prev_best <= 0 else _t("new_record") % _comma(endless_score - endless_prev_best)
+		elif gap > 0:
+			ecap = _t("gap_to_best") % _comma(gap)
 		else:
-			ecap = _t("best")
+			ecap = _t("best")   # 동점(gap==0) — '최고까지 0점'은 말이 안 된다
 		var ecap_fs: int = 20 if endless_new_best else 18
-		var ecap_col: Color = C_GOLD if endless_new_best else Color(0.72, 0.74, 0.9)
+		# 거리 문구는 초대라서 회색보다 살짝 따뜻하게, 단 신기록 금색보다는 확실히 아래(위계 유지).
+		var ecap_col: Color = C_GOLD if endless_new_best \
+				else (Color(0.86, 0.79, 0.60) if gap > 0 else Color(0.72, 0.74, 0.9))
 		var ecw: float = fnt.get_string_size(ecap, HORIZONTAL_ALIGNMENT_LEFT, -1, ecap_fs).x
 		_draw_text_outlined(fnt, Vector2(cx - ecw * 0.5, p.position.y + 176.0), ecap, ecap_fs, ecap_col)
 		var bnum: String = _comma(endless_best)
@@ -4409,6 +4423,10 @@ func _draw_menu(fnt: Font) -> void:
 			"", not el_open)
 
 	# 우상단 리더보드 진입(모드 아닌 peek — opt-in 경쟁 천장). 트로피 + 라벨(i18n).
+	#   꺼져 있으면 회색 비활성이 아니라 아예 안 그린다 — 눌리지 않는 버튼은 '준비 중'이 아니라
+	#   '고장'으로 읽히고, 없는 기능을 광고할 이유도 없다. (LEADERBOARD_ENABLED 주석 참조)
+	if not LEADERBOARD_ENABLED:
+		return
 	var lb: Rect2 = MENU_LB_BTN
 	draw_rect(Rect2(lb.position.x, lb.position.y + 5.0, lb.size.x, lb.size.y), Color(0.30, 0.24, 0.05))
 	draw_rect(lb, Color(0.24, 0.22, 0.14) if _lb_hover else Color(0.18, 0.17, 0.11))
@@ -4895,10 +4913,11 @@ func _draw_hud(fnt: Font) -> void:
 		var sc_w: float = fnt.get_string_size(sc_str, HORIZONTAL_ALIGNMENT_LEFT, -1, sc_fs).x
 		var sc_col: Color = Color.WHITE.lerp(C_GOLD, kp)
 		_draw_text_outlined(fnt, Vector2(goal_r.position.x + gw * 0.5 - sc_w * 0.5, box_y + 87.0), sc_str, sc_fs, sc_col)
-		# 좌상단: 깊이 + 크라운 락(BlockBlast 관찰). 넘기 전 = 옛 최고(추격 기준선, 회색). 넘은 뒤 = 👑 라이브
+		# 좌상단: 크라운 락(BlockBlast 관찰). 넘기 전 = 옛 최고(추격 기준선, 회색). 넘은 뒤 = 👑 라이브
 		#   신기록(점수에 잠겨 매 처치마다 상승, kp로 반짝) — "지금부터 전부 신기록". 이 숫자가 곧 발화선(적 HP 램프):
 		#   영광과 벼랑이 같은 숫자다(endless_mode.gd '내 실력의 끝단이 늘 벼랑').
-		_draw_text_outlined(fnt, Vector2(12.0, 30.0 + sy), _t("depth") % place_count, 22, Color(0.72, 0.74, 0.9))
+		#   ⚠깊이(place_count) 줄은 제거(2026-07-29 유저 결정) — 점수 카드가 이미 진행을 말하고,
+		#     추격 대상은 깊이가 아니라 최고점이다. 자리를 물려받아 이 줄이 좌상단 첫 줄이 된다.
 		if endless_best > 0:
 			var rec_lbl: String
 			var rec_col: Color
@@ -4908,7 +4927,7 @@ func _draw_hud(fnt: Font) -> void:
 			else:
 				rec_lbl = _t("best_score") % _comma(endless_best)
 				rec_col = Color(0.6, 0.62, 0.78)
-			_draw_text_outlined(fnt, Vector2(12.0, 56.0 + sy), rec_lbl, 16, rec_col)
+			_draw_text_outlined(fnt, Vector2(12.0, 34.0 + sy), rec_lbl, 16, rec_col)
 	else:
 		# GOAL 카드 — 제목 "목표" + 내용 "💀 남은 적 N"(전 타입 소탕이 목표라 타입 중립 해골).
 		_draw_card(goal_r, Color(0.85, 0.7, 0.3))
