@@ -4379,8 +4379,10 @@ func _draw_menu(fnt: Font) -> void:
 	# 배경은 _draw()가 이미 그렸다(오프셋 밖). 여기선 콘텐츠만.
 
 	# 로고: 게임명 + 태그라인(레퍼런스의 상단 로고 자리)
-	var title: String = "CASCADE"
-	var tfs: int = 84
+	# ⚠화면에선 띄어 쓴다 — 대문자로 붙이면(BLOCKCASTLE) 단어 경계가 사라져 한눈에 안 읽힌다.
+	#   스토어 제목·패키지명은 붙여 쓴 BlockCastle이 정본이다.
+	var title: String = "BLOCK CASTLE"
+	var tfs: int = 64
 	var tw: float = fnt.get_string_size(title, HORIZONTAL_ALIGNMENT_LEFT, -1, tfs).x
 	_draw_text_outlined(fnt, Vector2(400.0 - tw * 0.5, 300.0), title, tfs, C_GOLD)
 	var tag: String = "PACKING DEFENSE"
@@ -4710,9 +4712,9 @@ func _draw_select(fnt: Font) -> void:
 			_draw_scroll_hint(SEL_VIEW_BOT, false)
 
 	# ── 헤더(마스크 위) ──
-	var title: String = "CASCADE"
-	var tw: float = fnt.get_string_size(title, HORIZONTAL_ALIGNMENT_LEFT, -1, 60).x
-	_draw_text_outlined(fnt, Vector2(400.0 - tw * 0.5, 122.0), title, 60, C_GOLD)
+	var title: String = "BLOCK CASTLE"
+	var tw: float = fnt.get_string_size(title, HORIZONTAL_ALIGNMENT_LEFT, -1, 46).x
+	_draw_text_outlined(fnt, Vector2(400.0 - tw * 0.5, 122.0), title, 46, C_GOLD)
 	var sub: String = _t("cleared_count") % [_cleared_count(), STAGES.size()]
 	var sw: float = fnt.get_string_size(sub, HORIZONTAL_ALIGNMENT_LEFT, -1, 22).x
 	_draw_text_outlined(fnt, Vector2(400.0 - sw * 0.5, 166.0), sub, 22, Color(0.7, 0.72, 0.85))
