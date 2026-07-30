@@ -315,7 +315,18 @@ var _analytics := AnalyticsService.new()
 # 광고 이음새 — SDK·정책·계측을 전부 서비스가 소유한다. 게임이 아는 건 "부활이 성사됐나"뿐.
 #   헤드리스(회귀·시뮬)에선 서비스가 꺼져 요청이 즉시 폴백으로 떨어진다 = 하네스 무영향.
 var _ads := AdService.new(_analytics)
-var _ad_pending: bool = false      # 부활 광고 요청 중 — 결과 팝업이 대기 상태를 그리고 다른 버튼을 막는다
+var _ad_pending: bool = false
+# 광고 이음매 대기 — 인터스티셜을 띄운 뒤 '다음 판 시작'을 콜백까지 미룬다(AD_PLAN §3).
+#   ⚠안전밸브: 콜백이 안 오면(플랫폼 로더 침묵·콜백 유실) 진행이 광고에 인질로 잡힌다.
+#   리워드 경로는 ad_service가 LOAD_TIMEOUT을 걸지만 인터스티셜 플랫폼 경로엔 타임아웃이 없다.
+const AD_SEAM_TIMEOUT: float = 6.0
+# 온보딩 광고 면제 — 누적 클리어가 이만큼 되기 전까지 인터스티셜을 아예 안 띄운다.
+#   ⚠빈도 캡(ad_service: 첫 2판 면제·3판마다)은 **세션** 단위라, 신규 설치 첫 세션에도 3판째부터 열린다.
+#   그 구간이 온보딩이라 이탈 위험이 가장 큰 자리 → 진행도로 따로 막는다. 세션이 아니라 **설치 누적**이라
+#   저장 필드를 새로 안 만들어도 된다(`cleared` = 이미 영속되는 진행도).
+#   역할 분담: 빈도 = 광고 서비스 / "이 플레이어가 아직 배우는 중인가" = 게임.
+const AD_ONBOARD_CLEARS: int = 5
+var _ad_seam_t: float = -1.0    # >=0 = 대기 중(경과 초). -1 = 유휴      # 부활 광고 요청 중 — 결과 팝업이 대기 상태를 그리고 다른 버튼을 막는다
 var run_max_combo: int = 0         # 이번 판 최대 콤보(계측 combo_peak — 봇 ~7 대비 사람은?). _init_game서 리셋
 var _revive_offer_open: bool = false  # 부활 제안이 떠 있고 아직 수락/거절 안 됨 → 이탈 시 revive_declined 1회
 var endless_prev_best: int = 0     # 런 시작 시점의 베스트(결과 팝업 델타 표시용)
@@ -1078,10 +1089,12 @@ func _init_game() -> void:
 	# 광고: 이 판의 부활용 리워드를 미리 채워둔다(결과 팝업이 뜨는 순간 준비돼 있어야 대기가 짧다).
 	#   인터스티셜은 캡 카운터만 돌린다 — 노출은 꺼져 있다(AD_PLAN §3, W4까지 배관만).
 	_ad_pending = false
+	_ad_seam_t = -1.0
 	_ads.note_run_started()
 	_ads.preload_rewarded()
-	if _ads.should_show_interstitial():
-		_ads.show_interstitial()
+	# ⚠인터스티셜은 여기서 띄우지 않는다(AD_PLAN §3 이음매 규칙). 판 시작 지점에서 띄우면 바로 뒤에
+	#   켜지는 진입 연출(인트로 배너: 목표 선언 → HUD 도킹)이 광고 뒤에서 흘러가 버린다.
+	#   자리는 `_result_advance()` = 결과 화면을 닫고 다음 판을 열기 직전. 캡 카운터만 여기서 돈다.
 	if _tut_active():
 		_tut_setup_beat1()
 		return
@@ -3662,6 +3675,11 @@ func _process(delta: float) -> void:
 	# 광고 비동기 진행 — 어떤 화면이든, 히트스톱 중이든 계속 돌아야 한다. 여기서 멈추면
 	#   결과 팝업의 대기 상태가 안 풀린다(콜백 미도착 = 다른 버튼도 막힌 채 = 소프트락). 유휴면 비용 0.
 	_ads.poll(delta)
+	# 광고 이음매 안전밸브 — 콜백이 안 오면 그냥 다음 판으로 넘긴다(진행을 광고에 인질로 두지 않는다).
+	if _ad_seam_t >= 0.0:
+		_ad_seam_t += delta
+		if _ad_seam_t >= AD_SEAM_TIMEOUT:
+			_ad_seam_done()
 	if mode == "menu" or mode == "select" or mode == "leaderboard":
 		if _dev_reset_arm > 0.0:
 			_dev_reset_arm = maxf(0.0, _dev_reset_arm - delta)   # 무장은 저절로 풀린다(오발 방지)
@@ -4492,7 +4510,29 @@ func _revive(method: String = "ad_reward") -> void:
 	_cont_hover = false
 
 # 재도전 = 실패면 같은 스테이지, 클리어면 다음(마지막이면 홈)
+# 결과 화면 → 다음 판. **인터스티셜의 유일한 자리**(AD_PLAN §3): 축하 무대·팝업 개봉이 다 끝나고
+#   보상 피드백을 자른 게 없는 시점이며, 다음 판의 진입 연출은 광고가 닫힌 뒤에 처음부터 재생된다.
+#   (레퍼런스 실측: 광고는 축하가 끝난 뒤 씬 경계에서 들어오고, 복귀 후 진입 연출을 온전히 다시 보여준다.)
 func _result_advance() -> void:
+	# ⚠이긴 판 뒤에만. 실패 직후 재도전 앞에 광고를 끼우면 '벌' 위에 '대기'를 얹는 것이고,
+	#   부활(광고 리워드) 직후는 팝업을 안 지나므로 애초에 이 경로가 아니다(AD_PLAN §3 불변식).
+	#   무한도 구조적으로 제외된다 — 런이 game_clear로 끝나지 않고, 그 자리는 리워드 부활이 이미 쓴다.
+	if game_clear and _cleared_count() >= AD_ONBOARD_CLEARS and _ads.should_show_interstitial():
+		_ad_seam_t = 0.0
+		_ad_pending = true          # 팝업 잠금 — 로드 지연 중 두 번 눌러 판이 두 번 시작되는 걸 막는다
+		_ads.show_interstitial(AdService.PLACEMENT_RUN_TRANSITION, func(_res: Dictionary) -> void: _ad_seam_done())
+		return
+	_result_advance_now()
+
+# 광고가 닫혔거나(성공·실패 무관) 안전밸브가 터졌을 때 = 이제 판을 연다.
+func _ad_seam_done() -> void:
+	if _ad_seam_t < 0.0:
+		return                      # 이미 진행됨(타임아웃 뒤 늦게 온 콜백·중복 콜백)
+	_ad_seam_t = -1.0
+	_ad_pending = false
+	_result_advance_now()
+
+func _result_advance_now() -> void:
 	# 재도전 종류는 감독이 선언(모드 이름 대신 능력, C61 seam).
 	var kind: String = director.retry_kind()
 	if kind == "same_seed":
