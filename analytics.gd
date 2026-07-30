@@ -27,6 +27,11 @@ const P0_EVENTS: Array = [
 	"revive_offered", "revive_taken", "revive_declined",
 	"tutorial_beat_completed", "first_line_cleared",
 	"endless_run_ended", "combo_peak",
+	# P2 — W2 광고 배선(§3-7). 발화 주체는 AdService 자신이다(게임 코드는 광고 계측을 모른다).
+	"ad_requested", "ad_filled", "ad_no_fill", "ad_shown", "ad_rewarded", "ad_closed",
+	# 동의(UMP) 상태 — fill률을 읽을 때 반드시 같이 봐야 한다. 동의 미확보는 '재고 없음'이 아니라
+	#   '요청 자체를 안 한 것'이라, 이 이벤트가 없으면 낮은 fill률의 원인을 가를 수 없다(R3).
+	"ad_consent_updated",
 ]
 
 var enabled: bool = true          # 하네스·헤드리스에선 _init이 false로 내린다

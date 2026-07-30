@@ -18,6 +18,12 @@ func _run() -> void:
 	g = load("res://Main.tscn").instantiate()
 	root.add_child(g)
 	await process_frame
+	# 이 프로브의 대상(허브 트로피)이 꺼져 있으면 검사할 게 없다 — 실패가 아니라 해당 없음.
+	#   LEADERBOARD_ENABLED를 다시 켜면 아래 dy 어긋남 검사가 자동으로 되살아난다.
+	if not bool(g.get("LEADERBOARD_ENABLED")):
+		print("SKIP — LEADERBOARD_ENABLED=false (허브 트로피 미노출, 히트테스트 대상 없음)")
+		quit()
+		return
 	for h in [1000, 1280, 1733]:
 		DisplayServer.window_set_size(Vector2i(800, h))
 		await process_frame

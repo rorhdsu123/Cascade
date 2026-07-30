@@ -56,6 +56,9 @@ const STR: Dictionary = {
 		"go_home": "Home",           # 버튼(설정 홈 · 결과 홈)
 		"restart_label": "Restart",
 		"restart": "Restart",
+		# 개인정보 옵션(광고 동의 재설정) — EEA/UK에서 동의를 받은 유저에게만 노출(구글 요구사항).
+		"privacy_label": "Ad privacy",
+		"privacy_btn": "Manage",
 		# ── 결과 팝업 ──
 		"fail_close": "Almost had it!",
 		"fail_near": "So close!",
@@ -64,16 +67,18 @@ const STR: Dictionary = {
 		"stage_clear": "Stage Clear!",
 		"cause_stuck": "No room left",
 		"cause_core": "Core destroyed",
-		"depth_cause": "Depth %d · %s",
 		"shutout": "Shutout — not one got through",
 		"kills_leaks": "Killed %d · Leaked %d",
 		"first_record": "🏆 First record!",
 		"new_record": "🏆 New best! +%s",
 		"best": "Best",
+		"gap_to_best": "%s to your best",   # 죽은 직후의 비교 한 줄 — 다음 판까지의 거리
+
 		"result_remaining": "Enemies left",
 		"result_gems": "Gems left",
 		"result_killed": "Killed",
 		"continue": "Continue",
+		"ad_loading": "Loading ad...",   # 부활 광고 로드 중 — 버튼이 잠긴 이유를 말해준다(W2 R1)
 		"retry": "Retry",
 		"next_stage": "Next Stage",
 		# 마지막 스테이지 클리어 = 완주 아님, '콘텐츠 따라잡음'(프런티어) → 무한 깔때기. 시점 약속 회피.
@@ -112,7 +117,6 @@ const STR: Dictionary = {
 		"new_best_live": "New best!",
 		"new_best_ribbon": "NEW BEST",   # PB 판전체 폭발 리본 배너 라벨(C90)
 		"score": "Score",
-		"depth": "Depth %d",
 		"goal": "Goal",
 		"hud_enemies": "Enemies",    # 목표 카드 캡션(해골 아이콘 옆, 짧게)
 		"advance": "Enemy move",   # '적이 N턴 뒤 전진'을 명시 — 'Advance'만으론 누가/어디로가 모호
@@ -181,6 +185,8 @@ const STR: Dictionary = {
 		"go_home": "홈으로",
 		"restart_label": "다시하기",
 		"restart": "재시작",
+		"privacy_label": "광고 개인정보",
+		"privacy_btn": "관리",
 		"fail_close": "거의 다 왔어요!",
 		"fail_near": "아쉬워요!",
 		"fail_far": "다시 해볼까요?",
@@ -188,16 +194,18 @@ const STR: Dictionary = {
 		"stage_clear": "스테이지 클리어!",
 		"cause_stuck": "놓을 곳이 없다",
 		"cause_core": "거점 파괴",
-		"depth_cause": "깊이 %d · %s",
 		"shutout": "완봉 — 한 마리도 놓치지 않았다",
 		"kills_leaks": "처치 %d · 누수 %d",
 		"first_record": "🏆 첫 기록!",
 		"new_record": "🏆 신기록! +%s",
 		"best": "최고",
+		"gap_to_best": "최고까지 %s점",   # 죽은 직후의 비교 한 줄 — 다음 판까지의 거리
+
 		"result_remaining": "남은 적",
 		"result_gems": "남은 보석",
 		"result_killed": "처치",
 		"continue": "이어하기",
+		"ad_loading": "광고 불러오는 중...",
 		"retry": "재도전",
 		"next_stage": "다음 스테이지",
 		# 마지막 스테이지 클리어 = 완주 아님, '콘텐츠 따라잡음'(프런티어) → 무한 깔때기. 시점 약속 회피.
@@ -232,7 +240,6 @@ const STR: Dictionary = {
 		"new_best_live": "최고 갱신!",
 		"new_best_ribbon": "신기록",   # PB 판전체 폭발 리본 배너 라벨(C90)
 		"score": "점수",
-		"depth": "깊이 %d",
 		"goal": "목표",
 		"hud_enemies": "남은 적",
 		"advance": "적 이동",

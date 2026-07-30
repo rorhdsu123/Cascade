@@ -2,7 +2,7 @@ extends SceneTree
 # 결과 팝업 캡처 — 광고 부활(C47) 3케이스. 창 모드 필수(헤드리스는 렌더 텍스처 null).
 # 실행: godot --path . --script tools/result_shot.gd
 
-const OUT: String = "/private/tmp/claude-501/-Users-im-yujin-Desktop-Cascade/6beeb68b-ad06-4de4-8f3b-94cbf9731a2e/scratchpad/res"
+const OUT: String = "/private/tmp/claude-501/-Users-im-yujin-Desktop-Cascade-worktrees-stage/309ebea2-5f92-4557-9f51-4e014e6e67d6/scratchpad/res"
 
 var main: Node
 
@@ -25,6 +25,11 @@ func _run() -> void:
 	main.set("game_over", true)
 	await _grab("revive")
 
+	# ── 광고 로드 대기(W2 R1): 버튼이 톤 다운 + ▶ 없이 '광고 불러오는 중'. 팝업 전체가 잠긴 상태.
+	main.set("_ad_pending", true)
+	await _grab("ad_pending")
+	main.set("_ad_pending", false)
+
 	# ── 실패 + 부활 불가(이미 사용): 재도전(주) + 홈
 	main.set("revive_used", true)
 	main.set("game_over", true)
@@ -44,6 +49,7 @@ func _run() -> void:
 	quit()
 
 func _grab(tag: String) -> void:
+	main.set("result_t", 1.0)   # 개봉 완료 상태로 — 안 세우면 버튼이 안 그려진 프레임을 찍는다(RESULT_BTN_IN)
 	main.call("queue_redraw")
 	await process_frame
 	await RenderingServer.frame_post_draw
