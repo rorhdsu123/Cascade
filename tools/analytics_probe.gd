@@ -13,7 +13,12 @@ extends SceneTree
 #   진짜 계측 파손도 "또 플레이크겠지"로 넘어간다 → 아래 두 시드는 튜토리얼 3박자가 전부 나오는
 #   판으로 골라 박은 값이다. 게임 기전(조각 풀·스폰·튜토리얼)을 바꾸면 재탐색해야 한다:
 #     PROBE_SEED=<후보> godot --path . --script tools/analytics_probe.gd   ← 캠페인 시드만 덮어씀
-const CAMPAIGN_SEED: int = 20250101
+#   ⚠2026-07-30 재탐색 — 위 지침이 실제로 발동한 사례. C96(온보딩 절벽 완화, core_hp 재조정) 이후
+#     구 시드 20250101에선 봇이 스테이지1을 **깨버려서**(집계에 stage_cleared 1이 새로 등장) 누수·실패
+#     경로가 안 열렸다 = 박자3 미발화 + 골든 불일치(run_failed 2≠3 · stage_failed 1≠2 · 박자 2≠3).
+#     후보 20개를 훑어 3박자가 전부 나오는 시드 3개(20250123 · 20250131 · 31337)를 얻어 첫 값을 박았다.
+#     **골든 자체는 안 건드렸다** — 시드만 바꾸면 28이벤트 집계가 그대로 재현되므로, 낡은 건 시드였다.
+const CAMPAIGN_SEED: int = 20250123
 const ENDLESS_SEED: int = 20250102
 
 # 캠페인 구간 배치 예산 — 누수(박자3)가 나기 전에 봇이 판을 닫아버리지 않을 만큼은 둔다.
@@ -155,6 +160,11 @@ func _run() -> void:
 
 	g = load("res://Main.tscn").instantiate()
 	root.add_child(g)
+	# ⚠실유저 진행도 보호(C100 확장): 이 probe는 Main.tscn을 띄우므로 _ready가 돌아
+	#   persist_enabled=true가 된다. 아래서 cleared를 주입하거나 봇이 스테이지를 깨면 그 값이
+	#   **실제 campaign.save에 각인**된다(전 스테이지 주입 = 16383 = "진행도가 저절로 전승됨"의 진범).
+	#   C100은 campaign_flow.gd만 막았고 나머지 창 모드 probe는 새고 있었다 → 여기서 끈다.
+	g.set("persist_enabled", false)
 	await process_frame
 
 	# ── 캠페인 1판: 봇이 실제로 놓고 지우다가, 부활 경로를 타게 중간에 거점사로 닫는다.

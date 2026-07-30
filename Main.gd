@@ -121,6 +121,12 @@ const PREVIEW_MIX: float = 0.33      # 착지 미리보기 = 셀 배경 위에 �
 # 입력 방식 토글 버튼 — PC 테스트 전용. 모바일 빌드의 기본은 드래그앤드롭.
 # 트레이 패널 안(bot_y 아래 200px)에 얹히므로 _relayout에서 bot_y 기준으로 재배치.
 var mode_btn := Rect2(596.0, 900.0, 184.0, 46.0)
+# 입력 방식 토글을 보여줄지 — **모바일에선 숨긴다.** 이건 PC 테스트용 스위치인데 그동안 무조건
+#   그려져서 안드로이드 빌드에도 실려 나갔다(스토어 스크린샷을 찍다 발견). 폰에선 드래그가 기본이고
+#   클릭 모드로 바꾸면 오히려 나빠지므로, 유저에게 줄 이유가 없는 개발 컨트롤이다(C78 '죽은 버튼'과 같은 부류).
+#   ⚠그리기와 입력을 **같은 값으로** 막는다 — 안 보이는데 눌리는 사각형은 안 숨긴 것보다 나쁘다.
+#   스토어 스크린샷 도구는 이 값을 false로 내려 '모바일에서 실제로 보이는 화면'을 찍는다.
+var show_input_toggle: bool = not OS.has_feature("mobile")
 
 # 설정 기어 — 플레이 중 우상단. 콤보 표시(우상단 y=26)와는 콤보를 왼쪽으로 밀어 비켜준다.
 var gear_rect := Rect2(748.0, 30.0, 44.0, 44.0)   # 우상단 설정 기어(_relayout이 세이프에어리어만큼 내림)
@@ -349,6 +355,7 @@ var _set_home_hover: bool = false
 var _set_replay_hover: bool = false
 var _set_sound_hover: bool = false
 var _set_bgm_hover: bool = false
+var _set_privacy_hover: bool = false   # 개인정보 옵션 행(EEA/UK에서만 존재)
 
 # ===== 상태 =====
 var board: Array = []
@@ -2835,6 +2842,7 @@ func _input(event: InputEvent) -> void:
 			_set_close_hover = (slay["close"] as Rect2).has_point(mp2)
 			_set_home_hover = (slay["home_btn"] as Rect2).has_point(mp2)
 			_set_replay_hover = (slay["replay_btn"] as Rect2).has_point(mp2)
+			_set_privacy_hover = (slay["privacy_btn"] as Rect2).has_point(mp2)
 			_set_sound_hover = (slay["sound_tog"] as Rect2).has_point(mp2)
 			_set_bgm_hover = (slay["bgm_tog"] as Rect2).has_point(mp2)
 		elif event is InputEventMouseButton:
@@ -3052,8 +3060,8 @@ func _input(event: InputEvent) -> void:
 			_return_held()
 			return
 
-		# 입력 방식 토글 버튼 (PC 테스트 편의용)
-		if mbe.pressed and mode_btn.has_point(mbe.position):
+		# 입력 방식 토글 버튼 (PC 테스트 편의용) — 안 그릴 땐 히트 영역도 없다(show_input_toggle)
+		if show_input_toggle and mbe.pressed and mode_btn.has_point(mbe.position):
 			click_mode = not click_mode
 			_return_held()   # 모드가 바뀌면 들고 있던 조각은 트레이로 돌려놓는다
 			return
@@ -3881,7 +3889,11 @@ func _settings_layout() -> Dictionary:
 	# 뷰포트가 1000보다 크면(실기기 세로) 모달을 세로 중앙으로 내린다 — 나머지 좌표는 py에서 파생됨.
 	#   오프셋은 다른 화면과 같은 _ui_dy()를 쓴다(세이프에어리어 반영) — 예전 (vh-1000)*0.5는
 	#   노치가 있는 기기에서 모달만 위로 치우쳤다.
-	var p: Rect2 = Rect2(160.0, 270.0 + _ui_dy(), 480.0, 410.0)
+	# 개인정보 옵션 행은 **필요한 지역에서만** 붙는다(SDK가 알려준다). 그래서 패널 높이가 조건부다 —
+	#   한국 유저에게 아무 의미 없는 항목을 상시로 달아두지 않기 위해서다(AD_PLAN R3 / 구글 요구사항).
+	var priv: bool = _ads.privacy_options_required()
+	var extra: float = 68.0 if priv else 0.0
+	var p: Rect2 = Rect2(160.0, 270.0 + _ui_dy(), 480.0, 410.0 + extra)
 	var px: float = p.position.x
 	var py: float = p.position.y
 	var pw: float = p.size.x
@@ -3890,6 +3902,7 @@ func _settings_layout() -> Dictionary:
 	var r2: float = py + 190.0            # 배경음
 	var r3: float = py + 288.0            # 홈
 	var r4: float = py + 356.0            # 다시하기
+	var r5: float = py + 424.0            # 개인정보 옵션(조건부)
 	var tw: float = 66.0
 	var th: float = 32.0
 	var bw: float = 140.0
@@ -3904,7 +3917,10 @@ func _settings_layout() -> Dictionary:
 		"bgm_tog": Rect2(ctrl_r - tw, r2 - th * 0.5, tw, th),
 		"home_btn": Rect2(ctrl_r - bw, r3 - bh * 0.5, bw, bh),
 		"replay_btn": Rect2(ctrl_r - bw, r4 - bh * 0.5, bw, bh),
-		"r1": r1, "r2": r2, "r3": r3, "r4": r4,
+		# 행이 없을 땐 빈 Rect2 = 히트 영역도 없음(그리기·입력이 같은 조건을 따로 읽지 않게).
+		"privacy_btn": Rect2(ctrl_r - bw, r5 - bh * 0.5, bw, bh) if priv else Rect2(),
+		"privacy_on": priv,
+		"r1": r1, "r2": r2, "r3": r3, "r4": r4, "r5": r5,
 	}
 
 func _settings_click(pos: Vector2, lay: Dictionary) -> void:
@@ -3924,6 +3940,9 @@ func _settings_click(pos: Vector2, lay: Dictionary) -> void:
 		settings_open = false
 		_track_revive_dismissed("retry")
 		_result_advance()                 # 재시작 = 감독이 정하는 재도전(스테이지=현 스테이지, 무한=새 런)
+	elif bool(lay["privacy_on"]) and (lay["privacy_btn"] as Rect2).has_point(pos):
+		# 구글의 개인정보 옵션 폼(네이티브)을 띄운다. 모달은 닫지 않는다 — 폼을 닫으면 설정으로 돌아온다.
+		_ads.show_privacy_options()
 	# 그 밖(패널 빈 곳·스크림)은 무시 = 모달. 잘못 눌러 튕기는 사고 방지(결과팝업과 동일 원칙).
 
 # 토글 스위치 — 초록 알약=켜짐(노브 오른쪽), 어두운 알약=꺼짐(노브 왼쪽). 색·위치 둘 다로 상태를 말한다.
@@ -3996,6 +4015,11 @@ func _draw_settings(fnt: Font) -> void:
 	_draw_mini_button(fnt, lay["home_btn"], _t("go_home"), _set_home_hover, Color(0.30, 0.33, 0.44), Color(0.92, 0.93, 1.0))
 	_draw_text_outlined(fnt, Vector2(lx, float(lay["r4"]) + 9.0), _t("restart_label"), 26, Color(0.86, 0.87, 0.95))
 	_draw_mini_button(fnt, lay["replay_btn"], _t("restart"), _set_replay_hover, Color(0.34, 0.72, 0.26), Color(0.98, 1.0, 0.94))
+
+	# 개인정보 옵션 — 필요한 지역에서만(EEA/UK). 홈과 같은 회색빛 유틸 언어를 쓴다(진행 버튼 아님).
+	if bool(lay["privacy_on"]):
+		_draw_text_outlined(fnt, Vector2(lx, float(lay["r5"]) + 9.0), _t("privacy_label"), 26, Color(0.86, 0.87, 0.95))
+		_draw_mini_button(fnt, lay["privacy_btn"], _t("privacy_btn"), _set_privacy_hover, Color(0.30, 0.33, 0.44), Color(0.92, 0.93, 1.0))
 
 # 재생 삼각형(▶) — '광고 영상을 본다'는 뜻. 오른쪽을 향한 정삼각형.
 func _draw_play_icon(c: Vector2, r: float, col: Color) -> void:
@@ -5949,7 +5973,9 @@ func _draw_bottom(fnt: Font) -> void:
 					sr.position.y + sr.size.y * 0.5 + 8.0),
 					dash, HORIZONTAL_ALIGNMENT_LEFT, -1, 22, Color(0.3, 0.3, 0.4))
 
-	# 입력 방식 토글 (PC 테스트용) — 눌러서 드래그/클릭 전환
+	# 입력 방식 토글 (PC 테스트용) — 눌러서 드래그/클릭 전환. 모바일에선 안 그린다(show_input_toggle).
+	if not show_input_toggle:
+		return
 	draw_rect(mode_btn, Color(0.20, 0.20, 0.31))
 	draw_rect(mode_btn, Color(0.45, 0.45, 0.6, 0.85), false, 2.0)
 	var mtxt: String = _t("mode_click") if click_mode else _t("mode_drag")

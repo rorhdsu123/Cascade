@@ -56,6 +56,9 @@ const STR: Dictionary = {
 		"go_home": "Home",           # 버튼(설정 홈 · 결과 홈)
 		"restart_label": "Restart",
 		"restart": "Restart",
+		# 개인정보 옵션(광고 동의 재설정) — EEA/UK에서 동의를 받은 유저에게만 노출(구글 요구사항).
+		"privacy_label": "Ad privacy",
+		"privacy_btn": "Manage",
 		# ── 결과 팝업 ──
 		"fail_close": "Almost had it!",
 		"fail_near": "So close!",
@@ -182,6 +185,8 @@ const STR: Dictionary = {
 		"go_home": "홈으로",
 		"restart_label": "다시하기",
 		"restart": "재시작",
+		"privacy_label": "광고 개인정보",
+		"privacy_btn": "관리",
 		"fail_close": "거의 다 왔어요!",
 		"fail_near": "아쉬워요!",
 		"fail_far": "다시 해볼까요?",
