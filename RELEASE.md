@@ -24,6 +24,38 @@
 
 **⚠백업할 것.** 이 두 파일은 이 맥에만 있다. 잃으면 Play 업로드 키 재설정 절차(구글 지원 요청 + 며칠)를 밟아야 한다.
 
+### 백업·복원 (2026-07-30 검증)
+
+**무결성 지표** — 옮긴 뒤 이 값으로 대조한다. 다르면 전송이 깨진 것이다.
+
+| 항목 | 값 |
+|---|---|
+| keystore SHA-256 | `ba8177b776b3d5a5cf37153237f720d9ba3589328513ad87968565e388914e9b` |
+| 인증서 지문 SHA-256 | `49:D4:94:C2:18:C2:DF:AE:2D:FF:16:96:F9:65:49:05:C3:0B:BE:BE:7B:DD:C1:7F:09:37:28:5C:83:9B:A7:23` |
+
+인증서 지문은 **Play Console의 '업로드 인증서'와 대조하는 값**이다 — 나중에 "이 키가 그 앱의 업로드 키가 맞나"를
+확인할 유일한 근거이므로 키 자체와 별개로 여기 남긴다(비밀이 아니라 공개돼도 무해한 값이다).
+
+**보관 원칙: keystore와 비밀번호를 같은 곳에 두지 않는다.** 한쪽만 새도 서로 쓸모가 없게 갈라 둔다 —
+keystore는 클라우드/외장, 비밀번호(`*.env` 내용)는 비밀번호 관리자 또는 물리 메모.
+
+**복원 절차**:
+```bash
+# ① 두 파일을 ~/.android/ 로 되돌리고 권한을 조인다
+chmod 600 ~/.android/blockcastle-upload.keystore ~/.android/blockcastle-upload.env
+# ② 짝이 맞는지 = .env의 비밀번호로 keystore가 열리는지 확인 (이게 진짜 복원 검증이다)
+source ~/.android/blockcastle-upload.env
+PATH="/opt/homebrew/opt/openjdk@17/bin:$PATH" LC_ALL=C keytool -list \
+  -keystore "$GODOT_ANDROID_KEYSTORE_RELEASE_PATH" \
+  -storepass "$GODOT_ANDROID_KEYSTORE_RELEASE_PASSWORD" -alias blockcastle-upload
+# ③ 지문이 위 표와 같은지 대조
+```
+⚠**파일 복사만으로 "백업했다"고 하지 말 것.** 비밀번호가 다른 짝이면 파일은 멀쩡한데 서명이 안 된다 —
+②까지 통과해야 백업이다.
+
+⚠**암호화 컨테이너로 묶으면 암호를 잊는 순간 백업이 곧 소실이다.** macOS 기본 도구로 만들 수 있다
+(`hdiutil create -encryption AES-256 -stdinpass -srcfolder ~/.android ...`). 그 암호는 **반드시 비밀번호 관리자에.**
+
 **Play 앱 서명과의 관계**: 우리가 만든 건 *업로드 키*다. Play에 올리면 구글이 별도의 *앱 서명 키*를 관리하고
 기기에 배포되는 APK는 그 키로 다시 서명된다. 그래서 업로드 키 분실은 (앱 서명 키 분실과 달리) 복구 가능한 사고다.
 
