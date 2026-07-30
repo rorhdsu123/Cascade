@@ -375,6 +375,15 @@ var dda_enabled: bool = true    # DDA 온오프 (A/B용)
 var floor_enabled: bool = true  # 밀도 하한(floor) 온오프 (density_probe A/B용)
 var surge_enabled: bool = true  # 후반 서지 온오프 (surge_probe A/B용)
 var dev_unlock_all: bool = false  # ⚠플테 전용: 전 스테이지 해금(선형 잠금 우회). 기본 false=출시 안전, 선택화면 '0'키 토글
+# 진행도를 디스크에 쓸 자격. **기본 false**이고 _ready()에서만 true가 된다 = '실제 앱 부팅에서만 영속'.
+#   왜: 하네스는 Main.gd를 new()해서 트리에 붙일 뿐 프레임을 안 돌려 _ready가 영영 안 뜬다
+#   (is_node_ready()==false로 실측). 그런데 _check_win은 직접 호출 경로라 그대로 돌아
+#   `_save_campaign()`이 실행됐다 → tools/regress.gd가 14스테이지를 전승할 때마다 **실제 유저
+#   세이브에 16383이 각인**됐다(2026-07-30 확정: Cascade/campaign.save mtime이 골든 재생성 시각과 일치).
+#   기본값을 false로 두면 60여 개 프로브를 하나씩 고칠 필요 없이 전부 자동 제외된다.
+#   ⚠영속 자체를 검증하는 tools/save_probe.gd는 Main.tscn을 instantiate + await process_frame이라
+#   _ready를 타므로 그대로 통과한다(창 모드 필수 — [[godot-pixel-verify-needs-window]]).
+var persist_enabled: bool = false
 var drought: int = 0            # 연속 무클리어 배치 수 (DDA의 '고전' 신호)
 var fail_streak: Dictionary = {}  # 스테이지 인덱스 → 연속 실패 횟수 (갓 모드 트리거, 세션 한정)
 var game_over: bool = false
@@ -521,6 +530,7 @@ func _mix3(a: int, b: int, c: int) -> int:
 	return h
 
 func _ready() -> void:
+	persist_enabled = true   # 여기까지 왔으면 진짜 앱 부팅 — 이제부터 진행도를 디스크에 쓴다(위 선언부 참조)
 	randomize()          # 코스메틱 전역 RNG
 	game_rng.randomize()  # 게임 스트림(프리플레이 기본; 데일리/회귀는 seed_game으로 덮어씀)
 	_load_settings()
@@ -648,6 +658,8 @@ func _load_campaign() -> void:
 	f.close()
 
 func _save_campaign() -> void:
+	if not persist_enabled:
+		return   # 하네스·프로브 = 실유저 세이브 오염 금지(선언부 참조). 게임 로직·회귀 출력엔 영향 없음.
 	var mask: int = 0
 	for i in range(STAGES.size()):
 		if bool(cleared.get(i, false)):
