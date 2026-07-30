@@ -1,7 +1,7 @@
 extends SceneTree
 # 겹침 금지 불변식 탐침 — "한 칸에 유닛 하나"가 실제 플레이에서 깨지는지 본다(0이어야 정상).
 #   같이 재는 것: ①겹침 위반 수 ②웨이브 회계 불변식(spawned==killed+leaked+onboard, [[wave-accounting-invariant]])
-#   ③slip(옆으로 돌아감)·block(삼면 막힘 대기) 빈도 — block이 잦으면 전진 레버가 눌린다는 뜻(경보).
+#   ③block(앞이 막혀 한 박자 대기) 빈도 — 이게 곧 '줄서기'가 얼마나 일어나는지다(C102: 판당 ~1회).
 #   표본은 배치 직전(플레이어가 보는 보드) + 배치 직후 둘 다.
 #   실행: TRIALS=6 godot --headless --path . --script tools/overlap_probe.gd
 
@@ -13,19 +13,20 @@ func _init() -> void:
 	seed(20260718)
 	g.seed_game(20260718)
 	print("(seed=20260718 TRIALS=%d)" % TRIALS)
-	print("idx | 표본   | 겹침위반 | 회계위반 | slip | block")
-	print("----+--------+----------+----------+------+------")
-	var tot: Dictionary = {"s": 0, "o": 0, "acc": 0, "slip": 0, "blk": 0}
+	print("idx | 표본   | 겹침위반 | 회계위반 | block | 판수")
+	print("----+--------+----------+----------+-------+-----")
+	var tot: Dictionary = {"s": 0, "o": 0, "acc": 0, "blk": 0, "games": 0}
 	for si in range(g.STAGES.size()):
-		var acc: Dictionary = {"s": 0, "o": 0, "acc": 0, "slip": 0, "blk": 0}
+		var acc: Dictionary = {"s": 0, "o": 0, "acc": 0, "blk": 0, "games": 0}
 		for t in range(TRIALS):
 			_play(g, si, acc)
-		print(" %2d | %6d | %8d | %8d | %4d | %5d" % [
-			si + 1, acc["s"], acc["o"], acc["acc"], acc["slip"], acc["blk"]])
+		print(" %2d | %6d | %8d | %8d | %5d | %4d" % [
+			si + 1, acc["s"], acc["o"], acc["acc"], acc["blk"], acc["games"]])
 		for k in acc.keys():
 			tot[k] = int(tot[k]) + int(acc[k])
-	print("---- 합: 표본 %d | 겹침위반 %d | 회계위반 %d | slip %d | block %d" % [
-		tot["s"], tot["o"], tot["acc"], tot["slip"], tot["blk"]])
+	print("---- 합: 표본 %d | 겹침위반 %d | 회계위반 %d | block %d (판당 %.2f회, %d판)" % [
+		tot["s"], tot["o"], tot["acc"], tot["blk"],
+		float(tot["blk"]) / maxf(1.0, float(tot["games"])), tot["games"]])
 	print("VERDICT: %s" % ("PASS (겹침 0 · 회계 0)" if int(tot["o"]) == 0 and int(tot["acc"]) == 0 else "FAIL"))
 	quit()
 
@@ -52,7 +53,6 @@ func _sample(g: Node, acc: Dictionary) -> void:
 func _play(g: Node, si: int, acc: Dictionary) -> void:
 	g.dda_enabled = false
 	g._start_stage(si)
-	g.dbg_slip = 0
 	g.dbg_block = 0
 	var guard: int = 0
 	while not g.game_over and not g.game_clear and guard < 3000:
@@ -76,8 +76,8 @@ func _play(g: Node, si: int, acc: Dictionary) -> void:
 			g._process(0.05)
 			s3 += 1
 		_sample(g, acc)   # 배치 직후(전진·스폰·분열·넉백이 다 적용된 상태)
-	acc["slip"] = int(acc["slip"]) + int(g.dbg_slip)
 	acc["blk"] = int(acc["blk"]) + int(g.dbg_block)
+	acc["games"] = int(acc["games"]) + 1
 
 # ── 그리디 봇 (campaign_probe에서 복사) ──
 func _best_move(g: Node) -> Dictionary:

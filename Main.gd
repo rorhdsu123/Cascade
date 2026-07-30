@@ -388,8 +388,7 @@ var pending_vault_dead: bool = false # 이번 스텝에 금고가 0이 됨(거�
 var dbg_grab: int = 0                # 프로브 계측 — 낚아채기/회수/탈출 횟수(연출 아님, 튜닝용)
 var dbg_recover: int = 0
 var dbg_escape: int = 0
-var dbg_slip: int = 0                # 겹침 회피로 옆으로 돌아 내려간 횟수(빈도 계측 — overlap_probe)
-var dbg_block: int = 0               # 삼면 막힘으로 한 박자 대기한 횟수(드물어야 정상 = 전진 레버 보존)
+var dbg_block: int = 0               # 앞이 막혀 한 박자 대기한 횟수(빈도 계측 — overlap_probe. 판당 ~1회면 정상)
 var collect_pop: Array = []          # 타입별 카운터 도착 팝(스케일 바운스) 타이머
 # 폭탄 피해 비행(보석 비행의 역방향): 폭발이 뱉은 '깨진 하트 −N' 토큰이 HP 바의 곧-깎일 구간으로 날아가 착지하며 바를 부순다.
 var dmg_flights: Array = []          # [{from,to,t,dur,dmg}] 도착 시 core_hp_vis -= dmg + 바 파쇄
@@ -2323,15 +2322,17 @@ func _retract_dead_mouths() -> void:
 # 왜: 같은 칸에 몸이 포개지면 위협 수를 눈으로 셀 수 없다(유저 판정: "혼란스럽다"). 그리기로 펼치는 건
 #   증상 완화였고, 규칙에서 막는다 → 보드는 항상 '한 칸 = 한 마리'. 적용 지점은 유닛이 생기거나
 #   움직이는 모든 곳: 스폰(_free_top_col) · 전진(_plan_advance) · 분열 쌍둥이 · 넉백 · 도둑 반등.
-# 전진 해소 3규칙:
+# 전진 해소 2규칙(줄서기):
 #   ① 선두부터 움직인다(내려가는 놈은 아랫줄부터, 훔쳐 도망가는 도둑은 윗줄부터) → 줄줄이 따라 내려간다.
-#   ② 목표 칸이 그래도 차 있으면 옆으로 돌아 내려간다(대각 slip, 덜 붐비는 레인 우선·동률이면 왼쪽).
-#   ③ 아래·좌하·우하가 다 막히면 이번 박자엔 대기(다음 박자에 재시도 = blocked).
-# ⚠왜 '줄서기(대기)'가 기본이 아닌가: 전진 속도가 이 게임의 유일한 난이도 레버다
-#   ([[cascade-difficulty-lever-is-advance-speed]]). 뒤엣놈을 세우면 누수 압력이 통째로 줄어
-#   동결된 캠페인 밸런스가 흔들린다 → 세우지 말고 '돌아가게' 해서 적별 박자를 보존한다.
+#   ② 목표 칸이 그래도 차 있으면 이번 박자엔 못 간다(대기 = blocked). 앞이 비는 즉시 다음 박자에 간다.
+# ⚠C102: C101은 이걸 '옆으로 돌아 내려가기(대각 slip)'로 풀었다 — 전진 속도가 유일한 난이도 레버라
+#   ([[cascade-difficulty-lever-is-advance-speed]]) 뒤엣놈을 세우기 싫었다. 기각 사유는 느낌이다:
+#   유저 판정 "갑자기 옆걸음으로 가는 게 이상하다. 예고를 해도 인지하기 어렵다". 그리고 레버 걱정은
+#   과잉방어였다 — 충돌은 판당 0.7회(실측)로 한 판 전진 횟수(50~100)의 1% 미만이라, 세워도 난이도가
+#   안 흔들린다(그 메모의 경고는 step_every를 계통적으로 건드릴 때의 것). 가로 이동을 없애니
+#   '선두 뒤에 멈춰 선 줄'이라는 익숙한 그림만 남는다. 적은 이제 자기 레인을 절대 안 벗어난다.
 # 이 함수는 순수하다(상태 불변) — advance_step이 적용에 쓰고, 그리기가 '다음 박자 예고'(lean·붉은
-#   착지칸)에 같은 결과를 쓴다 = 예고와 실제가 한 산식에서 나온다(옆으로 돌아갈 땐 붉은 칸도 대각으로).
+#   착지칸)에 같은 결과를 쓴다 = 예고와 실제가 한 산식에서 나온다(막힌 놈은 꿈틀도 붉은 칸도 없다).
 func _plan_advance(pc: int) -> Dictionary:
 	var occ: Dictionary = {}   # Vector2i -> id (현재 점유. 선두가 비운 칸을 뒤가 쓴다)
 	for e in enemies:
@@ -2369,7 +2370,8 @@ func _plan_advance(pc: int) -> Dictionary:
 		_plan_one(e, -1, occ, plan)
 	return plan
 
-# 유닛 하나의 목표 칸 확정(아래 dir=1 / 위 dir=-1 한 칸). occ·plan을 그 자리서 갱신한다.
+# 유닛 하나의 목표 칸 확정(아래 dir=1 / 위 dir=-1 한 칸, 같은 열). occ·plan을 그 자리서 갱신한다.
+#   열은 절대 안 바뀐다 = 적은 자기 레인에서만 움직인다(가로 이동 없음, C102).
 func _plan_one(e: Dictionary, dir: int, occ: Dictionary, plan: Dictionary) -> void:
 	var col: int = int(e["col"])
 	var row: int = int(e["row"])
@@ -2380,27 +2382,10 @@ func _plan_one(e: Dictionary, dir: int, occ: Dictionary, plan: Dictionary) -> vo
 		pe["row"] = tr
 		pe["move"] = true
 		return
-	var pick: int = -99
-	if not occ.has(Vector2i(col, tr)):
-		pick = col
-	else:
-		var best_load: int = 1 << 30
-		for dc in [-1, 1]:
-			var cc: int = col + dc
-			if cc < 0 or cc >= COLS or occ.has(Vector2i(cc, tr)):
-				continue
-			var load: int = 0   # 그 레인의 앞쪽 혼잡도 = 또 부딪힐 확률. 덜 붐비는 쪽으로 돈다
-			for oe in enemies:
-				if int(oe["col"]) == cc and int(oe["row"]) >= tr:
-					load += 1
-			if load < best_load:
-				best_load = load
-				pick = cc
-	if pick == -99:
-		return   # 삼면 막힘 = 이번 박자 대기(move=false 유지 → blocked로 다음 박자 재시도)
+	if occ.has(Vector2i(col, tr)):
+		return   # 앞이 막혔다 = 이번 박자 대기(move=false 유지 → blocked로 다음 박자 재시도)
 	occ.erase(Vector2i(col, row))
-	occ[Vector2i(pick, tr)] = int(e["id"])
-	pe["col"] = pick
+	occ[Vector2i(col, tr)] = int(e["id"])
 	pe["row"] = tr
 	pe["move"] = true
 
@@ -2448,10 +2433,7 @@ func advance_step() -> void:
 		var pe: Dictionary = plan[int(e["id"])]
 		var step_every: int = int(pe["step"])
 		if bool(pe["move"]):
-			if int(pe["col"]) != int(e["col"]):
-				dbg_slip += 1
-			e["col"] = int(pe["col"])   # 옆으로 돌아 내려갔을 수 있다(slip) — vis_col이 부드럽게 따라간다
-			e["row"] = int(pe["row"])   # 도망 중인 도둑은 위로(_plan_advance가 방향을 소유)
+			e["row"] = int(pe["row"])   # 열은 안 바뀐다(자기 레인) · 도망 중인 도둑은 위로(_plan_advance가 방향을 소유)
 			e["stepped"] = true          # 이번 스텝에 전진 → 박자 링
 			any_advanced = true
 		else:
@@ -2650,7 +2632,7 @@ func _spawn_gem(col: int) -> void:
 	var gcol: int = _free_top_col(col)
 	if gcol < 0:
 		return
-	enemies.append({"col": gcol, "row": 0, "vis_row": 0.0, "vis_col": float(gcol), "hp": 1, "maxhp": 1, "etype": "gem", "gtype": gt, "id": enemy_seq, "step_every": gstep})
+	enemies.append({"col": gcol, "row": 0, "vis_row": 0.0, "hp": 1, "maxhp": 1, "etype": "gem", "gtype": gt, "id": enemy_seq, "step_every": gstep})
 	enemy_seq += 1
 	if not seen_types.get("gem", false):
 		seen_types["gem"] = true
@@ -2682,7 +2664,7 @@ func _spawn_one(col: int, etype: String, step_override: int = 0) -> void:
 		return
 	var hp: int = director.enemy_hp(etype, spawned, _director_ctx())
 	var step_every: int = step_override if step_override > 0 else director.enemy_step(etype)
-	var ed: Dictionary = {"col": scol, "row": 0, "vis_row": 0.0, "vis_col": float(scol), "hp": hp, "maxhp": hp, "etype": etype, "id": enemy_seq, "step_every": step_every}
+	var ed: Dictionary = {"col": scol, "row": 0, "vis_row": 0.0, "hp": hp, "maxhp": hp, "etype": etype, "id": enemy_seq, "step_every": step_every}
 	if etype == "bomb":
 		ed["fuse"] = director.bomb_fuse()   # 도화선 = 남은 배치 수(advance_step마다 1 감소)
 	elif etype == "thief":
@@ -2728,7 +2710,7 @@ func _split_enemy(parent: Dictionary) -> void:
 		if _unit_at(spv.x, spv.y):
 			continue
 		enemies.append({
-			"col": spv.x, "row": spv.y, "vis_row": pvis, "vis_col": float(pcol), "hp": half, "maxhp": half,
+			"col": spv.x, "row": spv.y, "vis_row": pvis, "hp": half, "maxhp": half,
 			"etype": "split", "id": enemy_seq, "step_every": pstep, "gen": 1, "split_done": true,
 		})
 		enemy_seq += 1
@@ -3974,9 +3956,6 @@ func _process(delta: float) -> void:
 			e["flinch"] = maxf(0.0, e["flinch"] - delta)
 		var vr: float = e.get("vis_row", float(e["row"]))
 		e["vis_row"] = move_toward(vr, float(e["row"]), SLIDE_SPEED * delta)
-		# 옆으로 돌아 내려갈 때(slip) 순간이동하지 않게 가로도 같은 속도로 이징 = 대각으로 스르륵
-		var vc: float = e.get("vis_col", float(e["col"]))
-		e["vis_col"] = move_toward(vc, float(e["col"]), SLIDE_SPEED * delta)
 	queue_redraw()
 
 # ===== 그리기 =====
@@ -6314,21 +6293,18 @@ func _draw_board(fnt: Font) -> void:
 		var will_move: bool = bool(np.get("move", false))
 		var lean_amt: float = 1.0 if will_move and not fleeing else 0.0
 		var bob: float = lean_amt * (0.6 + 0.4 * sin(anim_t * 5.0)) * CELL * 0.16
-		# 표시 x는 vis_col — 옆으로 돌아 내려가는(slip) 중엔 대각으로 스르륵 움직인다
-		var cx: float = BOARD_X + float(e.get("vis_col", float(ec))) * CELL + CELL * 0.5 + jit.x
+		var cx: float = BOARD_X + ec * CELL + CELL * 0.5 + jit.x
 		# 몸통은 셀 중심보다 E_BODY_DY 아래 — 위쪽은 HP 게이지 자리다(_enemy_pos와 같은 셈).
 		var cy: float = board_y + vr * CELL + CELL * 0.5 + E_BODY_DY + jit.y + bob
 		# 채널 B — 붉은 착지칸: 시끄럽지만 '깊이(누수까지)'로 게이팅. 상단(depth≈0)엔 안 뜨고 바닥으로
 		#   내려올수록 차오른다 → 위협 있는 곳에서만 정확한 착지점. 전 깊이 알람(구 방식)의 정신없음을 없앰.
 		#   depth: row4=0 → row7=1 완만 램프. imm: 다음 박자에 이동=꽉, remain==2(그 다음)=먼저 흐리게.
-		#   ⚠칸은 계획이 준다 — 옆으로 돌아 내려가면 붉은 칸도 대각으로 뜬다 = slip 자체가 예고된다.
+		#   ⚠칸은 계획이 준다 — 앞이 막혀 대기하는 놈은 붉은 칸도 꿈틀도 없다(안 움직이니 예고할 게 없다).
 		if not fleeing:
-			var tel_col: int = ec
 			var tel_row: int = er + 1
 			var imm: float = 0.0
 			if will_move:
 				imm = 1.0
-				tel_col = int(np["col"])
 				tel_row = int(np["row"])
 			elif remain == 2:
 				imm = 0.5
@@ -6336,7 +6312,7 @@ func _draw_board(fnt: Font) -> void:
 			var box_a: float = depth * imm
 			if box_a > 0.02 and tel_row < ROWS and tel_row != er:
 				var wp: float = box_a * (0.30 + 0.35 * sin(anim_t * 5.0))
-				draw_rect(Rect2(BOARD_X + tel_col * CELL, board_y + tel_row * CELL, CELL, CELL),
+				draw_rect(Rect2(BOARD_X + ec * CELL, board_y + tel_row * CELL, CELL, CELL),
 						Color(0.9, 0.35, 0.3, wp), false, 2.5)
 		# 겹침 펼치기(위 stack_of): 몸통·게이지·링을 한 칸 안에서 좌우로 나눠 앉히고 그만큼 작게 그린다.
 		#   중심 기준 축소 + 평행이동을 draw 변환 하나로 걸어, 이 적의 모든 후속 draw(몸통·박자링·플래시·
