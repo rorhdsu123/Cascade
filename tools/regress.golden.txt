@@ -1,6 +1,6 @@
 ── REGRESS (seed=20260718 N=20) ──
-s0 u0 #00: W1 sp20 k17 lk3 pl38 cl17 dc0 ds0
-s0 u0 #01: W1 sp20 k20 lk0 pl29 cl14 dc0 ds0
+s0 u0 #00: W1 sp20 k20 lk0 pl31 cl13 dc0 ds0
+s0 u0 #01: W1 sp20 k20 lk0 pl35 cl14 dc0 ds0
 s0 u0 #02: W1 sp20 k20 lk0 pl22 cl9 dc0 ds0
 s0 u0 #03: W1 sp20 k20 lk0 pl25 cl11 dc0 ds0
 s0 u0 #04: W1 sp20 k20 lk0 pl37 cl14 dc0 ds0

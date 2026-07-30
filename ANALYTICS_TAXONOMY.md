@@ -59,7 +59,7 @@
 | 이벤트 | 파라미터 | 목적 지표 |
 |---|---|---|
 | `tutorial_beat_started` | `beat`(1/2/3) | 박자별 진입 |
-| `tutorial_beat_completed` | `beat`, `time_to_complete_ms`, `retries` | **박자별 이탈률**(어느 개념에서 튕기나) |
+| `tutorial_beat_completed` | `beat`, `time_to_complete_ms`, `retries`, `bail`? | **박자별 이탈률**(어느 개념에서 튕기나) |
 | `tutorial_skipped` | `at_beat` | 스킵 압력 |
 | `first_piece_placed` | `time_since_open_ms` | "손이 언제 움직이나"(TTFA) |
 | `first_line_cleared` | `time_since_open_ms` | 첫 도파민까지 시간 |
@@ -133,7 +133,7 @@
 | 지표 | 조립 |
 |---|---|
 | **D1 / D7 리텐션** | `app_opened.is_first_session` + 재방문 세션 |
-| **튜토리얼 완주율** | `tutorial_beat_completed(3)` / `tutorial_beat_started(1)` — 박자별 드롭 |
+| **튜토리얼 완주율** | `tutorial_beat_completed(3)` / `tutorial_beat_started(1)` — 박자별 드롭. 박자2는 `bail=false`(진짜 처치)만 세야 "적을 못 잡고 흘러간" 유저가 완주로 안 잡힘 |
 | **첫 도파민까지 시간** | `first_line_cleared.time_since_open_ms` 분포 |
 | **죽음의 질 믹스** | `run_failed.cause` 비율(core_death:stuck) × 모드 × 스테이지 |
 | **부활 전환율** | `revive_taken` / `revive_offered`, cause별 |
