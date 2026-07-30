@@ -357,6 +357,8 @@ var pending_vault_dead: bool = false # 이번 스텝에 금고가 0이 됨(거�
 var dbg_grab: int = 0                # 프로브 계측 — 낚아채기/회수/탈출 횟수(연출 아님, 튜닝용)
 var dbg_recover: int = 0
 var dbg_escape: int = 0
+var dbg_slip: int = 0                # 겹침 회피로 옆으로 돌아 내려간 횟수(빈도 계측 — overlap_probe)
+var dbg_block: int = 0               # 삼면 막힘으로 한 박자 대기한 횟수(드물어야 정상 = 전진 레버 보존)
 var collect_pop: Array = []          # 타입별 카운터 도착 팝(스케일 바운스) 타이머
 # 폭탄 피해 비행(보석 비행의 역방향): 폭발이 뱉은 '깨진 하트 −N' 토큰이 HP 바의 곧-깎일 구간으로 날아가 착지하며 바를 부순다.
 var dmg_flights: Array = []          # [{from,to,t,dur,dmg}] 도착 시 core_hp_vis -= dmg + 바 파쇄
@@ -470,6 +472,9 @@ var seen_types: Dictionary = {}  # etype -> 이미 콜아웃 봤나
 var anim_t: float = 0.0        # 깜빡임 등 연출용 누적 시간
 var red_flash: float = 0.0
 var shake_timer: float = 0.0
+# 이번 프레임의 기본 draw 오프셋(=화면 흔들림). 겹친 적을 축소·펼치려면 draw 변환을 임시로 덮는데,
+#   해제할 때 항등으로 되돌리면 흔들림이 사라진다 → 이 값으로 되돌린다(_draw에서 매 프레임 갱신).
+var draw_ofs: Vector2 = Vector2.ZERO
 var step_beat: float = 0.0     # >0이면 방금 스텝(전진)이 있었다 → stepped 적에 밝은 링 박자
 
 # 전투 순차 연출(resolve) — 배치→전진→클리어→빔→넉백→거점을 짧게 순서대로 재생
@@ -1922,8 +1927,13 @@ func _apply_hit(h: Dictionary) -> void:
 		# ③ 생존 flinch(흰 플래시+떨림 강화) + 넉백 강화 + 짧은 히트스톱
 		e["flinch"] = 0.22
 		hitstop = maxf(hitstop, 0.02)
+		# 넉백: 위로 kb칸. 단 다른 유닛이 있는 칸은 통과·점유 불가(겹침 금지) → 그 앞에서 멈춘다.
 		var old_row: int = e["row"]
-		var new_row: int = maxi(0, old_row - int(h["kb"]))
+		var new_row: int = old_row
+		var kb_left: int = int(h["kb"])
+		while kb_left > 0 and new_row - 1 >= 0 and not _unit_at(e["col"], new_row - 1, int(e["id"])):
+			new_row -= 1
+			kb_left -= 1
 		if new_row != old_row:
 			e["row"] = new_row
 			push_streaks.append({
@@ -2251,6 +2261,112 @@ func _retract_dead_mouths() -> void:
 			if board[r][col] == "#":
 				board[r][col] = ""
 
+# ===== 한 칸에 유닛 하나 (겹침 금지 불변식) =====
+# 왜: 같은 칸에 몸이 포개지면 위협 수를 눈으로 셀 수 없다(유저 판정: "혼란스럽다"). 그리기로 펼치는 건
+#   증상 완화였고, 규칙에서 막는다 → 보드는 항상 '한 칸 = 한 마리'. 적용 지점은 유닛이 생기거나
+#   움직이는 모든 곳: 스폰(_free_top_col) · 전진(_plan_advance) · 분열 쌍둥이 · 넉백 · 도둑 반등.
+# 전진 해소 3규칙:
+#   ① 선두부터 움직인다(내려가는 놈은 아랫줄부터, 훔쳐 도망가는 도둑은 윗줄부터) → 줄줄이 따라 내려간다.
+#   ② 목표 칸이 그래도 차 있으면 옆으로 돌아 내려간다(대각 slip, 덜 붐비는 레인 우선·동률이면 왼쪽).
+#   ③ 아래·좌하·우하가 다 막히면 이번 박자엔 대기(다음 박자에 재시도 = blocked).
+# ⚠왜 '줄서기(대기)'가 기본이 아닌가: 전진 속도가 이 게임의 유일한 난이도 레버다
+#   ([[cascade-difficulty-lever-is-advance-speed]]). 뒤엣놈을 세우면 누수 압력이 통째로 줄어
+#   동결된 캠페인 밸런스가 흔들린다 → 세우지 말고 '돌아가게' 해서 적별 박자를 보존한다.
+# 이 함수는 순수하다(상태 불변) — advance_step이 적용에 쓰고, 그리기가 '다음 박자 예고'(lean·붉은
+#   착지칸)에 같은 결과를 쓴다 = 예고와 실제가 한 산식에서 나온다(옆으로 돌아갈 땐 붉은 칸도 대각으로).
+func _plan_advance(pc: int) -> Dictionary:
+	var occ: Dictionary = {}   # Vector2i -> id (현재 점유. 선두가 비운 칸을 뒤가 쓴다)
+	for e in enemies:
+		occ[Vector2i(int(e["col"]), int(e["row"]))] = int(e["id"])
+	var plan: Dictionary = {}
+	var down: Array = []
+	var up: Array = []
+	for e in enemies:
+		var carrying: bool = e["etype"] == "thief" and bool(e.get("carrying", false))
+		var base_step: int = int(e.get("step_every", director.hud_step_every()))
+		if carrying:
+			var cs: int = director.thief_carry_step()
+			if cs > 0:
+				base_step = cs
+		var step_every: int = director.effective_step_every(base_step,
+				{"place_count": pc, "surge_active": surge_active})
+		# 지난 박자에 삼면 막힘으로 못 움직인 놈(blocked)은 자기 주기를 기다리지 않고 이번 박자에 재시도
+		#   — 안 그러면 한 번 막힌 대가로 주기 한 바퀴를 공짜로 쉬어 위협이 사라진다.
+		var wants: bool = (pc % step_every == 0) or bool(e.get("blocked", false))
+		plan[int(e["id"])] = {
+			"col": int(e["col"]), "row": int(e["row"]),
+			"move": false, "wanted": wants, "step": step_every,
+		}
+		if not wants:
+			continue
+		if carrying:
+			up.append(e)
+		else:
+			down.append(e)
+	down.sort_custom(func(a, b): return int(a["row"]) > int(b["row"]))   # 아래(선두)부터
+	up.sort_custom(func(a, b): return int(a["row"]) < int(b["row"]))     # 위(선두)부터
+	for e in down:
+		_plan_one(e, 1, occ, plan)
+	for e in up:
+		_plan_one(e, -1, occ, plan)
+	return plan
+
+# 유닛 하나의 목표 칸 확정(아래 dir=1 / 위 dir=-1 한 칸). occ·plan을 그 자리서 갱신한다.
+func _plan_one(e: Dictionary, dir: int, occ: Dictionary, plan: Dictionary) -> void:
+	var col: int = int(e["col"])
+	var row: int = int(e["row"])
+	var tr: int = row + dir
+	var pe: Dictionary = plan[int(e["id"])]
+	if tr < 0 or tr >= ROWS:
+		occ.erase(Vector2i(col, row))   # 보드 밖(누수·탈출) — 뒤따르는 놈에게 칸을 비워준다
+		pe["row"] = tr
+		pe["move"] = true
+		return
+	var pick: int = -99
+	if not occ.has(Vector2i(col, tr)):
+		pick = col
+	else:
+		var best_load: int = 1 << 30
+		for dc in [-1, 1]:
+			var cc: int = col + dc
+			if cc < 0 or cc >= COLS or occ.has(Vector2i(cc, tr)):
+				continue
+			var load: int = 0   # 그 레인의 앞쪽 혼잡도 = 또 부딪힐 확률. 덜 붐비는 쪽으로 돈다
+			for oe in enemies:
+				if int(oe["col"]) == cc and int(oe["row"]) >= tr:
+					load += 1
+			if load < best_load:
+				best_load = load
+				pick = cc
+	if pick == -99:
+		return   # 삼면 막힘 = 이번 박자 대기(move=false 유지 → blocked로 다음 박자 재시도)
+	occ.erase(Vector2i(col, row))
+	occ[Vector2i(pick, tr)] = int(e["id"])
+	pe["col"] = pick
+	pe["row"] = tr
+	pe["move"] = true
+
+# (col,row)에 다른 유닛이 있나 — 겹침 금지 불변식의 공통 조회(자기 자신 제외).
+func _unit_at(col: int, row: int, except_id: int = -1) -> bool:
+	for e in enemies:
+		if int(e["id"]) != except_id and int(e["col"]) == col and int(e["row"]) == row:
+			return true
+	return false
+
+# row 0의 빈 열 — 뽑힌 열이 이미 차 있으면 가장 가까운 빈 열로 비킨다(동거리면 왼쪽). 전부 차면 -1 = 스폰 보류.
+#   ⚠randi를 새로 쓰지 않는다 = 스폰 RNG 스트림 보존(회귀·데일리 결정성, [[gamemode-director-seam]]).
+#   featured(결정적 트랙)의 계약은 '뽑힌 시퀀스(piece[i]·spawn[d])가 전원 동일'이고 그건 그대로다 —
+#   비키기는 내 보드 상태의 함수라, 내가 뭘 잡았느냐로 갈리는 다른 모든 것과 같은 급이다(track_log 불변).
+func _free_top_col(col: int) -> int:
+	if not _unit_at(col, 0):
+		return col
+	for d in range(1, COLS):
+		if col - d >= 0 and not _unit_at(col - d, 0):
+			return col - d
+		if col + d < COLS and not _unit_at(col + d, 0):
+			return col + d
+	return -1
+
 # ===== 스텝 진행 =====
 func advance_step() -> void:
 	place_count += 1
@@ -2263,30 +2379,33 @@ func advance_step() -> void:
 	surge_active = director.is_surge_active(ctx)   # 렌더/텔레그래프도 읽는 Main 필드 → 스텝당 1회
 	ctx["surge_active"] = surge_active
 	# 전진 스로틀: step_every 배치마다 1칸. 서지 클램프(하한 2)는 director.effective_step_every가 캡슐화.
+	#   목표 칸은 _plan_advance가 소유한다(겹침 금지: 선두 먼저 → 막히면 옆으로 돌아 → 삼면 막힘이면 대기).
+	var plan: Dictionary = _plan_advance(place_count)
 	var any_advanced: bool = false
 	for e in enemies:
 		# 폭탄 도화선: 배치할 때마다(=이 함수 호출마다) 1씩 탄다. 전진 주기와 무관한 순수 카운트다운.
 		#   0 이하가 되면 아래 누수/폭발 루프에서 제자리 폭발(거점 bomb_dmg 피해).
 		if e["etype"] == "bomb":
 			e["fuse"] = int(e.get("fuse", 0)) - 1
-		# 도둑이 훔치고 도망 중(carrying)이면 되돌아 위로 올라간다(row 감소). carry_step>0이면 그 주기로(R1=느리게=회수 쉬움).
-		var carrying: bool = e["etype"] == "thief" and bool(e.get("carrying", false))
-		var base_step: int = e.get("step_every", director.hud_step_every())
-		if carrying:
-			var cs: int = director.thief_carry_step()
-			if cs > 0:
-				base_step = cs
-		var step_every: int = director.effective_step_every(base_step, ctx)
-		if place_count % step_every == 0:
-			e["row"] += (-1 if carrying else 1)   # 도망 중이면 상승(탈출로), 아니면 하강(거점으로)
+		var pe: Dictionary = plan[int(e["id"])]
+		var step_every: int = int(pe["step"])
+		if bool(pe["move"]):
+			if int(pe["col"]) != int(e["col"]):
+				dbg_slip += 1
+			e["col"] = int(pe["col"])   # 옆으로 돌아 내려갔을 수 있다(slip) — vis_col이 부드럽게 따라간다
+			e["row"] = int(pe["row"])   # 도망 중인 도둑은 위로(_plan_advance가 방향을 소유)
 			e["stepped"] = true          # 이번 스텝에 전진 → 박자 링
 			any_advanced = true
 		else:
 			e["stepped"] = false
+		# 삼면 막힘으로 못 간 놈은 다음 박자에 재시도(주기 한 바퀴를 쉬지 않는다). 그래서 예고도 remain=1.
+		e["blocked"] = bool(pe["wanted"]) and not bool(pe["move"])
+		if bool(e["blocked"]):
+			dbg_block += 1
 		# 예비동작 텔레그래프: 이 적이 몇 배치 뒤에 전진하나(remain). draw가 못 부르는 effective_step_every를
 		#   여기서 확정해 적별 '자기 시계'로 저장한다. remain==1=다음 배치·2=곧. 방금 스텝했으면 remain=step_every.
-		#   글로벌 카드 대신 적 자세(전역)와 붉은 착지칸(바닥 게이팅)이 이 값을 읽는다.
-		e["remain"] = step_every - (place_count % step_every)
+		#   ⚠'다음 박자에 실제로 움직이나'는 remain이 아니라 _plan_advance(place_count+1)가 답한다(그리기 참조).
+		e["remain"] = 1 if bool(e["blocked"]) else step_every - (place_count % step_every)
 	# 동시 행진 박자: 함께 내려온 순간을 소프트 쿵 + 링으로 못 박는다(코지 → 아주 살짝).
 	if any_advanced:
 		step_beat = STEP_BEAT_DUR
@@ -2355,9 +2474,13 @@ func advance_step() -> void:
 				vault_pop = 0.42
 				vault_flash = 0.55
 				en["carrying"] = true
-				en["row"] = ROWS - 1     # 바닥서 반등 → 다음 스텝부터 상승(탈출로)
-				en["vis_row"] = float(ROWS - 1)
-				var stp: Vector2 = _enemy_pos(int(en["col"]), ROWS - 1)
+				# 바닥서 반등 → 다음 스텝부터 상승(탈출로). 반등 칸이 차 있으면 그 열에서 빈 칸까지 올라간다(겹침 금지).
+				var bounce_r: int = ROWS - 1
+				while bounce_r > 0 and _unit_at(int(en["col"]), bounce_r, int(en["id"])):
+					bounce_r -= 1
+				en["row"] = bounce_r
+				en["vis_row"] = float(bounce_r)
+				var stp: Vector2 = _enemy_pos(int(en["col"]), bounce_r)
 				impacts.append({"pos": stp, "life": 0.3, "max": 0.3, "color": Color(0.95, 0.55, 0.5), "radius": CELL * 0.45, "star": true})
 			elif en["etype"] == "gem":
 				# 보석 놓침 — 거점 무피해, 진행 손해일 뿐. 바닥에서 회색 파프로 '놓쳤다'를 짧게 알림(보석이 중요함을 학습).
@@ -2465,7 +2588,11 @@ func _spawn_gem(col: int) -> void:
 	var gstep: int = director.hud_step_every()
 	if bool(st.get("gem_fast", false)):
 		gstep = maxi(1, gstep - 1)
-	enemies.append({"col": col, "row": 0, "vis_row": 0.0, "hp": 1, "maxhp": 1, "etype": "gem", "gtype": gt, "id": enemy_seq, "step_every": gstep})
+	# 겹침 금지: 조용한 열이 없어 무작위로 떨어진 경우엔 맨 윗칸이 찰 수 있다 → 빈 열로 비키고, 없으면 보류.
+	var gcol: int = _free_top_col(col)
+	if gcol < 0:
+		return
+	enemies.append({"col": gcol, "row": 0, "vis_row": 0.0, "vis_col": float(gcol), "hp": 1, "maxhp": 1, "etype": "gem", "gtype": gt, "id": enemy_seq, "step_every": gstep})
 	enemy_seq += 1
 	if not seen_types.get("gem", false):
 		seen_types["gem"] = true
@@ -2490,9 +2617,14 @@ func _spawn_one(col: int, etype: String, step_override: int = 0) -> void:
 	# (보석 gem은 _spawn_gem이 따로 처리 — 타입·gem_fast·필요타입 필터가 붙는다)
 	# HP·전진주기는 감독(StageMode)이 소유. spawned = 이 스폰의 인덱스(HP 램프에 사용).
 	#   ctx = run-state(점수·best) — 무한모드 PB 너머 HP 발화가 스폰 시점 점수로 읽는다(다른 모드는 무시).
+	# 겹침 금지: 뽑힌 열의 맨 윗칸이 차 있으면 가장 가까운 빈 열로 비킨다. 윗줄이 통째로 차면 이번 박자는
+	#   스폰 보류(spawned를 안 올리므로 감독이 다음 박자에 다시 낸다 = 웨이브 총량 불변).
+	var scol: int = _free_top_col(col)
+	if scol < 0:
+		return
 	var hp: int = director.enemy_hp(etype, spawned, _director_ctx())
 	var step_every: int = step_override if step_override > 0 else director.enemy_step(etype)
-	var ed: Dictionary = {"col": col, "row": 0, "vis_row": 0.0, "hp": hp, "maxhp": hp, "etype": etype, "id": enemy_seq, "step_every": step_every}
+	var ed: Dictionary = {"col": scol, "row": 0, "vis_row": 0.0, "vis_col": float(scol), "hp": hp, "maxhp": hp, "etype": etype, "id": enemy_seq, "step_every": step_every}
 	if etype == "bomb":
 		ed["fuse"] = director.bomb_fuse()   # 도화선 = 남은 배치 수(advance_step마다 1 감소)
 	elif etype == "thief":
@@ -2529,13 +2661,16 @@ func _split_enemy(parent: Dictionary) -> void:
 	var prow: int = int(parent["row"])
 	var pstep: int = int(parent.get("step_every", director.hud_step_every()))
 	var pvis: float = float(parent.get("vis_row", float(prow)))
-	# 쌍둥이는 빈 인접 열 하나에(왼쪽 우선). 가장자리면 반대쪽. 결정적(randi 없음).
-	for dc in [-1, 1]:
-		var cc: int = pcol + dc
-		if cc < 0 or cc >= COLS:
+	# 쌍둥이는 빈 인접 칸 하나에(왼쪽 → 오른쪽 → 부모 바로 위). 결정적(randi 없음).
+	#   ⚠빈 '열'이 아니라 빈 '칸'을 본다 = 겹침 금지 불변식. 셋 다 막히면 쌍둥이를 안 뱉는다(극히 드묾).
+	for sp in [Vector2i(pcol - 1, prow), Vector2i(pcol + 1, prow), Vector2i(pcol, prow - 1)]:
+		var spv: Vector2i = sp as Vector2i
+		if spv.x < 0 or spv.x >= COLS or spv.y < 0 or spv.y >= ROWS:
+			continue
+		if _unit_at(spv.x, spv.y):
 			continue
 		enemies.append({
-			"col": cc, "row": prow, "vis_row": pvis, "hp": half, "maxhp": half,
+			"col": spv.x, "row": spv.y, "vis_row": pvis, "vis_col": float(pcol), "hp": half, "maxhp": half,
 			"etype": "split", "id": enemy_seq, "step_every": pstep, "gen": 1, "split_done": true,
 		})
 		enemy_seq += 1
@@ -3312,6 +3447,9 @@ func _process(delta: float) -> void:
 			e["flinch"] = maxf(0.0, e["flinch"] - delta)
 		var vr: float = e.get("vis_row", float(e["row"]))
 		e["vis_row"] = move_toward(vr, float(e["row"]), SLIDE_SPEED * delta)
+		# 옆으로 돌아 내려갈 때(slip) 순간이동하지 않게 가로도 같은 속도로 이징 = 대각으로 스르륵
+		var vc: float = e.get("vis_col", float(e["col"]))
+		e["vis_col"] = move_toward(vc, float(e["col"]), SLIDE_SPEED * delta)
 	queue_redraw()
 
 # ===== 그리기 =====
@@ -3343,9 +3481,11 @@ func _draw() -> void:
 		draw_set_transform(Vector2.ZERO)
 		return
 
+	draw_ofs = Vector2.ZERO
 	if shake_timer > 0.0:
 		var mag: float = SHAKE_AMP * (shake_timer / SHAKE_DUR)
-		draw_set_transform(Vector2(randf_range(-mag, mag), randf_range(-mag, mag)))
+		draw_ofs = Vector2(randf_range(-mag, mag), randf_range(-mag, mag))
+		draw_set_transform(draw_ofs)
 
 	# 넘음 배경(여백) — 개인기록 넘으면 warm 플럼으로 solid 전환(pb_bg_mix 이징, 판 끝까지). 상·하단 바·셀도 같은
 	#   방식으로 함께 전환(아래) → 화면 전체가 한 색으로 통일 + 반투명 veil 없어 haze 0. 어둠 유지로 대비 보존.
@@ -5397,8 +5537,33 @@ func _draw_board(fnt: Font) -> void:
 					var flick: float = 0.5 + 0.5 * sin(anim_t * 18.0 + float(a + b))
 					draw_line(bl[a]["p"], bl[b]["p"], Color(1.0, 0.6, 0.2, 0.30 + 0.35 * flick), 2.0 + 1.5 * flick)
 
+	# ── 한 칸에 여럿(겹침) 펼치기.
+	#   전진 주기가 다른 적끼리(desync·넉백·분열·같은 열 재스폰) 따라잡으면 한 칸에 몸이 그대로 포개져
+	#   "적이 2겹으로 겹쳐 보인다" = 위협을 눈으로 셀 수 없다(봇 실측: 배치 시점의 26%가 겹침, 최대 3마리).
+	#   본 수정은 규칙에서 막았다(_plan_advance·_free_top_col = 한 칸에 유닛 하나) → 정상 플레이에선 이
+	#   블록이 절대 안 걸린다. 남겨두는 이유는 안전망이다: 혹시 새 이동 경로가 불변식을 어겨도 화면은
+	#   최소한 '두 마리'로 읽힌다(무증상 은폐 방지). 검증은 tools/overlap_probe.gd(0건) + stack_render.gd(주입).
+	#   한 칸에 N마리면 몸을 줄여 칸 안에 나란히 놓는다 = 셀 수 있는 소분대. 회계·판정·좌표는 불변.
+	var stack_of: Dictionary = {}   # 적 인덱스 -> {"n": 같은 칸 마리수, "k": 그 안에서 몇 번째}
+	var cell_units: Dictionary = {}
+	for ui in range(enemies.size()):
+		var uk: Vector2i = Vector2i(int(enemies[ui]["col"]), int(enemies[ui]["row"]))
+		if not cell_units.has(uk):
+			cell_units[uk] = []
+		(cell_units[uk] as Array).append(ui)
+	for uk2 in cell_units:
+		var ulst: Array = cell_units[uk2]
+		if ulst.size() >= 2:
+			for uj in range(ulst.size()):
+				stack_of[int(ulst[uj])] = {"n": ulst.size(), "k": uj}
+
+	# 다음 박자(=다음 배치)의 이동 계획. 전진 예고(lean·붉은 착지칸)가 실제 이동과 같은 산식을 쓴다.
+	#   매 프레임 새로 뽑는다 = 적이 죽거나 넉백돼 상황이 바뀌면 예고도 즉시 따라온다(캐시 안 함).
+	var nplan: Dictionary = _plan_advance(place_count + 1)
+
 	# 적 (타입별 색·모양·크기 + 피격 생존 시에만 HP 바)
-	for e in enemies:
+	for ei in range(enemies.size()):
+		var e: Dictionary = enemies[ei]
 		var ec: int = e["col"]
 		var er: int = e["row"]
 		# 놓을 곳 없음 죽음: 차오르는 물결이 지난 줄의 적은 통째로 사라진다.
@@ -5424,22 +5589,52 @@ func _draw_board(fnt: Font) -> void:
 		#   ⚠몸의 꿈틀 = "다음 배치에 이동" 약속이다. remain==1일 때만 켠다. 예전엔 remain==2에도 살짝
 		#   꿈틀댔는데, 실제론 안 움직이는데 움직일 것처럼 읽혀 약속을 어겼다(유저 확인) → 제거.
 		#   '곧'의 예고는 몸이 아니라 붉은 착지칸(채널 B)이 바닥 밴드에서만 맡는다.
-		var lean_amt: float = 1.0 if remain == 1 and not fleeing else 0.0
+		#   ⚠'다음 배치에 정말 움직이나'는 remain이 아니라 다음 박자 계획(nplan)이 답한다 — 겹침 금지로
+		#     삼면이 막히면 주기가 돌아왔어도 못 움직인다. 그때 꿈틀대면 약속을 어긴다 → 계획을 보고 켠다.
+		var np: Dictionary = nplan.get(int(e["id"]), {})
+		var will_move: bool = bool(np.get("move", false))
+		var lean_amt: float = 1.0 if will_move and not fleeing else 0.0
 		var bob: float = lean_amt * (0.6 + 0.4 * sin(anim_t * 5.0)) * CELL * 0.16
-		var cx: float = BOARD_X + ec * CELL + CELL * 0.5 + jit.x
+		# 표시 x는 vis_col — 옆으로 돌아 내려가는(slip) 중엔 대각으로 스르륵 움직인다
+		var cx: float = BOARD_X + float(e.get("vis_col", float(ec))) * CELL + CELL * 0.5 + jit.x
 		# 몸통은 셀 중심보다 E_BODY_DY 아래 — 위쪽은 HP 게이지 자리다(_enemy_pos와 같은 셈).
 		var cy: float = board_y + vr * CELL + CELL * 0.5 + E_BODY_DY + jit.y + bob
 		# 채널 B — 붉은 착지칸: 시끄럽지만 '깊이(누수까지)'로 게이팅. 상단(depth≈0)엔 안 뜨고 바닥으로
 		#   내려올수록 차오른다 → 위협 있는 곳에서만 정확한 착지점. 전 깊이 알람(구 방식)의 정신없음을 없앰.
-		#   depth: row4=0 → row7=1 완만 램프. imm: remain 1=꽉, 2=먼저 흐리게(와인드업).
-		if er + 1 < ROWS and not fleeing:
+		#   depth: row4=0 → row7=1 완만 램프. imm: 다음 박자에 이동=꽉, remain==2(그 다음)=먼저 흐리게.
+		#   ⚠칸은 계획이 준다 — 옆으로 돌아 내려가면 붉은 칸도 대각으로 뜬다 = slip 자체가 예고된다.
+		if not fleeing:
+			var tel_col: int = ec
+			var tel_row: int = er + 1
+			var imm: float = 0.0
+			if will_move:
+				imm = 1.0
+				tel_col = int(np["col"])
+				tel_row = int(np["row"])
+			elif remain == 2:
+				imm = 0.5
 			var depth: float = clampf((float(er) - 4.0) / 3.0, 0.0, 1.0)
-			var imm: float = (1.0 if remain == 1 else (0.5 if remain == 2 else 0.0))
 			var box_a: float = depth * imm
-			if box_a > 0.02:
+			if box_a > 0.02 and tel_row < ROWS and tel_row != er:
 				var wp: float = box_a * (0.30 + 0.35 * sin(anim_t * 5.0))
-				draw_rect(Rect2(BOARD_X + ec * CELL, board_y + (er + 1) * CELL, CELL, CELL),
+				draw_rect(Rect2(BOARD_X + tel_col * CELL, board_y + tel_row * CELL, CELL, CELL),
 						Color(0.9, 0.35, 0.3, wp), false, 2.5)
+		# 겹침 펼치기(위 stack_of): 몸통·게이지·링을 한 칸 안에서 좌우로 나눠 앉히고 그만큼 작게 그린다.
+		#   중심 기준 축소 + 평행이동을 draw 변환 하나로 걸어, 이 적의 모든 후속 draw(몸통·박자링·플래시·
+		#   HP바)가 한꺼번에 따라온다. 겹침이 아니면(n=1) 변환을 아예 안 걸어 기존 픽셀 그대로.
+		var st_n: int = 1
+		var st_k: int = 0
+		if stack_of.has(ei):
+			st_n = int(stack_of[ei]["n"])
+			st_k = int(stack_of[ei]["k"])
+		var st_sc: float = 1.0
+		var st_dx: float = 0.0
+		if st_n >= 2:
+			st_sc = (0.62 if st_n == 2 else (0.48 if st_n == 3 else 0.40))
+			var st_gap: float = CELL * (0.42 if st_n == 2 else (0.28 if st_n == 3 else 0.22))
+			st_dx = (float(st_k) - float(st_n - 1) * 0.5) * st_gap
+			draw_set_transform(draw_ofs + Vector2(cx, cy) * (1.0 - st_sc) + Vector2(st_dx, 0.0),
+					0.0, Vector2(st_sc, st_sc))
 		var ratio: float = clampf(float(e["hp"]) / float(e["maxhp"]), 0.0, 1.0)
 		var etype: String = e["etype"]
 		# 몸통은 셀을 꽉 채운다 — 게이지가 상시로 없으니 자리를 양보할 이유가 없다(C41 복원).
@@ -5602,8 +5797,9 @@ func _draw_board(fnt: Font) -> void:
 			draw_circle(Vector2(cx, cy), rad, Color(1.0, 1.0, 1.0, 0.7 * clampf(flinch / 0.22, 0.0, 1.0)))
 		# 조준 프리뷰: 이 적은 지금 놓으면 죽는다. 링은 여기서 안 그리고 위치만 적재 —
 		# 실제 렌더는 _draw_aim_overlay(들고 있는 조각 위)가 맡아 커서에 안 가려진다.
+		#   ⚠오버레이는 이 루프 밖(변환 없는 곳)에서 그린다 → 겹침 펼치기를 손으로 적용해 넘긴다.
 		if doomed.has(e["id"]):
-			aim_marks.append({"c": Vector2(cx, cy), "r": rad})
+			aim_marks.append({"c": Vector2(cx + st_dx, cy), "r": rad * st_sc})
 		# ── HP 게이지 = 하트 + 바. 숫자는 없다.
 		#
 		# 상시로 그리지 않는다 — '피격당하고 살아남은 적'(hp < maxhp)에게만 뜬다.
@@ -5627,6 +5823,8 @@ func _draw_board(fnt: Font) -> void:
 			var heart_s: float = bar_h * 0.60
 			var heart_cx: float = bx + heart_s * 0.72 + 3.0
 			_draw_heart(Vector2(heart_cx, by + bar_h * 0.5), heart_s, Color(0.55, 1.0, 0.55))
+		if st_sc < 1.0:
+			draw_set_transform(draw_ofs)   # 겹침 변환 해제 — 다음 적/이후 레이어는 다시 화면 좌표로
 
 	# ── 놓을 곳 없음: 빈 칸이 아래에서 위로 메워진다. 꽉 찬 보드가 곧 패배 사유의 진술이다
 	#    ("놓을 곳이 없다"를 글이 아니라 사실로 보여준다). 물결이 지난 줄의 적은 위에서 이미 지웠다.

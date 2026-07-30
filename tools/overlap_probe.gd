@@ -1,57 +1,60 @@
 extends SceneTree
-# 캠페인 난이도 곡선 프로브 — 전 스테이지를 배열(=캠페인) 순서로 N판 돌려 승률·패배사유만 뽑는다(배치 검증용).
-#   그리디 봇/스코어는 bomb_probe와 동형(인라인). sim.gd 전체(300×2)보다 빠르게 곡선만.
-
-#   ⚠합/불(승률)을 내는 프로브는 A/B 할 땐 시드를 고정해야 한다 — 무시드면 기전 변경의 효과가
-#     시드 노이즈에 묻힌다(analytics_probe 교훈). PROBE_SEED / TRIALS 환경변수로 고정·조절:
-#     PROBE_SEED=20260718 TRIALS=40 godot --headless --path . --script tools/campaign_probe.gd
+# 겹침 금지 불변식 탐침 — "한 칸에 유닛 하나"가 실제 플레이에서 깨지는지 본다(0이어야 정상).
+#   같이 재는 것: ①겹침 위반 수 ②웨이브 회계 불변식(spawned==killed+leaked+onboard, [[wave-accounting-invariant]])
+#   ③slip(옆으로 돌아감)·block(삼면 막힘 대기) 빈도 — block이 잦으면 전진 레버가 눌린다는 뜻(경보).
+#   표본은 배치 직전(플레이어가 보는 보드) + 배치 직후 둘 다.
+#   실행: TRIALS=6 godot --headless --path . --script tools/overlap_probe.gd
 
 func _init() -> void:
-	var TRIALS: int = int(OS.get_environment("TRIALS")) if OS.get_environment("TRIALS") != "" else 100
+	var TRIALS: int = int(OS.get_environment("TRIALS")) if OS.get_environment("TRIALS") != "" else 6
 	var S: GDScript = load("res://Main.gd")
 	var g: Node = S.new()
 	root.add_child(g)
-	var sd: String = OS.get_environment("PROBE_SEED")
-	if sd != "":
-		seed(int(sd))
-		g.seed_game(int(sd))
-		print("(seed=%s TRIALS=%d)" % [sd, TRIALS])
-	# STAGE_IDX="0,1,2,3"이면 그 배열 위치만 돌린다(비어 있으면 전부) — 특정 구간을 큰 N으로 좁힐 때.
-	var only: Array = []
-	var only_env: String = OS.get_environment("STAGE_IDX")
-	if only_env != "":
-		for tok in only_env.split(","):
-			only.append(int(tok))
-	print("idx | 승률   | 거점사 | 막힘 | 이름키")
-	print("----+--------+--------+------+-------")
+	seed(20260718)
+	g.seed_game(20260718)
+	print("(seed=20260718 TRIALS=%d)" % TRIALS)
+	print("idx | 표본   | 겹침위반 | 회계위반 | slip | block")
+	print("----+--------+----------+----------+------+------")
+	var tot: Dictionary = {"s": 0, "o": 0, "acc": 0, "slip": 0, "blk": 0}
 	for si in range(g.STAGES.size()):
-		if not only.is_empty() and not only.has(si):
-			continue
-		_probe_stage(g, si, TRIALS)
+		var acc: Dictionary = {"s": 0, "o": 0, "acc": 0, "slip": 0, "blk": 0}
+		for t in range(TRIALS):
+			_play(g, si, acc)
+		print(" %2d | %6d | %8d | %8d | %4d | %5d" % [
+			si + 1, acc["s"], acc["o"], acc["acc"], acc["slip"], acc["blk"]])
+		for k in acc.keys():
+			tot[k] = int(tot[k]) + int(acc[k])
+	print("---- 합: 표본 %d | 겹침위반 %d | 회계위반 %d | slip %d | block %d" % [
+		tot["s"], tot["o"], tot["acc"], tot["slip"], tot["blk"]])
+	print("VERDICT: %s" % ("PASS (겹침 0 · 회계 0)" if int(tot["o"]) == 0 and int(tot["acc"]) == 0 else "FAIL"))
 	quit()
 
-func _probe_stage(g: Node, si: int, TRIALS: int) -> void:
-	g.dda_enabled = false
-	var wins: int = 0
-	var dead_core: int = 0
-	var dead_stuck: int = 0
-	for t in range(TRIALS):
-		var r: Dictionary = _play(g, si)
-		if r["win"]:
-			wins += 1
-		if r["dead_core"]:
-			dead_core += 1
-		if r["dead_stuck"]:
-			dead_stuck += 1
-	var n: float = float(TRIALS)
-	print(" %2d | %5.1f%% |  %3d   | %3d  | %s" % [
-		si + 1, 100.0 * float(wins) / n, dead_core, dead_stuck, String(g.STAGES[si]["name"])])
+func _sample(g: Node, acc: Dictionary) -> void:
+	acc["s"] = int(acc["s"]) + 1
+	var cnt: Dictionary = {}
+	for e in g.enemies:
+		var k: int = int(e["row"]) * 100 + int(e["col"])
+		cnt[k] = int(cnt.get(k, 0)) + 1
+	for k in cnt.keys():
+		if int(cnt[k]) >= 2:
+			acc["o"] = int(acc["o"]) + (int(cnt[k]) - 1)
+	# 웨이브 회계: 적 제거 경로가 보존돼야 한다(gen1 쌍둥이·gem은 카운터 밖 → onboard서 제외)
+	var onboard: int = 0
+	for e in g.enemies:
+		if String(e["etype"]) == "gem":
+			continue
+		if String(e["etype"]) == "split" and int(e.get("gen", 0)) == 1:
+			continue
+		onboard += 1
+	if int(g.spawned) != int(g.killed) + int(g.leaked) + onboard:
+		acc["acc"] = int(acc["acc"]) + 1
 
-func _play(g: Node, si: int) -> Dictionary:
+func _play(g: Node, si: int, acc: Dictionary) -> void:
+	g.dda_enabled = false
 	g._start_stage(si)
+	g.dbg_slip = 0
+	g.dbg_block = 0
 	var guard: int = 0
-	var deton: int = 0
-	var defuse: int = 0
 	while not g.game_over and not g.game_clear and guard < 3000:
 		guard += 1
 		var s: int = 0
@@ -60,10 +63,7 @@ func _play(g: Node, si: int) -> Dictionary:
 			s += 1
 		if g.game_over or g.game_clear:
 			break
-		var pre: Dictionary = {}
-		for e in g.enemies:
-			if e["etype"] == "bomb":
-				pre[int(e["id"])] = int(e.get("fuse", 99))
+		_sample(g, acc)   # 배치 직전(=플레이어가 보는 보드) 상태
 		var mv: Dictionary = _best_move(g)
 		if mv.is_empty():
 			break
@@ -75,28 +75,11 @@ func _play(g: Node, si: int) -> Dictionary:
 		while g.resolving and s3 < 400:
 			g._process(0.05)
 			s3 += 1
-		var post: Dictionary = {}
-		for e in g.enemies:
-			if e["etype"] == "bomb":
-				post[int(e["id"])] = true
-		for id in pre.keys():
-			if not post.has(id):
-				if int(pre[id]) <= 1:
-					deton += 1
-				else:
-					defuse += 1
-	var s2: int = 0
-	while g.resolving and s2 < 400:
-		g._process(0.05)
-		s2 += 1
-	return {
-		"win": g.game_clear, "leaked": g.leaked, "killed": g.killed,
-		"deton": deton, "defuse": defuse,
-		"dead_core": g.game_over and not g.stuck,
-		"dead_stuck": g.game_over and g.stuck,
-	}
+		_sample(g, acc)   # 배치 직후(전진·스폰·분열·넉백이 다 적용된 상태)
+	acc["slip"] = int(acc["slip"]) + int(g.dbg_slip)
+	acc["blk"] = int(acc["blk"]) + int(g.dbg_block)
 
-# ── 그리디 봇 (sim.gd에서 복사, 폭탄 우선항 포함) ──
+# ── 그리디 봇 (campaign_probe에서 복사) ──
 func _best_move(g: Node) -> Dictionary:
 	var best: Dictionary = {}
 	var best_score: float = -1e9
