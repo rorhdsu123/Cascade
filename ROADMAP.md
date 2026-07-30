@@ -67,6 +67,7 @@
 > |---|---|
 > | ① 사람 플테 5~10명 | 🔄 **빌드는 나옴**(2026-07-27): 안드로이드 디버그 APK 27MB·arm64·`com.yujin.cascade`. 남은 것 = **피험자 5~10명 섭외·실행**(유저 몫, `PLAYTEST_PROTOCOL.md`) |
 > | └ 빌드 방법 | `PATH="/opt/homebrew/opt/openjdk@17/bin:$PATH" godot --headless --export-debug "Android" build/android/cascade.apk` → 기기 연결 후 `adb install -r build/android/cascade.apk`. 툴체인·함정은 [[android-build-toolchain-setup]] |
+> | └ ⚠`import_etc2_astc` 지우지 말 것 | `project.godot`의 `textures/vram_compression/import_etc2_astc=true`는 **안드로이드 export의 전제조건**이다. 없으면 export가 `configuration errors`로 거절하는데 **오류 문구가 빈 줄로만 찍혀 원인이 안 보인다**(에디터 언어 무관 — 한국어 UI 탓인 줄 알았다가 아님을 확인). 켜도 안전한 이유 = 이 게임은 커스텀 draw라 압축 대상 텍스처가 사실상 없다(폰트는 별개) → 렌더 결과·회귀 byte-identical에 영향 없음. **이 설명이 여기 사는 이유**: 원래 `project.godot`에 주석으로 달아뒀는데 **에디터가 그 파일을 재작성할 때마다 주석을 통째로 버려서 3번 유실**됐다(a8ce42a서 복구 → 1642fea/955e995서 재유실). 설정 파일은 값만, 설명은 이 문서가 정본. |
 > | ② 애널리틱스 택소노미 설계 | ✅ 완료 (P0 이벤트 10여 종 확정, Firebase 채택) / **Firebase 프로젝트 개설 ❌**(계정 작업, 유저 몫) |
 > | ③ AdMob 연동 | 🔄 **R2 거의 완료** — R1=기획·이음새·페이크 백엔드·`ad_*` 계측(`ad_probe` 29/29) · R2=**AdMob 플러그인 v5.0.0 실배선 + 광고 포함 APK**(`ad_mock_probe` 30/30). 계정 없이 **구글 공개 테스트 유닛**으로 끝냈다. **2026-07-29 에뮬레이터 실관측: 테스트 광고 시청 → 부활 성사 ✅**(배선 전체가 살아 있음이 확인됨). 남은 관측 2건 = no-fill 폴백 · 중도 이탈(둘 다 같은 콜백의 분기, 프로브는 초록) → 그다음 R3(실 유닛·UMP·데이터 안전성) |
 > | ④ 애널리틱스 실배선 | ✅ **P0 전량 배선 완료(2026-07-27)** — `analytics.gd` 이음새 + 판 경계 발화 + 로컬 JSONL 수집 + 판독기(`tools/analytics_report.gd`)·검증 프로브(`tools/analytics_probe.gd`). Firebase SDK 연결만 W2로 남음 |
