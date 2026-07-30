@@ -89,6 +89,10 @@ func _run() -> void:
 	root.add_child(g)
 	await process_frame
 	await process_frame
+	# ⚠이 probe는 Main.tscn을 띄우므로 _ready가 돌아 persist_enabled=true가 된다(헤드리스 하네스와 달리).
+	#   아래 5)에서 cleared[0..7]을 주입하는데, 그 상태로 _check_win이 한 번이라도 타면 실제 유저
+	#   campaign.save에 8스테이지 클리어가 각인된다 → 명시적으로 끈다(캡처만 하고 디스크는 안 건드림).
+	g.set("persist_enabled", false)
 	DisplayServer.window_set_size(Vector2i(800, 1000))
 	await process_frame
 

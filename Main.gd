@@ -121,6 +121,12 @@ const PREVIEW_MIX: float = 0.33      # 착지 미리보기 = 셀 배경 위에 �
 # 입력 방식 토글 버튼 — PC 테스트 전용. 모바일 빌드의 기본은 드래그앤드롭.
 # 트레이 패널 안(bot_y 아래 200px)에 얹히므로 _relayout에서 bot_y 기준으로 재배치.
 var mode_btn := Rect2(596.0, 900.0, 184.0, 46.0)
+# 입력 방식 토글을 보여줄지 — **모바일에선 숨긴다.** 이건 PC 테스트용 스위치인데 그동안 무조건
+#   그려져서 안드로이드 빌드에도 실려 나갔다(스토어 스크린샷을 찍다 발견). 폰에선 드래그가 기본이고
+#   클릭 모드로 바꾸면 오히려 나빠지므로, 유저에게 줄 이유가 없는 개발 컨트롤이다(C78 '죽은 버튼'과 같은 부류).
+#   ⚠그리기와 입력을 **같은 값으로** 막는다 — 안 보이는데 눌리는 사각형은 안 숨긴 것보다 나쁘다.
+#   스토어 스크린샷 도구는 이 값을 false로 내려 '모바일에서 실제로 보이는 화면'을 찍는다.
+var show_input_toggle: bool = not OS.has_feature("mobile")
 
 # 설정 기어 — 플레이 중 우상단. 콤보 표시(우상단 y=26)와는 콤보를 왼쪽으로 밀어 비켜준다.
 var gear_rect := Rect2(748.0, 30.0, 44.0, 44.0)   # 우상단 설정 기어(_relayout이 세이프에어리어만큼 내림)
@@ -351,6 +357,7 @@ var _set_home_hover: bool = false
 var _set_replay_hover: bool = false
 var _set_sound_hover: bool = false
 var _set_bgm_hover: bool = false
+var _set_privacy_hover: bool = false   # 개인정보 옵션 행(EEA/UK에서만 존재)
 
 # ===== 상태 =====
 var board: Array = []
@@ -388,6 +395,15 @@ var dda_enabled: bool = true    # DDA 온오프 (A/B용)
 var floor_enabled: bool = true  # 밀도 하한(floor) 온오프 (density_probe A/B용)
 var surge_enabled: bool = true  # 후반 서지 온오프 (surge_probe A/B용)
 var dev_unlock_all: bool = false  # ⚠플테 전용: 전 스테이지 해금(선형 잠금 우회). 기본 false=출시 안전, 선택화면 '0'키 토글
+# 진행도를 디스크에 쓸 자격. **기본 false**이고 _ready()에서만 true가 된다 = '실제 앱 부팅에서만 영속'.
+#   왜: 하네스는 Main.gd를 new()해서 트리에 붙일 뿐 프레임을 안 돌려 _ready가 영영 안 뜬다
+#   (is_node_ready()==false로 실측). 그런데 _check_win은 직접 호출 경로라 그대로 돌아
+#   `_save_campaign()`이 실행됐다 → tools/regress.gd가 14스테이지를 전승할 때마다 **실제 유저
+#   세이브에 16383이 각인**됐다(2026-07-30 확정: Cascade/campaign.save mtime이 골든 재생성 시각과 일치).
+#   기본값을 false로 두면 60여 개 프로브를 하나씩 고칠 필요 없이 전부 자동 제외된다.
+#   ⚠영속 자체를 검증하는 tools/save_probe.gd는 Main.tscn을 instantiate + await process_frame이라
+#   _ready를 타므로 그대로 통과한다(창 모드 필수 — [[godot-pixel-verify-needs-window]]).
+var persist_enabled: bool = false
 var drought: int = 0            # 연속 무클리어 배치 수 (DDA의 '고전' 신호)
 var fail_streak: Dictionary = {}  # 스테이지 인덱스 → 연속 실패 횟수 (갓 모드 트리거, 세션 한정)
 var game_over: bool = false
@@ -534,6 +550,7 @@ func _mix3(a: int, b: int, c: int) -> int:
 	return h
 
 func _ready() -> void:
+	persist_enabled = true   # 여기까지 왔으면 진짜 앱 부팅 — 이제부터 진행도를 디스크에 쓴다(위 선언부 참조)
 	randomize()          # 코스메틱 전역 RNG
 	game_rng.randomize()  # 게임 스트림(프리플레이 기본; 데일리/회귀는 seed_game으로 덮어씀)
 	_load_settings()
@@ -674,6 +691,8 @@ func _dev_wipe_progress() -> void:
 	queue_redraw()
 
 func _save_campaign() -> void:
+	if not persist_enabled:
+		return   # 하네스·프로브 = 실유저 세이브 오염 금지(선언부 참조). 게임 로직·회귀 출력엔 영향 없음.
 	var mask: int = 0
 	for i in range(STAGES.size()):
 		if bool(cleared.get(i, false)):
@@ -1046,6 +1065,8 @@ func _init_game() -> void:
 	tut_leak_taught = false
 	tut_flash_msg = ""
 	tut_flash_t = 0.0
+	tut_clears = 0
+	tut_beat2_dealt = false
 	# 계측: 판 좌표(run_id·mode·seed) 개시. 아래 시작-적 배치·즉시 막힘 판정보다 먼저여야
 	#   '시작하자마자 막힘'도 이 판에 묶인다(그 판만 run_started 없이 run_failed가 뜨는 구멍 방지).
 	_track_run_start()
@@ -1080,6 +1101,11 @@ var tut_phase: int = 0
 var tut_lock: bool = false
 var tut_cells: Array = []       # 이번 박자에 채워야 할 목표 칸(Vector2i col,row) — 잠금·타깃 큐 공유 출처
 var tut_msg: String = ""        # 상단 안내 문구(박자2 "적이 내려와요…") — 서 있는 상태 지시(지속)
+# 박자2 안전밸브: 줄은 냈는데 적 레인을 못 맞춰 killed==0인 채 계속 도는 걸 막는다.
+#   콤보1은 레인 1개만 때리므로(_blast_band) 기둥을 빈 열에 세우면 처치가 안 난다 —
+#   그 상태로 지시 문구가 영영 남으면 "뭘 더 해야 하지"가 된다. N번 터뜨렸으면 배운 걸로 친다.
+const TUT_BEAT2_MAX_CLEARS: int = 3
+var tut_clears: int = 0         # 박자2 동안 완성한 줄 수(_place_piece서 증가, _init_game서 리셋)
 # 박자3(손해 학습): 첫 누수(거점 피격)에 딱 한 번, 사건에 얹는 짧은 캡션. 스크립트 강제 없이
 #   '진짜로 놓쳤을 때'만 발화 → 방어 절반을 몸으로 배운다. tut_msg(지시)와 별개 채널(사건·타임드).
 const TUT_FLASH_DUR: float = 3.6
@@ -1110,9 +1136,28 @@ func _tut_setup_beat1() -> void:
 	tut_phase = 1
 	tut_lock = true   # 중앙 홈에만 놓게 잠금 → 전원 QUAD 동일 경험
 
-# 박자 2는 별도 세팅 함수가 없다 — 무대 없이 '정상 플레이 + 안내 문구'(_end_turn 참조).
-# 실제 적이 내려오고, 조준 링이 힌트로 작동하며, 유저가 줄로 잡으면 종료. 동결·강제 없음.
-# 단, 트레이만 큰 세로 조각으로 줘서 2~3개로 기둥을 세우기 쉽게 한다(_refill_tray, 부드러운 세로 유도).
+# 박자 2 — 무대 없이 '정상 플레이 + 안내 문구'. 실제 적이 내려오고, 조준 링이 힌트로 작동하며,
+# 유저가 줄로 잡으면 종료. 동결·강제 없음. 유도는 트레이 한 벌뿐이다:
+#   I5v(5) + I3v(3) = 정확히 8칸 = 세로줄 하나. 세 번째 슬롯은 비운다 — 예전엔 Iv(4칸)가 붙어 있어
+#   기둥을 세우고도 남는 조각을 어딘가 버려야 리필이 왔다(엉뚱한 4칸이 보드에 남음).
+# ⚠이 트레이는 박자2 진입 시 딱 한 벌만 준다. 예전엔 _refill_tray가 tut_phase==2인 동안
+#   매 리필마다 같은 세로 3개(색까지 동일)를 다시 깔아서, 첫 처치가 늦으면 3턴·6턴·9턴…
+#   "세로 막대만 계속 나온다"가 됐다. 유도는 1회, 그 뒤는 정상 풀(POOL_RICH)로 돌아간다.
+# ⚠배급 시점이 '박자2 진입(_end_turn)'이 아니라 '박자1 조각을 소비하는 순간'인 이유:
+#   _place_piece는 _consume_slot()을 줄 감지보다 먼저 부른다(즉시 피드백). 박자1 트레이는 O 하나뿐이라
+#   놓는 순간 비어서 _refill_tray가 돌고, 그때 phase는 아직 1이다 → 랜덤 3개가 트레이에 깔린다.
+#   그 뒤 QUAD 연출(~0.8s)이 끝나고서야 _end_turn이 박자2 트레이로 갈아치웠다 →
+#   유저 눈엔 "셋팅된 블록 3개가 갑자기 다른 걸로 바뀐다". 그래서 _refill_tray가 phase 1에서
+#   곧장 이 함수로 오고, 아래 플래그로 '어느 경로로 오든 한 벌만'을 보장한다.
+var tut_beat2_dealt: bool = false   # 박자2 트레이를 이미 배급했나(_init_game서 리셋)
+
+func _tut_setup_beat2() -> void:
+	if tut_beat2_dealt:
+		return
+	tut_beat2_dealt = true
+	tray = [_tut_v_piece("I5v", "B"), _tut_v_piece("I3v", "Y"), {}]
+	sel = 0
+
 func _tut_v_piece(ty: String, col: String) -> Dictionary:
 	return {"type": ty, "color": col, "offsets": (PIECES[ty] as Array).duplicate()}
 
@@ -1365,12 +1410,13 @@ func _tray_any_placeable() -> bool:
 # ⚠공정성: '받자마자 셋 다 못 놓는' 즉사(실측 막힘사망의 11~27%)는 플레이어 실수가 아니라 딜 사고.
 #   최소 하나는 놓을 수 있는 트레이가 나올 때까지 다시 굴린다(막힘은 이제 '스스로 몰린 결과'로만).
 func _refill_tray() -> void:
-	if tut_phase == 2:
-		# 박자2: 큰 세로 조각(I5v+I3v면 8칸 기둥 = 2개로 완성)을 줘서 2~3개로 세로줄을 세워 적을 잡게 한다.
-		#   부드러운 세로 유도 — 자유 배치는 그대로(잠금 없음), 조각 구성만 기둥 세우기 쉽게.
-		tray = [_tut_v_piece("I5v", "B"), _tut_v_piece("I3v", "Y"), _tut_v_piece("Iv", "R")]
-		sel = 0
+	# 박자1 조각을 놓아 트레이가 빈 순간 여기로 온다(phase는 아직 1 — 전이는 _end_turn서). 랜덤으로
+	#   채우면 QUAD 연출 뒤 박자2 셋업이 그걸 통째로 갈아치워 '블록이 저절로 바뀐다'가 된다.
+	#   → 지금 바로 박자2 트레이를 깔아 스왑 자체를 없앤다(플래그로 1회 보장).
+	if tut_phase == 1:
+		_tut_setup_beat2()
 		return
+	# ⚠박자2 세로 유도는 여기 없다 — 위 1회 배급이 전부다(phase==2 동안 반복 배급 금지).
 	if director.deterministic_track():
 		# 결정적 트랙은 재추첨 금지(보드-반응 = 결정성 파괴). 못 놓는 트레이도 그대로 → 막힘사(부활 가능).
 		for i in range(3):
@@ -2119,10 +2165,13 @@ func _end_turn() -> void:
 		tut_phase = 2
 		tut_msg = _t("tut_kill")
 		tut_cells = []
-		_refill_tray()      # 큰 세로 조각으로 교체(phase==2 분기) → 2~3개로 기둥 세우기
+		_tut_setup_beat2()  # 보통은 이미 _refill_tray서 배급됨(플래그로 no-op). 리필이 안 탄 경로 대비.
 	# 박자2: 유저가 첫 적을 줄로 잡으면(killed>0) "지우기=공격" 학습 완료 → 튜토리얼 종료.
-	elif tut_phase == 2 and killed > 0:
-		_analytics.log_event("tutorial_beat_completed", {"beat": 2})
+	#   안전밸브: 처치는 못 했어도 줄을 여러 번 냈으면 종료한다(빈 열에 기둥을 세우면 killed==0이
+	#   계속 유지돼 지시 문구가 안 사라짐 — 배운 사람을 붙잡아 두지 않는다).
+	elif tut_phase == 2 and (killed > 0 or tut_clears >= TUT_BEAT2_MAX_CLEARS):
+		# bail = 처치 없이 밸브로 빠져나옴. 완주율(§5)에 섞이면 박자2 이탈이 가려진다.
+		_analytics.log_event("tutorial_beat_completed", {"beat": 2, "bail": killed <= 0})
 		tut_phase = 0
 		tut_msg = ""
 	advance_step()          # 적 이동(step_every 주기)·누수(거점 피해)·스폰
@@ -2436,17 +2485,28 @@ func _collect_done() -> bool:
 			return false
 	return true
 
-# 보석 1개 스폰 — 아직 확보 덜 된 타입 중에서 무작위(확보한 타입은 안 뱉음 = 쓸데없는 보석 방지).
+# 보석 1개 스폰 — 색 고르기.
+#   기본(수요필터): 아직 확보 덜 된 타입 중에서만 무작위 = 쓸데없는 보석 방지(1색판·과스폰 억제).
+#   gem_even_mix(2색+ 심화판): 수요 무관하게 전 색 균등 낙하 = 이미 채운 색도 계속 떨궈,
+#     "필요없는 색은 흘리고 부족한 색 레인을 적 압력 속에 붙잡기"라는 결정을 강제한다.
+#     수요필터는 화면에 항상 '필요한 색'만 띄워 이 결정을 원천 제거했음(2색=1색 두배길이로 붕괴).
+#     전체 스폰 게이트(_collect_done)가 둘 다 확보되면 멈추므로 승리 후 낭비 스폰은 없다.
 #   gem_fast면 위협보다 한 단계 빨리 하강(데드라인 조임). 첫 등장만 콜아웃.
 func _spawn_gem(col: int) -> void:
 	var tgts: Array = st.get("collect_targets", [])
-	var need: Array = []
-	for i in range(tgts.size()):
-		if _gem_secured(i) < int(tgts[i]):
-			need.append(i)
-	if need.is_empty():
+	if tgts.is_empty():
 		return
-	var gt: int = int(need[game_rng.randi() % need.size()])
+	var gt: int
+	if bool(st.get("gem_even_mix", false)):
+		gt = game_rng.randi() % tgts.size()
+	else:
+		var need: Array = []
+		for i in range(tgts.size()):
+			if _gem_secured(i) < int(tgts[i]):
+				need.append(i)
+		if need.is_empty():
+			return
+		gt = int(need[game_rng.randi() % need.size()])
 	var gstep: int = director.hud_step_every()
 	if bool(st.get("gem_fast", false)):
 		gstep = maxi(1, gstep - 1)
@@ -3096,6 +3156,8 @@ func _place_piece() -> void:
 		combo += 1
 		combo_miss = 0
 		drought = 0
+		if tut_phase == 2:
+			tut_clears += 1              # 박자2 안전밸브 카운터(_end_turn서 판정)
 		run_max_combo = maxi(run_max_combo, combo)   # 계측: 판당 최대 콤보(종료 시 combo_peak로 1회 발화)
 		_analytics.first_line_cleared()              # 세션 첫 줄만 기록(첫 도파민까지 시간) — 서비스가 1회 게이팅
 		_begin_resolve(rows, cols)   # 공격 재생 → 끝나면 _finish_resolve→_end_turn
@@ -3188,6 +3250,7 @@ func _input(event: InputEvent) -> void:
 			_set_close_hover = (slay["close"] as Rect2).has_point(mp2)
 			_set_home_hover = (slay["home_btn"] as Rect2).has_point(mp2)
 			_set_replay_hover = (slay["replay_btn"] as Rect2).has_point(mp2)
+			_set_privacy_hover = (slay["privacy_btn"] as Rect2).has_point(mp2)
 			_set_sound_hover = (slay["sound_tog"] as Rect2).has_point(mp2)
 			_set_bgm_hover = (slay["bgm_tog"] as Rect2).has_point(mp2)
 		elif event is InputEventMouseButton:
@@ -3421,8 +3484,8 @@ func _input(event: InputEvent) -> void:
 			_return_held()
 			return
 
-		# 입력 방식 토글 버튼 (PC 테스트 편의용)
-		if mbe.pressed and mode_btn.has_point(mbe.position):
+		# 입력 방식 토글 버튼 (PC 테스트 편의용) — 안 그릴 땐 히트 영역도 없다(show_input_toggle)
+		if show_input_toggle and mbe.pressed and mode_btn.has_point(mbe.position):
 			click_mode = not click_mode
 			_return_held()   # 모드가 바뀌면 들고 있던 조각은 트레이로 돌려놓는다
 			return
@@ -4313,7 +4376,11 @@ func _settings_layout() -> Dictionary:
 	# 뷰포트가 1000보다 크면(실기기 세로) 모달을 세로 중앙으로 내린다 — 나머지 좌표는 py에서 파생됨.
 	#   오프셋은 다른 화면과 같은 _ui_dy()를 쓴다(세이프에어리어 반영) — 예전 (vh-1000)*0.5는
 	#   노치가 있는 기기에서 모달만 위로 치우쳤다.
-	var p: Rect2 = Rect2(160.0, 270.0 + _ui_dy(), 480.0, 410.0)
+	# 개인정보 옵션 행은 **필요한 지역에서만** 붙는다(SDK가 알려준다). 그래서 패널 높이가 조건부다 —
+	#   한국 유저에게 아무 의미 없는 항목을 상시로 달아두지 않기 위해서다(AD_PLAN R3 / 구글 요구사항).
+	var priv: bool = _ads.privacy_options_required()
+	var extra: float = 68.0 if priv else 0.0
+	var p: Rect2 = Rect2(160.0, 270.0 + _ui_dy(), 480.0, 410.0 + extra)
 	var px: float = p.position.x
 	var py: float = p.position.y
 	var pw: float = p.size.x
@@ -4322,6 +4389,7 @@ func _settings_layout() -> Dictionary:
 	var r2: float = py + 190.0            # 배경음
 	var r3: float = py + 288.0            # 홈
 	var r4: float = py + 356.0            # 다시하기
+	var r5: float = py + 424.0            # 개인정보 옵션(조건부)
 	var tw: float = 66.0
 	var th: float = 32.0
 	var bw: float = 140.0
@@ -4336,7 +4404,10 @@ func _settings_layout() -> Dictionary:
 		"bgm_tog": Rect2(ctrl_r - tw, r2 - th * 0.5, tw, th),
 		"home_btn": Rect2(ctrl_r - bw, r3 - bh * 0.5, bw, bh),
 		"replay_btn": Rect2(ctrl_r - bw, r4 - bh * 0.5, bw, bh),
-		"r1": r1, "r2": r2, "r3": r3, "r4": r4,
+		# 행이 없을 땐 빈 Rect2 = 히트 영역도 없음(그리기·입력이 같은 조건을 따로 읽지 않게).
+		"privacy_btn": Rect2(ctrl_r - bw, r5 - bh * 0.5, bw, bh) if priv else Rect2(),
+		"privacy_on": priv,
+		"r1": r1, "r2": r2, "r3": r3, "r4": r4, "r5": r5,
 	}
 
 func _settings_click(pos: Vector2, lay: Dictionary) -> void:
@@ -4356,6 +4427,9 @@ func _settings_click(pos: Vector2, lay: Dictionary) -> void:
 		settings_open = false
 		_track_revive_dismissed("retry")
 		_result_advance()                 # 재시작 = 감독이 정하는 재도전(스테이지=현 스테이지, 무한=새 런)
+	elif bool(lay["privacy_on"]) and (lay["privacy_btn"] as Rect2).has_point(pos):
+		# 구글의 개인정보 옵션 폼(네이티브)을 띄운다. 모달은 닫지 않는다 — 폼을 닫으면 설정으로 돌아온다.
+		_ads.show_privacy_options()
 	# 그 밖(패널 빈 곳·스크림)은 무시 = 모달. 잘못 눌러 튕기는 사고 방지(결과팝업과 동일 원칙).
 
 # 토글 스위치 — 초록 알약=켜짐(노브 오른쪽), 어두운 알약=꺼짐(노브 왼쪽). 색·위치 둘 다로 상태를 말한다.
@@ -4428,6 +4502,11 @@ func _draw_settings(fnt: Font) -> void:
 	_draw_mini_button(fnt, lay["home_btn"], _t("go_home"), _set_home_hover, Color(0.30, 0.33, 0.44), Color(0.92, 0.93, 1.0))
 	_draw_text_outlined(fnt, Vector2(lx, float(lay["r4"]) + 9.0), _t("restart_label"), 26, Color(0.86, 0.87, 0.95))
 	_draw_mini_button(fnt, lay["replay_btn"], _t("restart"), _set_replay_hover, Color(0.34, 0.72, 0.26), Color(0.98, 1.0, 0.94))
+
+	# 개인정보 옵션 — 필요한 지역에서만(EEA/UK). 홈과 같은 회색빛 유틸 언어를 쓴다(진행 버튼 아님).
+	if bool(lay["privacy_on"]):
+		_draw_text_outlined(fnt, Vector2(lx, float(lay["r5"]) + 9.0), _t("privacy_label"), 26, Color(0.86, 0.87, 0.95))
+		_draw_mini_button(fnt, lay["privacy_btn"], _t("privacy_btn"), _set_privacy_hover, Color(0.30, 0.33, 0.44), Color(0.92, 0.93, 1.0))
 
 # 재생 삼각형(▶) — '광고 영상을 본다'는 뜻. 오른쪽을 향한 정삼각형.
 func _draw_play_icon(c: Vector2, r: float, col: Color) -> void:
@@ -6439,7 +6518,9 @@ func _draw_bottom(fnt: Font) -> void:
 					sr.position.y + sr.size.y * 0.5 + 8.0),
 					dash, HORIZONTAL_ALIGNMENT_LEFT, -1, 22, Color(0.3, 0.3, 0.4))
 
-	# 입력 방식 토글 (PC 테스트용) — 눌러서 드래그/클릭 전환
+	# 입력 방식 토글 (PC 테스트용) — 눌러서 드래그/클릭 전환. 모바일에선 안 그린다(show_input_toggle).
+	if not show_input_toggle:
+		return
 	draw_rect(mode_btn, Color(0.20, 0.20, 0.31))
 	draw_rect(mode_btn, Color(0.45, 0.45, 0.6, 0.85), false, 2.0)
 	var mtxt: String = _t("mode_click") if click_mode else _t("mode_drag")

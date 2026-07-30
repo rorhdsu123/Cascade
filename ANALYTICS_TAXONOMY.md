@@ -59,7 +59,7 @@
 | 이벤트 | 파라미터 | 목적 지표 |
 |---|---|---|
 | `tutorial_beat_started` | `beat`(1/2/3) | 박자별 진입 |
-| `tutorial_beat_completed` | `beat`, `time_to_complete_ms`, `retries` | **박자별 이탈률**(어느 개념에서 튕기나) |
+| `tutorial_beat_completed` | `beat`, `time_to_complete_ms`, `retries`, `bail`? | **박자별 이탈률**(어느 개념에서 튕기나) |
 | `tutorial_skipped` | `at_beat` | 스킵 압력 |
 | `first_piece_placed` | `time_since_open_ms` | "손이 언제 움직이나"(TTFA) |
 | `first_line_cleared` | `time_since_open_ms` | 첫 도파민까지 시간 |
@@ -133,7 +133,7 @@
 | 지표 | 조립 |
 |---|---|
 | **D1 / D7 리텐션** | `app_opened.is_first_session` + 재방문 세션 |
-| **튜토리얼 완주율** | `tutorial_beat_completed(3)` / `tutorial_beat_started(1)` — 박자별 드롭 |
+| **튜토리얼 완주율** | `tutorial_beat_completed(3)` / `tutorial_beat_started(1)` — 박자별 드롭. 박자2는 `bail=false`(진짜 처치)만 세야 "적을 못 잡고 흘러간" 유저가 완주로 안 잡힘 |
 | **첫 도파민까지 시간** | `first_line_cleared.time_since_open_ms` 분포 |
 | **죽음의 질 믹스** | `run_failed.cause` 비율(core_death:stuck) × 모드 × 스테이지 |
 | **부활 전환율** | `revive_taken` / `revive_offered`, cause별 |
@@ -194,6 +194,8 @@
 - **수집 = `user://analytics.jsonl`**(1줄 1이벤트). 안드로이드는 `adb pull`로 뽑는다(경로는 리포트 도구 주석).
 - **판독 = `tools/analytics_report.gd`** — §5 파생지표로 접는다(죽음의 질·부활 전환율·억울한 죽음 신호·기둥별 체류·스테이지 벽·콤보 분포).
 - **검증 = `tools/analytics_probe.gd`**(창 모드) — 봇이 캠페인·무한을 실제로 굴려 P0 이벤트·공통 좌표·택소노미 밖 이름을 확인. 회귀 골든 byte-identical(계측은 게임 RNG를 안 쓰고 헤드리스에선 자동 off).
+  - **결정적**(2026-07-29 고정): 캠페인/무한에 각각 시드를 박아 매 실행 **같은 판**을 굴린다(`CAMPAIGN_SEED`·`ENDLESS_SEED`). 그 전엔 판이 매번 달라 같은 코드가 FAIL(24)·FAIL(25)·PASS(27)로 갈렸다 — 점검기가 원래 흔들리면 **진짜 파손도 "또 플레이크겠지"로 넘어간다**. 고른 판은 튜토리얼 3박자·부활 수락/거절·거점사+막힘사가 전부 나오는 판(28이벤트).
+  - **집계 골든 = `GOLDEN_EVENTS`**(이벤트별 정확한 개수). 의미 검사들이 '무엇이' 깨졌나를 말하고, 골든이 '뭔가 달라졌다'를 안 놓친다. ⚠이벤트 추가·튜토리얼 개편 등 **의도적 변경 뒤엔 골든을 다시 떠서 커밋**(회귀 골든과 같은 계약). 시드 재탐색은 `PROBE_SEED=<후보>`로 캠페인 시드만 덮어쓰며 돌린다(이 모드에선 골든 검사 자동 skip).
 - **배선 중 프로브가 잡은 결함 1건**: 실패 시점에 판 좌표(`run_id`)를 닫으면 **광고 부활 뒤 이벤트가 판에서 떨어져 나가** 부활 퍼널이 끊긴다 → 좌표는 다음 판 시작 때만 교체하도록 수정.
 
 ## 다음 단계

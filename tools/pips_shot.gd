@@ -6,6 +6,11 @@ func _initialize() -> void: _run.call_deferred()
 func _run() -> void:
 	main = load("res://Main.tscn").instantiate()
 	root.add_child(main)
+	# ⚠실유저 진행도 보호(C100 확장): 이 probe는 Main.tscn을 띄우므로 _ready가 돌아
+	#   persist_enabled=true가 된다. 아래서 cleared를 주입하거나 봇이 스테이지를 깨면 그 값이
+	#   **실제 campaign.save에 각인**된다(전 스테이지 주입 = 16383 = "진행도가 저절로 전승됨"의 진범).
+	#   C100은 campaign_flow.gd만 막았고 나머지 창 모드 probe는 새고 있었다 → 여기서 끈다.
+	main.set("persist_enabled", false)
 	await process_frame
 
 	# 첫판 클리어 = 1/8
