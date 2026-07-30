@@ -90,6 +90,9 @@ export PATH="/opt/homebrew/opt/openjdk@17/bin:$PATH"
 godot --headless --path . --export-debug "Android" build/android/cascade.apk
 ADB=/opt/homebrew/share/android-commandlinetools/platform-tools/adb
 $ADB install -r build/android/cascade.apk
+# ⚠런처 액티비티는 GodotAppLauncher다. GodotApp을 직접 지정하면 exported가 아니라
+#   "Permission Denial"로 조용히 실패한다(구 문서 명령이 그랬다).
+$ADB shell am start -n com.yujin.blockcastle/com.godot.game.GodotAppLauncher
 
 # Play 업로드용 서명된 AAB
 source ~/.android/blockcastle-upload.env

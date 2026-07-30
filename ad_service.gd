@@ -208,7 +208,7 @@ func show_rewarded(placement: String, cb: Callable) -> void:
 	if not _consent_ready:
 		# 동의가 아직/영영 없다 → 광고는 못 틀지만 유저를 벌주지 않는다: 공짜로 이어준다(불변식 ⑦+⑤).
 		_log("ad_no_fill", {"format": FORMAT_REWARDED, "placement": placement, "latency_ms": 0,
-				"no_consent": true})
+				"reason": R_NO_CONSENT, "no_consent": true})
 		_deliver(cb, _result(false, R_NO_CONSENT, true))
 		return
 	if _job.size() > 0:
@@ -292,7 +292,7 @@ func show_interstitial(placement: String = PLACEMENT_RUN_TRANSITION, cb: Callabl
 		return
 	var fill: bool = fake_fill and not fake_error
 	if not fill:
-		_log("ad_no_fill", {"format": FORMAT_INTERSTITIAL, "placement": placement, "latency_ms": 0})
+		_log("ad_no_fill", {"format": FORMAT_INTERSTITIAL, "placement": placement, "latency_ms": 0, "reason": R_NO_FILL})
 		_deliver(cb, _result(false, R_NO_FILL, false))
 		return
 	_log("ad_filled", {"format": FORMAT_INTERSTITIAL, "placement": placement, "latency_ms": 0})
@@ -324,7 +324,11 @@ func _finish_load(ok: bool, fail_reason: String) -> void:
 	_job = {}
 	if not ok:
 		_rewarded_ready = false
-		_log("ad_no_fill", {"format": FORMAT_REWARDED, "placement": placement, "latency_ms": latency})
+		# ⚠reason을 반드시 실어야 한다. 이벤트 이름은 실패 전부가 ad_no_fill로 같아서, 이게 없으면
+		#   '재고 없음(no_fill)'과 '우리 배선/네트워크 오류(error)'가 지표에서 한 덩이가 된다 —
+		#   대응이 완전히 다른 두 문제인데 구분이 안 된다(에뮬 오프라인 관측서 실제로 드러난 구멍).
+		_log("ad_no_fill", {"format": FORMAT_REWARDED, "placement": placement,
+				"latency_ms": latency, "reason": fail_reason})
 		# 프리로드(콜백 없음)면 조용히 실패로 남긴다 — 유저는 아직 아무것도 안 눌렀다.
 		if cb.is_valid():
 			_deliver(cb, _result(false, fail_reason, true, latency))
@@ -635,7 +639,7 @@ func _platform_load_interstitial(placement: String, cb: Callable) -> void:
 		_log("ad_shown", {"format": FORMAT_INTERSTITIAL, "placement": placement})
 		_interstitial.show()
 	load_cb.on_ad_failed_to_load = func(_err) -> void:
-		_log("ad_no_fill", {"format": FORMAT_INTERSTITIAL, "placement": placement, "latency_ms": 0})
+		_log("ad_no_fill", {"format": FORMAT_INTERSTITIAL, "placement": placement, "latency_ms": 0, "reason": R_NO_FILL})
 		_deliver(cb, _result(false, R_NO_FILL, false))
 	_int_loader = InterstitialAdLoader.new()
 	_int_loader.load(_unit_id(FORMAT_INTERSTITIAL), AdRequest.new(), load_cb)
