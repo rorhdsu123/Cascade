@@ -2648,10 +2648,17 @@ const CLEAR_L2_PEAK: float = 2.5       # 오버슛 배율 — 1행을 다 가릴
 const CLEAR_CONFETTI_AT: float = 1.00  # 색종이 낙하 시작 — 로고가 다 선 뒤에야 쏟아진다(레퍼런스 순서)
 const CLEAR_ROCKET_N: int = 7          # 폭죽 발수
 const CLEAR_ROCKET_FIRST: float = 1.20 # 첫 로켓 발사 — 색종이보다 0.2s 늦게(층을 겹치지 않고 쌓는다)
-const CLEAR_ROCKET_LAST: float = 2.35
+const CLEAR_ROCKET_LAST: float = 2.05  # 2.35였을 때 7번째 발이 컷(2.80) 0.05s 전에 점화 → 3프레임 만에
+                                       #   사라졌다(만들어 던져버리는 발 + '반짝하다 끊김'으로 보임)
 const CLEAR_ROCKET_RISE: float = 0.40  # 올라가는 시간. '올라감→터짐'이 예비동작을 만든다
 const CLEAR_BURST_LIFE: float = 0.75
 const CLEAR_SHOW_TOTAL: float = 2.80   # 무대 유지 총 시간 → 이후 결과 팝업
+# 폭죽은 컷에서 잘리지 않고 결과 화면 위에서 남은 수명을 다 산다. 색종이가 이미 그렇게 동작한다
+#   (팝업 위로 계속 떨어짐) — 폭죽만 컷에 잘리는 게 일관성이 없는 쪽이었다. 컷 2.80 시점에 4·5·6·7번이
+#   터지는 중이었고 그게 다 버려졌다. ⚠단 폭죽은 색종이와 달리 **팝업 아래** 레이어에 그린다:
+#   클리어 팝업은 상자가 없어서 글자 뒤로 폭죽이 지나가면 가독성을 해친다.
+#   타이머는 이 값까지 계속 흐르고, 무대(_clear_stage_on)는 CLEAR_SHOW_TOTAL에서 끝나 팝업이 제때 열린다.
+const CLEAR_FX_END: float = CLEAR_ROCKET_LAST + CLEAR_ROCKET_RISE + CLEAR_BURST_LIFE + 0.06
 var clear_rockets: Array = []          # [{x, apex, t0, col, seed}] 클리어 시 한 번 계획(코스메틱 RNG)
 
 # 결과 팝업 순차 개봉 — 카드가 먼저 앉고, 내용, 버튼 순. 완성형이 1프레임에 튀어나오면 '뚝 끊긴다'.
@@ -3475,9 +3482,9 @@ func _process(delta: float) -> void:
 		return
 
 	# 클리어 축하 무대 진행 — 총시간에서 멈춘다(수렴 → 데드락 없음). 게임 로직은 이미 멈춰 있다.
-	if clear_show_t > -900.0 and clear_show_t < CLEAR_SHOW_TOTAL:
+	if clear_show_t > -900.0 and clear_show_t < CLEAR_FX_END:
 		var was: float = clear_show_t
-		clear_show_t = minf(CLEAR_SHOW_TOTAL, clear_show_t + delta)
+		clear_show_t = minf(CLEAR_FX_END, clear_show_t + delta)   # 무대는 SHOW_TOTAL에서 끝나지만 폭죽은 더 산다
 		# 피니시 스윕 — 행별 발화(아래→위). 경계를 넘은 프레임에 한 번만 쏜다.
 		var el_was: float = was + CLEAR_HOLD
 		var el_now: float = clear_show_t + CLEAR_HOLD
@@ -3975,6 +3982,11 @@ func _draw() -> void:
 	if _clear_stage_open():
 		var dimv: float = (clampf(clear_show_t / CLEAR_DIM_DUR, 0.0, 1.0) if stage_on else 1.0) * 0.92
 		draw_rect(Rect2(-20.0, -20.0, VW_BASE + 40.0, vh + 40.0), Color(0.02, 0.01, 0.05, dimv))
+
+	# 컷 이후에도 남은 폭죽은 계속 터진다 — 팝업 '아래'(상자 없는 클리어에서 글자를 가리지 않게).
+	#   무대 중엔 _draw_clear_stage가 그리므로 여기선 컷 이후 구간만 담당한다.
+	if game_clear and not stage_on and clear_show_t > -900.0 and clear_show_t < CLEAR_FX_END:
+		_draw_clear_fireworks(clear_show_t)
 
 	# 죽음 연출이 재생 중이면 팝업을 미룬다 — 보드가 메워지는 걸 먼저 보여준다
 	if (game_over or game_clear) and not _death_playing() and not stage_on:
