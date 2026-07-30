@@ -3498,8 +3498,8 @@ func _input(event: InputEvent) -> void:
 			elif sk.pressed and sk.keycode == KEY_ESCAPE:
 				mode = "menu"                              # 뒤로 = 허브
 				# ⚠'오늘의 판'(featured) 진입은 C60에서 보류 — 플레이어 노출 제거. 엔진은 tools/probe로만 도달.
-			elif sk.pressed and sk.keycode == KEY_0:
-				dev_unlock_all = not dev_unlock_all        # ⚠플테 전용: 전 스테이지 해금 토글
+			elif sk.pressed and sk.keycode == KEY_0 and OS.is_debug_build():
+				dev_unlock_all = not dev_unlock_all        # ⚠플테 전용: 전 스테이지 해금 토글(디버그 빌드 한정)
 				_sel_enter()                               # 해금 바뀌면 프런티어도 바뀔 수 있어 재정렬
 				queue_redraw()
 		return
@@ -3574,14 +3574,16 @@ func _input(event: InputEvent) -> void:
 			mode = _home_mode()  # 플레이 중 포기 → 홈(허브)으로
 			return
 		# ⚠플테 전용 DEV: '9'키 = 점수 +10,000. PB 너머 심화(bf 3~6)를 자연 그라인드 없이 눈으로 보기 위함.
-		#   실제 _add_endless_score를 태워 넘김 엣지·발화·심화 파이프라인 그대로 재현. 출시 전 제거.
-		if pk.pressed and pk.keycode == KEY_9 and endless:
+		#   실제 _add_endless_score를 태워 넘김 엣지·발화·심화 파이프라인 그대로 재현.
+		#   ⚠릴리스 빌드에선 죽는다(OS.is_debug_build) — 점수를 부풀리는 키는 리더보드를 통째로 오염시킨다.
+		if pk.pressed and pk.keycode == KEY_9 and endless and OS.is_debug_build():
 			_add_endless_score(10000)
 			queue_redraw()
 			return
 		# ⚠플테 전용 DEV: '8'키 = 콤보5 전멸 '전체 시퀀스' 강제(충전→순차파괴→로켓→적 피격→충격파+산개불꽃→적 전진).
-		#   바닥 위 한 줄을 채우고 combo=5로 실제 _begin_resolve를 태운다 = 진짜 전멸 그대로. 출시 전 제거.
-		if pk.pressed and pk.keycode == KEY_8 and not resolving:
+		#   바닥 위 한 줄을 채우고 combo=5로 실제 _begin_resolve를 태운다 = 진짜 전멸 그대로.
+		#   ⚠릴리스 빌드에선 죽는다(OS.is_debug_build) — 보드를 조작하므로 진행도·기록을 위조할 수 있다.
+		if pk.pressed and pk.keycode == KEY_8 and not resolving and OS.is_debug_build():
 			var dev_row: int = ROWS - 2
 			for dev_c in range(COLS):
 				board[dev_row][dev_c] = COLORS[dev_c % COLORS.size()]
