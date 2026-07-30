@@ -121,6 +121,12 @@ const PREVIEW_MIX: float = 0.33      # 착지 미리보기 = 셀 배경 위에 �
 # 입력 방식 토글 버튼 — PC 테스트 전용. 모바일 빌드의 기본은 드래그앤드롭.
 # 트레이 패널 안(bot_y 아래 200px)에 얹히므로 _relayout에서 bot_y 기준으로 재배치.
 var mode_btn := Rect2(596.0, 900.0, 184.0, 46.0)
+# 입력 방식 토글을 보여줄지 — **모바일에선 숨긴다.** 이건 PC 테스트용 스위치인데 그동안 무조건
+#   그려져서 안드로이드 빌드에도 실려 나갔다(스토어 스크린샷을 찍다 발견). 폰에선 드래그가 기본이고
+#   클릭 모드로 바꾸면 오히려 나빠지므로, 유저에게 줄 이유가 없는 개발 컨트롤이다(C78 '죽은 버튼'과 같은 부류).
+#   ⚠그리기와 입력을 **같은 값으로** 막는다 — 안 보이는데 눌리는 사각형은 안 숨긴 것보다 나쁘다.
+#   스토어 스크린샷 도구는 이 값을 false로 내려 '모바일에서 실제로 보이는 화면'을 찍는다.
+var show_input_toggle: bool = not OS.has_feature("mobile")
 
 # 설정 기어 — 플레이 중 우상단. 콤보 표시(우상단 y=26)와는 콤보를 왼쪽으로 밀어 비켜준다.
 var gear_rect := Rect2(748.0, 30.0, 44.0, 44.0)   # 우상단 설정 기어(_relayout이 세이프에어리어만큼 내림)
@@ -3054,8 +3060,8 @@ func _input(event: InputEvent) -> void:
 			_return_held()
 			return
 
-		# 입력 방식 토글 버튼 (PC 테스트 편의용)
-		if mbe.pressed and mode_btn.has_point(mbe.position):
+		# 입력 방식 토글 버튼 (PC 테스트 편의용) — 안 그릴 땐 히트 영역도 없다(show_input_toggle)
+		if show_input_toggle and mbe.pressed and mode_btn.has_point(mbe.position):
 			click_mode = not click_mode
 			_return_held()   # 모드가 바뀌면 들고 있던 조각은 트레이로 돌려놓는다
 			return
@@ -5967,7 +5973,9 @@ func _draw_bottom(fnt: Font) -> void:
 					sr.position.y + sr.size.y * 0.5 + 8.0),
 					dash, HORIZONTAL_ALIGNMENT_LEFT, -1, 22, Color(0.3, 0.3, 0.4))
 
-	# 입력 방식 토글 (PC 테스트용) — 눌러서 드래그/클릭 전환
+	# 입력 방식 토글 (PC 테스트용) — 눌러서 드래그/클릭 전환. 모바일에선 안 그린다(show_input_toggle).
+	if not show_input_toggle:
+		return
 	draw_rect(mode_btn, Color(0.20, 0.20, 0.31))
 	draw_rect(mode_btn, Color(0.45, 0.45, 0.6, 0.85), false, 2.0)
 	var mtxt: String = _t("mode_click") if click_mode else _t("mode_drag")

@@ -188,6 +188,50 @@ class Drawer:
 		blk(Vector2(S * 0.52 + cs, S * 0.13 + cs), cs, C_BLUE)
 
 
+# ── 피처 그래픽(1024×500) ──
+# Play 등록정보 필수 에셋. 알파 없음. 여러 화면에서 잘려 나가므로 콘텐츠를 가장자리에 두지 않는다.
+#   구성 = 왼쪽에 아이콘 마크(해골+블록), 오른쪽에 워드마크 + 태그라인. 인게임 허브 로고와 같은 문구·색을 쓴다
+#   (Main._draw_menu: "BLOCK CASTLE" 금색 + "PACKING DEFENSE" 연청색).
+class Feature:
+	extends Node2D
+	var W: float = 1024.0
+	var H: float = 500.0
+	var fnt: Font = null
+	var mark: Drawer = null
+
+	func _draw() -> void:
+		# 밤하늘 그라데이션 — 아이콘·무한모드 존과 같은 언어(가로 방향으로 눕힌다)
+		var bands: int = 96
+		for i in range(bands):
+			var t: float = float(i) / float(bands - 1)
+			var col: Color = Color("#2a2470").lerp(Color("#0d0d1a"), pow(t, 0.8))
+			draw_rect(Rect2(W * t, 0.0, W / float(bands) + 1.0, H), col)
+		if fnt == null:
+			return
+		# 워드마크 — 화면에선 띄어 쓴다(붙이면 단어 경계가 사라져 한눈에 안 읽힘, Main._draw_menu 주석과 동일 근거)
+		#   ⚠글자 크기를 고정하면 프레임 밖으로 나간다(92px에선 오른쪽 끝에 딱 붙어 잘렸다).
+		#     Play는 피처 그래픽을 여러 비율로 **잘라서** 쓰므로 여백을 확보하고 폭에 맞춰 줄인다.
+		var left: float = 400.0        # 마크가 차지하는 왼쪽 영역
+		var margin: float = 56.0
+		var avail: float = W - left - margin * 2.0
+		var title: String = "BLOCK CASTLE"
+		var tfs: int = 92
+		while tfs > 40 and fnt.get_string_size(title, HORIZONTAL_ALIGNMENT_LEFT, -1, tfs).x > avail:
+			tfs -= 2
+		var tw: float = fnt.get_string_size(title, HORIZONTAL_ALIGNMENT_LEFT, -1, tfs).x
+		var tx: float = left + margin + (avail - tw) * 0.5
+		_outlined(Vector2(tx, 268.0), title, tfs, Color("#ffd700"))
+		var tag: String = "PACKING DEFENSE"
+		var gfs: int = 34
+		var gw: float = fnt.get_string_size(tag, HORIZONTAL_ALIGNMENT_LEFT, -1, gfs).x
+		_outlined(Vector2(left + margin + (avail - gw) * 0.5, 330.0), tag, gfs, Color(0.55, 0.72, 0.95))
+
+	func _outlined(p: Vector2, s: String, size: int, col: Color) -> void:
+		for d in [Vector2(-3, 0), Vector2(3, 0), Vector2(0, -3), Vector2(0, 3)]:
+			draw_string(fnt, p + d, s, HORIZONTAL_ALIGNMENT_LEFT, -1, size, Color(0, 0, 0, 0.85))
+		draw_string(fnt, p, s, HORIZONTAL_ALIGNMENT_LEFT, -1, size, col)
+
+
 func _initialize() -> void:
 	_run.call_deferred()
 
@@ -269,6 +313,45 @@ func _mono_compose(body: Image, cut: Image) -> Image:
 				o.set_pixel(x, y, Color(1, 1, 1, 0))
 	return o
 
+func _emit_feature() -> void:
+	var vp := SubViewport.new()
+	vp.size = Vector2i(1024, 500)
+	vp.transparent_bg = false
+	vp.render_target_update_mode = SubViewport.UPDATE_ALWAYS
+	vp.disable_3d = true
+	var f := Feature.new()
+	# 인게임과 같은 폰트를 쓴다 — 스토어 이미지와 실제 화면의 글자가 다르면 같은 게임처럼 안 보인다.
+	var baloo := load("res://fonts/Baloo2.ttf") as FontFile
+	if baloo != null:
+		var fv := FontVariation.new()
+		fv.base_font = baloo
+		fv.variation_opentype = {TextServerManager.get_primary_interface().name_to_tag("weight"): 800}
+		f.fnt = fv
+	else:
+		f.fnt = load("res://fonts/NotoSans-Regular.ttf") as FontFile
+	vp.add_child(f)
+	# 마크는 아이콘과 같은 Drawer를 재사용해 왼쪽에 얹는다(같은 그림이어야 브랜드가 하나로 읽힌다).
+	var m := Drawer.new()
+	m.variant = "E"
+	m.mode = "fg"
+	m.S = 420.0
+	m.position = Vector2(20.0, 40.0)
+	vp.add_child(m)
+	root.add_child(vp)
+	await process_frame
+	await RenderingServer.frame_post_draw
+	await process_frame
+	var img: Image = vp.get_texture().get_image()
+	img.convert(Image.FORMAT_RGB8)   # 피처 그래픽은 알파 없음
+	# 앱 아이콘(icons/)과 달리 이건 **스토어 등록 에셋**이라 store/에 둔다 — 앱에는 안 실린다.
+	var store: String = ProjectSettings.globalize_path("res://store/")
+	DirAccess.make_dir_recursive_absolute(store)
+	img.save_png(store + "feature_1024x500.png")
+	img.save_png(DIR + "feature_1024x500.png")
+	print("피처 그래픽: store/feature_1024x500.png (1024x500, 알파 없음)")
+	root.remove_child(vp)
+	vp.queue_free()
+
 func _emit(variant: String) -> void:
 	DirAccess.make_dir_recursive_absolute(ProjectSettings.globalize_path(OUT))
 	var flat: Image = await _render(variant, "flat", SIDE)
@@ -304,7 +387,9 @@ func _run() -> void:
 	for a in OS.get_cmdline_user_args():
 		if String(a).begins_with("--emit="):
 			emit = String(a).substr(7)
-	if emit != "":
+	if OS.get_cmdline_user_args().has("--feature"):
+		await _emit_feature()
+	elif emit != "":
 		await _emit(emit)
 	else:
 		var names: Array = ["E"]
