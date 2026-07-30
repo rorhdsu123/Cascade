@@ -14,6 +14,7 @@ config/name="BlockCastle"
 run/main_scene="res://Main.tscn"
 config/quit_on_go_back=false
 config/features=PackedStringArray("4.6", "GL Compatibility")
+config/icon="res://icons/icon_512.png"
 
 [display]
 
@@ -31,5 +32,4 @@ enabled=PackedStringArray("res://addons/admob/plugin.cfg")
 
 renderer/rendering_method="gl_compatibility"
 renderer/rendering_method.mobile="gl_compatibility"
-; 지우지 말 것 — 안드로이드 export 차단(오류가 빈 줄로 찍혀 원인이 안 보임). 설명 정본은 ROADMAP.md §3 W1 '빌드 방법' 아래.
 textures/vram_compression/import_etc2_astc=true
