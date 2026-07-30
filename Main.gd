@@ -552,6 +552,9 @@ func _ready() -> void:
 	randomize()          # 코스메틱 전역 RNG
 	game_rng.randomize()  # 게임 스트림(프리플레이 기본; 데일리/회귀는 seed_game으로 덮어씀)
 	_load_settings()
+	# 햅틱 플랫폼 게이트 — 모바일에서만 실제로 모터를 때린다. 데스크톱·에디터는 no-op이라
+	#   프로브·회귀는 로그만 남기고 조용히 지난다(웹은 amp가 버려지지만 무해).
+	_hap_ok = OS.has_feature("mobile")
 	_load_campaign()
 	_analytics.session_begin()           # 계측 세션 시작(app_opened) — 판·화면보다 먼저여야 첫 판이 이 세션에 묶인다
 	endless_best = _leaderboard.best()   # 로컬 베스트는 LeaderboardService가 소유·로드 — 여기선 캐시로 미러(C64 이음새)
@@ -643,10 +646,16 @@ func _load_settings() -> void:
 		return
 	var f := FileAccess.open(SETTINGS_SAVE, FileAccess.READ)
 	if f != null:
+		var n: int = f.get_length()
 		# 2바이트 미만 = 부분쓰기 손상 → 기본값 유지(안 그러면 sound_on이 조용히 false로 뒤집힘).
-		if f.get_length() >= 2:
+		if n >= 2:
 			sound_on = f.get_8() != 0
 			bgm_on = f.get_8() != 0
+		# 3번째 바이트(햅틱)는 나중에 생겼다 → 없으면 기본값(on)을 그대로 둔다. 길이별로 단계적으로
+		#   읽어야 하는 이유: user://는 트렁크·워크트리·구버전 빌드가 같이 쓴다. 구버전이 쓴 2바이트를
+		#   새 코드가 읽어도, 새 코드가 쓴 3바이트를 구버전이 읽어도 둘 다 안전해야 한다.
+		if n >= 3:
+			haptic_on = f.get_8() != 0
 		f.close()
 
 func _save_settings() -> void:
@@ -654,7 +663,129 @@ func _save_settings() -> void:
 	if f != null:
 		f.store_8(1 if sound_on else 0)
 		f.store_8(1 if bgm_on else 0)
+		f.store_8(1 if haptic_on else 0)
 		f.close()
+
+# ===== 햅틱 (R1 · 정본: HAPTIC_PLAN.md) =====
+# 진동은 '섞이지' 않는다 — 모터가 하나고, 안드로이드는 새 vibrate 호출이 진행 중인 걸 취소·대체한다.
+#   그래서 이 채널은 shake_timer와 같은 승자독식이되, 시간축 관리(불응기·롤링 예산)가 붙는다.
+# 규칙 3개(계측 절과 같은 원칙): ① 관찰만 — 게임 값도 RNG도 안 건드린다(회귀 골든 불변)
+#   ② 접점은 이 블록 한 곳 — 호출부는 '무엇이 일어났나'만 말한다 ③ 어휘는 셋뿐.
+#
+# 어휘: tick(착지) · pop(줄 삭제 — 콤보로 세기, 큰 콤보는 2박) · roll(판 끝 축하 3박, 판당 1회).
+#   누수·사망엔 **의도적으로 아무것도 없다** = "축하만 몸으로, 손실은 눈으로"(코지 톤 유지, 유저 결정).
+#   손실 텍스처(thud)는 R1에서 기각 — 없다가 넣는 게 넣었다 빼는 것보다 판단이 쉽다.
+#
+# 숫자 근거 = 안드로이드 공식 햅틱 원칙: 좋은 키클릭 10~20ms · 잦은 이벤트일수록 약하게(빈도↔세기
+#   반비례) · "less is more"(과하면 유저가 OS 설정에서 아예 끈다).
+# ⚠amp는 하드웨어 의존이다 — 진폭 제어가 없는 폰은 amp를 무시하고 전부 최대 세기로 낸다. Godot은
+#   hasAmplitudeControl() 질의를 안 열어주니 분기도 못 한다 → **의미는 길이·박자 수에 싣는다**
+#   (짧은 1발 / 중간 1발 / 3박). 그래서 '세기만 다른' 어휘는 만들지 않는다.
+# ⚠텍스처 한계: Input.vibrate_handheld는 안드로이드에서 VibrationEffect.createOneShot으로 내려간다 =
+#   안드로이드 지침이 "buzzy하니 피하라"고 한 그 레거시 경로. 크리스프한 프리미티브(TICK/CLICK)는
+#   JavaClassWrapper로 도달 가능하니, 기기에서 buzzy 판정이 나면 _hap_fire 몸통만 갈아끼운다(R2).
+const HAPTIC_WORDS: Dictionary = {
+	# gap = 불응기(초). 이 안에 들어온 같은/낮은 우선순위 요청은 버린다 — 캐스케이드 뭉갬을 여기서 막는다.
+	"tick": {"ms": 12, "amp": 0.30, "prio": 0, "gap": 0.09},
+	"pop": {"ms": 30, "amp": 0.55, "prio": 1, "gap": 0.16},
+	"roll": {"ms": 18, "amp": 0.55, "prio": 2, "gap": 0.40},
+}
+# 롤링 예산 — 평균 초당 진동 시간 상한. 정상 플레이는 여기 근처도 안 가고(착지 12ms/2초 + 삭제 45ms),
+#   버그·미래의 호출부 추가로 폭주할 때만 잘린다. 배터리·둔감·'고장 난 폰' 느낌의 마지막 방어선.
+const HAPTIC_BUDGET_MAX: float = 150.0
+const HAPTIC_BUDGET_REFILL: float = 150.0   # ms/초
+
+var haptic_on: bool = true          # 유저 선호(설정 모달) — 기본 on
+var _set_haptic_hover: bool = false
+var _hap_ok: bool = false           # 플랫폼 게이트(_ready에서 채움) — 데스크톱·에디터는 no-op
+var _hap_t: float = 0.0             # 누적 게임시간. 벽시계가 아니라 delta 합 = 프로브가 결정적으로 재현된다
+var _hap_last: float = -99.0
+var _hap_last_prio: int = -1
+var _hap_budget: float = HAPTIC_BUDGET_MAX
+var _hap_queue: Array = []          # 예약된 후속 박 [{at, kind, ms, amp}] — 2박·3박 모티프
+var _hap_roll_used: bool = false    # roll은 판당 1회(의식은 흔해지면 의식이 아니다)
+var hap_log_on: bool = false        # 프로브만 켠다(tools/haptic_probe.gd)
+var _hap_log: Array = []
+
+# 유일한 접점. 호출부는 kind만 말하고, 세기·드롭·박자는 전부 여기서 정한다.
+#   intensity = pop의 콤보값(다른 어휘는 무시).
+func _haptic(kind: String, intensity: float = 0.0) -> void:
+	if not haptic_on or not HAPTIC_WORDS.has(kind):
+		return
+	var w: Dictionary = HAPTIC_WORDS[kind]
+	var prio: int = int(w["prio"])
+	# ① 불응기 — 높은 우선순위만 선점한다(줄 삭제는 착지를 덮고, 착지는 삭제를 못 덮는다).
+	if _hap_t - _hap_last < float(w["gap"]) and prio <= _hap_last_prio:
+		_hap_note(kind, 0, 0.0, "gap")
+		return
+	var ms: int = int(w["ms"])
+	var amp: float = float(w["amp"])
+	var follow: Array = []
+	if kind == "pop":
+		# 콤보 = 청소 범위(스펙터클) → 길이·세기를 함께 밀지만 상한은 얇게. 큰 콤보는 둘째 박으로
+		#   '크다'를 말한다 — 세기만 올리면 amp 없는 폰에서 구분이 사라진다.
+		var c: float = clampf(intensity, 1.0, 8.0)
+		var f: float = (c - 1.0) / 7.0
+		ms = int(round(lerpf(30.0, 45.0, f)))
+		amp = lerpf(0.55, 1.0, f)
+		if c >= 4.0:
+			follow.append({"at": _hap_t + 0.09, "kind": "pop", "ms": ms, "amp": amp})
+	elif kind == "roll":
+		if _hap_roll_used:
+			_hap_note(kind, 0, 0.0, "once")
+			return
+		# 짧-짧-김 = 마무리. 판당 1회라 예산에 여유가 있다.
+		follow.append({"at": _hap_t + 0.11, "kind": "roll", "ms": 18, "amp": 0.55})
+		follow.append({"at": _hap_t + 0.24, "kind": "roll", "ms": 90, "amp": 0.85})
+	if not _hap_fire(kind, ms, amp):
+		return   # 첫 박이 예산에 걸렸으면 후속 박도 없다(반 토막 모티프 = 고장처럼 느껴진다)
+	if kind == "roll":
+		_hap_roll_used = true
+	for q in follow:
+		_hap_queue.append(q)
+
+# 실제 발화. 예산을 통과한 것만 나간다. 후속 박은 불응기를 건너뛴다 — 그게 리듬 그 자체니까.
+func _hap_fire(kind: String, ms: int, amp: float) -> bool:
+	if _hap_budget < float(ms):
+		_hap_note(kind, ms, amp, "budget")
+		return false
+	_hap_budget -= float(ms)
+	_hap_last = _hap_t
+	_hap_last_prio = int(HAPTIC_WORDS[kind]["prio"]) if HAPTIC_WORDS.has(kind) else 0
+	_hap_note(kind, ms, amp, "")
+	if _hap_ok:
+		Input.vibrate_handheld(ms, amp)
+	return true
+
+# 매 프레임 — 예약 박 발화 + 예산 회복. _process 맨 앞에서 부른다(히트스톱·메뉴 조기 반환보다 먼저:
+#   연출 시간이 멎어도 손은 이미 느꼈고, 예약된 둘째 박이 거기서 멈추면 모티프가 반 토막 난다).
+func _hap_step(delta: float) -> void:
+	_hap_t += delta
+	_hap_budget = minf(HAPTIC_BUDGET_MAX, _hap_budget + delta * HAPTIC_BUDGET_REFILL)
+	if _hap_queue.is_empty():
+		return
+	var keep: Array = []
+	for q in _hap_queue:
+		var e: Dictionary = q as Dictionary
+		if _hap_t >= float(e["at"]):
+			_hap_fire(String(e["kind"]), int(e["ms"]), float(e["amp"]))
+		else:
+			keep.append(e)
+	_hap_queue = keep
+
+# 판 경계 초기화. _hap_t는 일부러 안 되돌린다(세션 단조 시간 = 프로브의 롤링 창 분석이 쉬워진다).
+func _hap_reset() -> void:
+	_hap_last = -99.0
+	_hap_last_prio = -1
+	_hap_budget = HAPTIC_BUDGET_MAX
+	_hap_queue = []
+	_hap_roll_used = false
+
+# 프로브 전용 기록 — 기기 없이 '뭉갬'을 감사하는 유일한 수단(드롭도 남긴다: 무엇을 왜 버렸나).
+func _hap_note(kind: String, ms: int, amp: float, drop: String) -> void:
+	if not hap_log_on:
+		return
+	_hap_log.append({"t": _hap_t, "kind": kind, "ms": ms, "amp": amp, "drop": drop})
 
 # 캠페인 진행도 영속(user://). cleared 딕셔너리를 스테이지 비트마스크(비트 i = 스테이지 i 클리어)로 저장.
 # ≤32스테이지면 32비트 하나에 담겨 store_32로 고정 4바이트 — 부분쓰기 내성이 가변길이보다 낫다.
@@ -1018,6 +1149,7 @@ func _init_game() -> void:
 	flash_climax = false
 	surge_active = false
 	shake_timer = 0.0
+	_hap_reset()      # 햅틱 판 경계(roll 1회 상한·불응기·예산) — shake와 같은 자리에서 리셋
 	step_beat = 0.0
 	dragging = false
 	drag_slot = -1
@@ -1851,6 +1983,9 @@ func _burst_lines() -> void:
 	outline_timer = LINE_OUTLINE_DUR   # ④ 줄 자리에 남는 색 테두리 잔상
 	# 섬광은 파괴 순간(t=0)에. 칭찬 단어는 PRAISE_LEAD 뒤에 팝인 — '터짐→단어'를 한 박 분리(C90 리듬 계단시차, 블블 관찰).
 	flash_timer = FLASH_DUR
+	# 햅틱 다운비트는 섬광과 같은 프레임에 — 어긋난 진동은 하드웨어 고장처럼 느껴진다(안드로이드 지침).
+	#   링이 순차로 터져도 진동은 이 한 발뿐이다(연쇄의 맛은 시각 순차 재생이 담당).
+	_haptic("pop", float(maxi(flash_combo, 1)))
 	if flash_combo >= 2:                 # 칭찬 텍스트는 섬광보다 오래 산다(읽을 시간 확보)
 		praise_delay = PRAISE_LEAD       # 지금 켜지 않고 예약 — _process가 만료 시 praise_t를 켠다
 		praise_pending_combo = flash_combo
@@ -2596,6 +2731,7 @@ func _check_win() -> void:
 		_save_campaign()               # 진행도 즉시 영속 — 앱을 닫아도 해금 유지
 		fail_streak[stage_idx] = 0     # 깼으니 갓 모드 해제
 		_spawn_confetti()              # 클리어 축하 — 3색 색종이가 위에서 쏟아진다(경축, 공격 아님)
+		_haptic("roll")                # 판이 끝났다 = 3박 마무리(판당 1회)
 		_track_stage_clear()
 
 # 클리어 축하 색종이. 화면 위에서 3색(조각 색) 조각이 나풀나풀 떨어진다.
@@ -2706,6 +2842,7 @@ func _place_piece() -> void:
 		var c: Vector2i = ci as Vector2i
 		board[c.y][c.x] = active["color"]
 	last_color = active["color"]   # 색 통일용: 터질 줄이 이 색으로 물든다
+	_haptic("tick")   # 착지 = 어휘 tick(가장 잦은 이벤트 → 가장 약하게)
 	# 착지 팝: 놓은 칸마다 '탁' 들어앉는 신호. 완성 못 시킨 수(절반 이상)도 이제 손맛이 남는다.
 	# 소멸 팝(밖으로 부풂)과 반대로 수축해 '도착'을 말한다. 숫자 없음(C9/C23: 목표는 '남은 적').
 	var place_col: Color = _color_of(active["color"])
@@ -2845,6 +2982,7 @@ func _input(event: InputEvent) -> void:
 			_set_privacy_hover = (slay["privacy_btn"] as Rect2).has_point(mp2)
 			_set_sound_hover = (slay["sound_tog"] as Rect2).has_point(mp2)
 			_set_bgm_hover = (slay["bgm_tog"] as Rect2).has_point(mp2)
+			_set_haptic_hover = (slay["haptic_tog"] as Rect2).has_point(mp2)
 		elif event is InputEventMouseButton:
 			var sb: InputEventMouseButton = event as InputEventMouseButton
 			if sb.pressed and sb.button_index == MOUSE_BUTTON_LEFT:
@@ -3103,6 +3241,7 @@ func _process(delta: float) -> void:
 	# 광고 비동기 진행 — 어떤 화면이든, 히트스톱 중이든 계속 돌아야 한다. 여기서 멈추면
 	#   결과 팝업의 대기 상태가 안 풀린다(콜백 미도착 = 다른 버튼도 막힌 채 = 소프트락). 유휴면 비용 0.
 	_ads.poll(delta)
+	_hap_step(delta)   # 햅틱 시간축 — 조기 반환(메뉴·히트스톱)보다 먼저여야 예약 박이 안 끊긴다
 	if mode == "menu" or mode == "select" or mode == "leaderboard":
 		queue_redraw()
 		return
@@ -3166,6 +3305,7 @@ func _process(delta: float) -> void:
 			endless_beat_best = true
 			pb_pop_t = PB_POP_DUR   # 판전체 폭발 팝인 — 표시 숫자가 크라운을 넘는 그 순간.
 			_spawn_confetti()       # 산개 컨페티(C90) — 폭발과 함께 쏟아짐
+			_haptic("roll")         # PB 돌파 = 클리어와 같은 의식(무한엔 클리어가 없으니 이게 그 자리)
 	if outline_timer > 0.0:
 		outline_timer = maxf(0.0, outline_timer - delta)
 	if red_flash > 0.0:
@@ -3898,11 +4038,13 @@ func _settings_layout() -> Dictionary:
 	var py: float = p.position.y
 	var pw: float = p.size.x
 	var ctrl_r: float = px + pw - 36.0    # 컨트롤 오른쪽 정렬 기준선
-	var r1: float = py + 120.0            # 소리
-	var r2: float = py + 190.0            # 배경음
-	var r3: float = py + 288.0            # 홈
-	var r4: float = py + 356.0            # 다시하기
-	var r5: float = py + 424.0            # 개인정보 옵션(조건부)
+	# 토글이 셋으로 늘어 행 간격을 70→58로 좁혔다(패널 높이는 그대로 = 긴 화면에서 아래로 안 삐져나감).
+	var r1: float = py + 104.0            # 소리
+	var r2: float = py + 162.0            # 배경음
+	var r3: float = py + 220.0            # 진동(햅틱)
+	var r4: float = py + 296.0            # 홈
+	var r5: float = py + 362.0            # 다시하기
+	var r6: float = py + 430.0            # 개인정보 옵션(조건부)
 	var tw: float = 66.0
 	var th: float = 32.0
 	var bw: float = 140.0
@@ -3911,16 +4053,17 @@ func _settings_layout() -> Dictionary:
 		"panel": p,
 		"label_x": px + 36.0,
 		"title_y": py + 50.0,
-		"divider_y": py + 235.0,
+		"divider_y": py + 254.0,
 		"close": Rect2(px + pw - 56.0, py + 16.0, 40.0, 40.0),
 		"sound_tog": Rect2(ctrl_r - tw, r1 - th * 0.5, tw, th),
 		"bgm_tog": Rect2(ctrl_r - tw, r2 - th * 0.5, tw, th),
-		"home_btn": Rect2(ctrl_r - bw, r3 - bh * 0.5, bw, bh),
-		"replay_btn": Rect2(ctrl_r - bw, r4 - bh * 0.5, bw, bh),
+		"haptic_tog": Rect2(ctrl_r - tw, r3 - th * 0.5, tw, th),
+		"home_btn": Rect2(ctrl_r - bw, r4 - bh * 0.5, bw, bh),
+		"replay_btn": Rect2(ctrl_r - bw, r5 - bh * 0.5, bw, bh),
 		# 행이 없을 땐 빈 Rect2 = 히트 영역도 없음(그리기·입력이 같은 조건을 따로 읽지 않게).
-		"privacy_btn": Rect2(ctrl_r - bw, r5 - bh * 0.5, bw, bh) if priv else Rect2(),
+		"privacy_btn": Rect2(ctrl_r - bw, r6 - bh * 0.5, bw, bh) if priv else Rect2(),
 		"privacy_on": priv,
-		"r1": r1, "r2": r2, "r3": r3, "r4": r4, "r5": r5,
+		"r1": r1, "r2": r2, "r3": r3, "r4": r4, "r5": r5, "r6": r6,
 	}
 
 func _settings_click(pos: Vector2, lay: Dictionary) -> void:
@@ -3932,6 +4075,13 @@ func _settings_click(pos: Vector2, lay: Dictionary) -> void:
 	elif (lay["bgm_tog"] as Rect2).has_point(pos):
 		bgm_on = not bgm_on
 		_save_settings()
+	elif (lay["haptic_tog"] as Rect2).has_point(pos):
+		haptic_on = not haptic_on
+		_save_settings()
+		if haptic_on:
+			# 켠 직후 한 발 = 방금 켠 걸 손으로 확인시킨다(OS 햅틱 설정과 같은 관습).
+			#   기기에서 어휘를 재생해 볼 수 있는 유일한 트리거이기도 하다 — 세기 판정용.
+			_haptic("pop", 3.0)
 	elif (lay["home_btn"] as Rect2).has_point(pos):
 		settings_open = false
 		_track_revive_dismissed("home")
@@ -4001,24 +4151,26 @@ func _draw_settings(fnt: Font) -> void:
 	draw_line(cc + Vector2(-9, -9), cc + Vector2(9, 9), xcol, 4.0)
 	draw_line(cc + Vector2(9, -9), cc + Vector2(-9, 9), xcol, 4.0)
 
-	# 토글 행: 소리 · 배경음
+	# 토글 행: 소리 · 배경음 · 진동
 	_draw_text_outlined(fnt, Vector2(lx, float(lay["r1"]) + 9.0), _t("sound"), 26, Color(0.86, 0.87, 0.95))
 	_draw_toggle(lay["sound_tog"], sound_on, _set_sound_hover)
 	_draw_text_outlined(fnt, Vector2(lx, float(lay["r2"]) + 9.0), _t("music"), 26, Color(0.86, 0.87, 0.95))
 	_draw_toggle(lay["bgm_tog"], bgm_on, _set_bgm_hover)
+	_draw_text_outlined(fnt, Vector2(lx, float(lay["r3"]) + 9.0), _t("haptic"), 26, Color(0.86, 0.87, 0.95))
+	_draw_toggle(lay["haptic_tog"], haptic_on, _set_haptic_hover)
 
 	# 구분선
 	draw_line(Vector2(lx, lay["divider_y"]), Vector2(p.position.x + p.size.x - 36.0, lay["divider_y"]), Color(1.0, 1.0, 1.0, 0.10), 2.0)
 
 	# 액션 행: 홈(메뉴로) · 다시하기(재시작)
-	_draw_text_outlined(fnt, Vector2(lx, float(lay["r3"]) + 9.0), _t("home"), 26, Color(0.86, 0.87, 0.95))
+	_draw_text_outlined(fnt, Vector2(lx, float(lay["r4"]) + 9.0), _t("home"), 26, Color(0.86, 0.87, 0.95))
 	_draw_mini_button(fnt, lay["home_btn"], _t("go_home"), _set_home_hover, Color(0.30, 0.33, 0.44), Color(0.92, 0.93, 1.0))
-	_draw_text_outlined(fnt, Vector2(lx, float(lay["r4"]) + 9.0), _t("restart_label"), 26, Color(0.86, 0.87, 0.95))
+	_draw_text_outlined(fnt, Vector2(lx, float(lay["r5"]) + 9.0), _t("restart_label"), 26, Color(0.86, 0.87, 0.95))
 	_draw_mini_button(fnt, lay["replay_btn"], _t("restart"), _set_replay_hover, Color(0.34, 0.72, 0.26), Color(0.98, 1.0, 0.94))
 
 	# 개인정보 옵션 — 필요한 지역에서만(EEA/UK). 홈과 같은 회색빛 유틸 언어를 쓴다(진행 버튼 아님).
 	if bool(lay["privacy_on"]):
-		_draw_text_outlined(fnt, Vector2(lx, float(lay["r5"]) + 9.0), _t("privacy_label"), 26, Color(0.86, 0.87, 0.95))
+		_draw_text_outlined(fnt, Vector2(lx, float(lay["r6"]) + 9.0), _t("privacy_label"), 26, Color(0.86, 0.87, 0.95))
 		_draw_mini_button(fnt, lay["privacy_btn"], _t("privacy_btn"), _set_privacy_hover, Color(0.30, 0.33, 0.44), Color(0.92, 0.93, 1.0))
 
 # 재생 삼각형(▶) — '광고 영상을 본다'는 뜻. 오른쪽을 향한 정삼각형.
