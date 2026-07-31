@@ -2,13 +2,14 @@ extends SceneTree
 # Protect(도둑) 스테이지 프로브 — 도둑-인지 봇으로 승률·패배사유·금고 잔량을 뽑는다.
 #   campaign_probe의 봇에 '도둑 저지/회수' 우선항만 얹은 사본(다른 스테이지엔 영향 0 — 도둑 없음).
 #   실행: godot --headless --path . --script tools/thief_probe.gd
-#   ⚠STAGE_IDX는 Protect R1(st14)의 배열 위치. 재배치하면 갱신.
+#   ⚠이 판은 2026-07-31 캠페인에서 빠졌다(재설계 대상) → STAGES 인덱스가 아니라
+#     stage_data.PARKED_PROTECT를 직접 열어 돈다. 재설계 후 캠페인에 복귀하면 이 경로를 되돌릴 것.
 #   스윕: HP_MULTS="0.35,0.6,0.9"로 thief_hp_mult를 런타임 오버라이드해 값별로 한 줄씩 찍는다
 #     (STAGES는 const지만 안의 Dictionary는 쓸 수 있다 — [[balance-corehp-lever-and-probe-gotchas]]).
 #   ⚠A/B는 반드시 시드 고정: PROBE_SEED=20260718 (배치마다 같은 시드로 리셋 = 짝지은 비교).
 #     안 그러면 레버 효과가 시드 노이즈에 묻힌다([[compare-only-finished-probe-output]]의 형제 함정).
 
-const STAGE_IDX: int = 13
+const SD = preload("res://stage_data.gd")
 
 func _init() -> void:
 	var TRIALS: int = int(OS.get_environment("TRIALS")) if OS.get_environment("TRIALS") != "" else 80
@@ -22,9 +23,9 @@ func _init() -> void:
 	var g: Node = S.new()
 	root.add_child(g)
 	g.dda_enabled = false
-	var vault_start: int = int(g.STAGES[STAGE_IDX].get("vault_start", 0))
-	print("Protect (idx %d, vault_start %d, N %d%s)" % [
-		STAGE_IDX, vault_start, TRIALS, (", seed=" + sd) if sd != "" else ""])
+	var vault_start: int = int(SD.PARKED_PROTECT.get("vault_start", 0))
+	print("Protect [파킹: 캠페인 밖] (vault_start %d, N %d%s)" % [
+		vault_start, TRIALS, (", seed=" + sd) if sd != "" else ""])
 	if mults.is_empty():
 		_batch(g, TRIALS, sd, vault_start, -1.0)
 		quit()
@@ -48,7 +49,7 @@ func _batch(g: Node, TRIALS: int, sd: String, vault_start: int, mult: float) -> 
 	var recover_sum: int = 0
 	var escape_sum: int = 0
 	for t in range(TRIALS):
-		var r: Dictionary = _play(g, STAGE_IDX, mult)
+		var r: Dictionary = _play(g, mult)
 		if r["win"]:
 			wins += 1
 		if r["dead_core"]:
@@ -75,15 +76,19 @@ func _batch(g: Node, TRIALS: int, sd: String, vault_start: int, mult: float) -> 
 		mult, 100.0 * float(wins) / n, dead_core, dead_vault, dead_stuck,
 		float(vault_sum) / n, float(grab_sum) / n, float(recover_sum) / n, float(escape_sum) / n])
 
-func _play(g: Node, si: int, mult: float = -1.0) -> Dictionary:
-	g._start_stage(si)
+# 파킹된 판은 _start_stage(idx) 경로가 없다 → st·감독을 직접 세우고 _init_game만 태운다
+#   (STAGES const는 안의 Dictionary까지 read-only라 어차피 복제본이 필요하다 — 스윕도 여기서 먹인다).
+func _play(g: Node, mult: float = -1.0) -> Dictionary:
+	var d: Dictionary = SD.PARKED_PROTECT.duplicate(true)
 	if mult > 0.0:
-		# STAGES const는 안의 Dictionary까지 read-only다 → 복제본으로 갈아끼우고 감독도 그 위에 다시 세운다.
-		#   (enemy_hp는 스폰 시점에 st를 읽으므로 _start_stage 뒤에 덮어도 늦지 않다.)
-		var d: Dictionary = (g.st as Dictionary).duplicate(true)
 		d["thief_hp_mult"] = mult
-		g.st = d
-		g.director = load("res://modes/stage_mode.gd").new(d)
+	g.endless = false
+	g.featured = false
+	g.stage_idx = -1              # 캠페인 판이 아니다 = 진행도(cleared)와 무관
+	g.st = d
+	g.director = load("res://modes/stage_mode.gd").new(d)
+	g.mode = "play"
+	g._init_game()
 	var guard: int = 0
 	while not g.game_over and not g.game_clear and guard < 3000:
 		guard += 1
