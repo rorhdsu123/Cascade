@@ -22,7 +22,7 @@ func _init() -> void:
 	var rate: int = m.SFX_RATE
 
 	var n_ok: int = 0
-	for kind in ["grab", "place", "clear", "chain", "tap"]:
+	for kind in ["grab", "place", "clear", "chain", "score", "fail", "tap"]:
 		var w: AudioStreamWAV = m._sfx_bank[kind]
 		var path: String = "%s/%s.wav" % [OUT_DIR, kind]
 		if w.save_to_wav(path) == OK:
@@ -68,10 +68,16 @@ func _seq(m: Node, path: String, kind: String, semis: Array, step: float, rate: 
 			acc[at + i] += lerpf(a, b, sp - float(si))
 			i += 1
 
+	# ⚠합친 뒤 피크 정규화 — 안 하면 겹친 음이 프리뷰 파일 자체를 클립시켜(실측 8샘플) 음색 판정이
+	#   왜곡된다. 게임 안에선 SFX 버스의 리미터와 fanfare 전용 레벨이 그 역할을 한다.
+	var mix_pk: float = 0.0
+	for i in range(out_n):
+		mix_pk = maxf(mix_pk, absf(acc[i]))
+	var mix_g: float = (0.85 / mix_pk) if mix_pk > 0.0001 else 1.0
 	var data := PackedByteArray()
 	data.resize(out_n * 2)
 	for i in range(out_n):
-		var v: int = clampi(int(round(clampf(acc[i], -1.0, 1.0) * 32767.0)), -32768, 32767)
+		var v: int = clampi(int(round(clampf(acc[i] * mix_g, -1.0, 1.0) * 32767.0)), -32768, 32767)
 		if v < 0:
 			v += 65536
 		data[i * 2] = v & 0xff

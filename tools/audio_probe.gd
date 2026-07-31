@@ -13,7 +13,7 @@ extends SceneTree
 #   ④ 연쇄 사다리가 판 안에서 단조 상승하고 상한(16반음)에서 멈추나
 #   ⑤ fanfare가 판당 1회를 넘지 않나
 #   ⑥ 같은 시드 두 패스 = 로그가 완전히 동일한가(오디오 경로에 RNG가 새면 회귀 골든이 시프트한다)
-#   ⑦ 어휘는 다섯뿐인가
+#   ⑦ 어휘 목록이 설계와 일치하나
 #
 # ⚠시드 고정: 합/불을 내는 프로브는 반드시 시드를 박는다(analytics_probe의 교훈).
 const SEED_CAMPAIGN: int = 20250123
@@ -23,7 +23,7 @@ const IDLE_HUMAN: int = 108      # 1/60 프레임 = 1.8초/수(사람 템포). �
 const IDLE_STRESS: int = 1       # 인간이 불가능한 최고 속도 = 상한 시험
 
 # 단어별 물리 길이(초) — 겹침 계산용. pitch_scale이 올라가면 실제론 더 짧게 끝나므로 보수적 상한이다.
-const WORD_DUR: Dictionary = {"grab": 0.075, "place": 0.09, "clear": 0.34, "chain": 0.19, "tap": 0.06}
+const WORD_DUR: Dictionary = {"grab": 0.075, "place": 0.09, "clear": 0.34, "chain": 0.19, "score": 0.035, "fail": 0.42, "tap": 0.06}
 const MAX_VOICES: int = 8
 const MAX_FIRES_IN_1S: int = 15         # 예산 14/초 + 회복 여유 1
 const LADDER_MAX_SEMI: int = 16
@@ -228,6 +228,23 @@ func _pass_vocab() -> Array:
 		g.dragging = false
 		g.drag_slot = -1
 	_idle(6)
+	# 점수 틱 배선 — 캠페인은 clear_score()가 0이라 롤업이 안 돌고 봇 패스에선 score가 한 발도
+	#   안 나온다. 표시 점수와 실제 점수를 벌려 놓고 _process를 굴려 **롤업 경로**를 태운다.
+	g.endless_score = 400
+	g.endless_score_shown = 0.0
+	_idle(30)
+	g.endless_score = 0
+	g.endless_score_shown = 0.0
+	_idle(6)
+	# 실패 배선 — 봇은 14수 안에 안 죽어서 fail이 안 울린다. **실제 게임오버 경로**를 태운다.
+	#   ⚠pending_core_dead를 직접 세우면 안 된다 — _end_turn 안의 advance_step이
+	#   `pending_core_dead = core_hp <= 0`으로 **재계산**해 그 플래그를 덮는다(실측으로 드러남).
+	#   거점 체력을 0으로 만들어 진짜로 죽게 해야 한다.
+	g.core_hp = 0
+	g._end_turn()
+	_idle(6)
+	g._start_stage(0)
+	_idle(2)
 	g._fb("finish")          # 아르페지오 4음(0/+4/+7/+12)
 	_idle(48)                # 0.80초 = 마지막 예약 음(+0.30초)까지 흐른다
 	g._fb("finish")          # 판당 1회 → 드롭되어야 한다
@@ -283,12 +300,12 @@ func _run() -> void:
 	_check("⑥ 같은 시드 = 같은 로그(RNG 미사용)", sig_a == sig_c,
 			"A %d줄 · C %d줄" % [sig_a.size(), sig_c.size()])
 
-	var allowed: Array = ["grab", "place", "clear", "chain", "tap"]   # fanfare는 clear로 펼쳐져 로그에 남는다
+	var allowed: Array = ["grab", "place", "clear", "chain", "score", "fail", "tap"]   # fanfare는 clear로 펼쳐져 로그에 남는다
 	var unexpected: Array = []
 	for k in kinds_a.keys():
 		if not allowed.has(String(k)):
 			unexpected.append(k)
-	_check("⑦ 어휘는 여섯뿐", unexpected.is_empty(), "예상 밖: %s" % str(unexpected))
+	_check("⑦ 어휘는 여덟뿐", unexpected.is_empty(), "예상 밖: %s" % str(unexpected))
 
 	# ── 패스 D: 어휘 직접 타격(fanfare 1회 상한·판 경계 리셋)
 	var log_d: Array = _pass_vocab()
@@ -310,6 +327,20 @@ func _run() -> void:
 			grabs += 1
 	print("── 어휘: fanfare 음 %d발 · 드롭 %s · 음정 %s · grab %d발" % [fan_notes, str(fan_drops), str(semis), grabs])
 	_check("⑧ 집기 배선(_pick_up → grab)", grabs == 1, "%d발" % grabs)
+	# ⚠배선 검사를 어휘 직접 타격으로 대신하면 안 된다 — grab·score·fail 셋 다 봇 패스(A~C)에선
+	#   한 발도 안 울려서, 호출부가 통째로 빠져 있어도 프로브가 조용히 초록이 된다.
+	var n_score: int = 0
+	var n_fail: int = 0
+	for e0 in log_d:
+		var e: Dictionary = e0 as Dictionary
+		if String(e["drop"]) != "":
+			continue
+		if String(e["kind"]) == "score":
+			n_score += 1
+		elif String(e["kind"]) == "fail":
+			n_fail += 1
+	_check("⑨ 점수 틱 배선(롤업 → score)", n_score >= 3, "%d발" % n_score)
+	_check("⑩ 실패 배선(_end_turn 거점사 → fail)", n_fail == 1, "%d발" % n_fail)
 	_check("⑤ fanfare = 4음 아르페지오 ×2판", fan_notes == 8, "%d발 · %s" % [fan_notes, str(semis)])
 	_check("⑤ 같은 판 두 번째 fanfare = 드롭", fan_drops.has("once"), "드롭 %s" % str(fan_drops))
 

@@ -838,12 +838,18 @@ const SFX_WORDS: Dictionary = {
 	# ⚠grab·place는 **한 쌍**이라 실효 레벨을 맞춰 둔다(레퍼런스도 둘이 사실상 같은 레벨이다).
 	#   피크 정규화 기준이라 db 숫자는 크게 다르다 — place는 딸깍이 피크를 끌어올려 크레스트가
 	#   18.9dB인데 grab은 10.4dB뿐이다. 숫자가 아니라 실효 RMS를 맞춘 값이다.
-	"grab": {"gap": 0.04, "db": -19.0, "det": 0.012},
-	"place": {"gap": 0.04, "db": -10.0, "det": 0.012},
-	"clear": {"gap": 0.00, "db": -6.0, "det": 0.004},    # 간격 0 = 절대 안 드롭한다(이게 보상이다)
-	"chain": {"gap": 0.03, "db": -14.5, "det": 0.004},
-	"fanfare": {"gap": 0.00, "db": -6.0, "det": 0.004},
-	"tap": {"gap": 0.05, "db": -17.0, "det": 0.012},
+	# ⚠**R4에서 전체를 5~8dB 올렸다.** 유저 판정 "은은하게 출력되는 것 같다" + 레퍼런스 실측이
+	#   근거다: 레퍼런스는 전 SFX가 −8.3~−9.6dBFS **한 줌 안에 납작하게** 붙어 있는데 우리는
+	#   훨씬 조용하고 위계만 넓었다(집기는 무려 11.5dB 아래). 위계를 좁히고 전체를 올린다.
+	#   합산 피크는 SFX 버스의 하드 리미터가 받는다 — 그러라고 단 것이다.
+	"grab": {"gap": 0.04, "db": -13.5, "det": 0.012},
+	"place": {"gap": 0.04, "db": -5.5, "det": 0.012},
+	"clear": {"gap": 0.00, "db": -3.0, "det": 0.004},    # 간격 0 = 절대 안 드롭한다(이게 보상이다)
+	"chain": {"gap": 0.03, "db": -8.5, "det": 0.004},
+	"fanfare": {"gap": 0.00, "db": -9.0, "det": 0.004},  # 아르페지오 4음이 겹치므로 clear보다 낮게
+	"score": {"gap": 0.055, "db": -11.0, "det": 0.010},  # 연달아 나가므로 작게(단, 안 들리면 없느니만 못하다)
+	"fail": {"gap": 0.00, "db": -12.0, "det": 0.004},   # 유저 요청이 "약하지만 짧게" — 축하보다 낮게 둔다
+	"tap": {"gap": 0.05, "db": -12.5, "det": 0.012},
 }
 # 합성 시 전 단어를 같은 피크로 정규화한다 — 음색 편집과 레벨 조정을 분리하기 위해서다.
 #   (안 하면 배음 하나 고칠 때마다 볼륨이 딸려 움직여 위계가 흐트러진다.)
@@ -874,6 +880,10 @@ const FB_MAP: Dictionary = {
 	"clear": {"hap": "pop", "sfx": "clear"},
 	"chain": {"hap": "", "sfx": "chain"},     # 순차 처치는 진동 없음(캐스케이드 뭉갬)
 	"finish": {"hap": "roll", "sfx": "fanfare"},
+	"score": {"hap": "", "sfx": "score"},     # 점수 롤업 틱 — 초당 십수 발이라 진동은 절대 안 붙인다
+	# ⚠fail은 **소리만**. "손실엔 무음" 중 오디오만 유저 요청으로 뒤집었고(2026-07-31), 햅틱은
+	#   그대로 무진동이다 — 실패에 진동까지 얹으면 벌주는 느낌이 되어 코지 톤과 싸운다.
+	"fail": {"hap": "", "sfx": "fail"},
 	"tap": {"hap": "", "sfx": "tap"},         # UI 탭은 진동 없음(OS 터치 피드백과 이중 진동)
 }
 
@@ -891,6 +901,60 @@ func _fb(kind: String, intensity: float = 0.0) -> void:
 func _sfx_lcg(s: int) -> int:
 	return (s * 1103515245 + 12345) & 0x7fffffff
 
+# 한 '층'을 버퍼에 더한다(off 샘플만큼 밀어서). 부분음 + 대역제한 딸깍이 한 벌.
+#   층을 분리한 이유: 삭제음처럼 시간차 2단으로 쌓이는 소리를 한 샘플 안에 구울 수 있어야 한다.
+func _sfx_layer(buf: PackedFloat32Array, off: int, parts: Array, click: Dictionary,
+		glide: Dictionary) -> void:
+	var n: int = buf.size()
+	var g_to: float = float(glide.get("to", 1.0))
+	var g_t: float = maxf(0.001, float(glide.get("t", 0.04)))
+	var ph: Array = []
+	ph.resize(parts.size())
+	ph.fill(0.0)
+	for i in range(off, n):
+		var t: float = float(i - off) / float(SFX_RATE)
+		var gf: float = lerpf(1.0, g_to, clampf(t / g_t, 0.0, 1.0))
+		var v: float = 0.0
+		for pi in range(parts.size()):
+			var pa: Array = parts[pi] as Array
+			ph[pi] = float(ph[pi]) + TAU * float(pa[0]) * gf / float(SFX_RATE)
+			v += sin(float(ph[pi])) * float(pa[1]) * exp(-t / float(pa[2]))
+		buf[i] += v
+	# 딸깍 — 백색잡음을 2극 공진 필터에 통과시켜 좁은 대역에 몰아넣는다.
+	#   y[n] = x[n] + 2·r·cos θ·y[n-1] − r²·y[n-2]  (r이 1에 가까울수록 좁고 길게 링잉)
+	if click.is_empty():
+		return
+	var cf: float = float(click["f"])
+	var bw: float = float(click.get("bw", 1200.0))
+	var cn: int = maxi(1, int(float(click["dur"]) * float(SFX_RATE)))
+	var camp: float = float(click.get("amp", 0.5))
+	var r2: float = exp(-PI * bw / float(SFX_RATE))
+	var th: float = TAU * cf / float(SFX_RATE)
+	var y1: float = 0.0
+	var y2: float = 0.0
+	var sv: int = 12345
+	# 공진 이득은 bw·f에 따라 크게 달라진다 → 따로 굽고 **피크로 정규화한 뒤** 섞는다.
+	#   (필터 이득을 수식으로 보정하려 들면 딸깍 세기가 대역폭 바꿀 때마다 널뛴다.)
+	var cl_n: int = mini(n - off, cn * 8)                # 링잉 꼬리까지
+	if cl_n <= 0:
+		return
+	var cbuf := PackedFloat32Array()
+	cbuf.resize(cl_n)
+	var cpk: float = 0.0
+	for i in range(cl_n):
+		var x0: float = 0.0
+		if i < cn:
+			sv = _sfx_lcg(sv)
+			x0 = ((float(sv % 2000) / 1000.0) - 1.0) * (1.0 - float(i) / float(cn))
+		var y0: float = x0 + 2.0 * r2 * cos(th) * y1 - r2 * r2 * y2
+		y2 = y1
+		y1 = y0
+		cbuf[i] = y0
+		cpk = maxf(cpk, absf(y0))
+	var cg: float = (camp / cpk) if cpk > 0.0001 else 0.0
+	for i in range(cl_n):
+		buf[off + i] += cbuf[i] * cg
+
 # 한 단어를 굽는다.
 #   parts = [[**절대주파수Hz**, 진폭, 감쇠τ], ...] — τ가 짧은 배음이 먼저 죽으면서 자연스러운
 #     종/나무 소리가 된다(모든 배음이 같이 죽으면 전자음처럼 들린다). R1의 '기음×배수'를 절대
@@ -901,56 +965,31 @@ func _sfx_lcg(s: int) -> int:
 #   glide = {} 또는 {to, t} — 전 부분음을 t초에 걸쳐 주파수 ×to로 미끄러뜨린다. **제스처 방향**이
 #     동작을 말하게 하려는 것(레퍼런스 실측: 집기는 345→560Hz 상승, 착지는 904→388Hz 하강).
 #     위상을 **누적**해서 만든다 — sin(TAU·f(t)·t)로 하면 f가 변할 때 위상이 튀어 잡음이 낀다.
+#   layer2 = {} 또는 {at, parts, click, glide} — **지연 둘째 층**. 레퍼런스 삭제음은 한 음이 아니라
+#     904Hz 타격 뒤 40ms에 1550Hz 광택이 따라붙는 **2단 사건**이라 '팡!' 하고 읽힌다. 단층 종소리는
+#     아무리 다듬어도 비어 들린다(유저 피드백 2026-07-31: "타격감이 없고 비어보임").
+#   ⚠saturate — 마지막에 tanh로 살짝 포화시킨다. 순수 사인 합은 배음이 정확히 부분음뿐이라
+#     '전자음'으로 들리는데, 포화가 배음을 채워 두께를 만든다(유저 피드백: "전자음처럼 느껴짐").
 func _sfx_render(dur: float, parts: Array, click: Dictionary, peak_norm: float,
-		glide: Dictionary = {}) -> AudioStreamWAV:
+		glide: Dictionary = {}, layer2: Dictionary = {}, saturate: float = 0.0) -> AudioStreamWAV:
 	var n: int = maxi(1, int(dur * float(SFX_RATE)))
 	var buf := PackedFloat32Array()
 	buf.resize(n)
-	var g_to: float = float(glide.get("to", 1.0))
-	var g_t: float = maxf(0.001, float(glide.get("t", 0.04)))
-	var ph: Array = []
-	ph.resize(parts.size())
-	ph.fill(0.0)
-	for i in range(n):
-		var t: float = float(i) / float(SFX_RATE)
-		var gf: float = lerpf(1.0, g_to, clampf(t / g_t, 0.0, 1.0))
-		var v: float = 0.0
-		for pi in range(parts.size()):
-			var pa: Array = parts[pi] as Array
-			ph[pi] = float(ph[pi]) + TAU * float(pa[0]) * gf / float(SFX_RATE)
-			v += sin(float(ph[pi])) * float(pa[1]) * exp(-t / float(pa[2]))
-		buf[i] = v
-	# 딸깍 — 백색잡음을 2극 공진 필터에 통과시켜 좁은 대역에 몰아넣는다.
-	#   y[n] = x[n] + 2·r·cos θ·y[n-1] − r²·y[n-2]  (r이 1에 가까울수록 좁고 길게 링잉)
-	if not click.is_empty():
-		var cf: float = float(click["f"])
-		var bw: float = float(click.get("bw", 1200.0))
-		var cn: int = maxi(1, int(float(click["dur"]) * float(SFX_RATE)))
-		var camp: float = float(click.get("amp", 0.5))
-		var r2: float = exp(-PI * bw / float(SFX_RATE))
-		var th: float = TAU * cf / float(SFX_RATE)
-		var y1: float = 0.0
-		var y2: float = 0.0
-		var sv: int = 12345
-		# 공진 이득은 bw·f에 따라 크게 달라진다 → 따로 굽고 **피크로 정규화한 뒤** 섞는다.
-		#   (필터 이득을 수식으로 보정하려 들면 딸깍 세기가 대역폭 바꿀 때마다 널뛴다.)
-		var cl_n: int = mini(n, cn * 8)                      # 링잉 꼬리까지
-		var cbuf := PackedFloat32Array()
-		cbuf.resize(cl_n)
-		var cpk: float = 0.0
-		for i in range(cl_n):
-			var x0: float = 0.0
-			if i < cn:
-				sv = _sfx_lcg(sv)
-				x0 = ((float(sv % 2000) / 1000.0) - 1.0) * (1.0 - float(i) / float(cn))
-			var y0: float = x0 + 2.0 * r2 * cos(th) * y1 - r2 * r2 * y2
-			y2 = y1
-			y1 = y0
-			cbuf[i] = y0
-			cpk = maxf(cpk, absf(y0))
-		var cg: float = (camp / cpk) if cpk > 0.0001 else 0.0
-		for i in range(cl_n):
-			buf[i] += cbuf[i] * cg
+	_sfx_layer(buf, 0, parts, click, glide)
+	if not layer2.is_empty():
+		_sfx_layer(buf, int(float(layer2.get("at", 0.04)) * float(SFX_RATE)),
+				layer2.get("parts", []) as Array,
+				layer2.get("click", {}) as Dictionary,
+				layer2.get("glide", {}) as Dictionary)
+	if saturate > 0.0:
+		# tanh 소프트 클립. 포화 전 피크를 맞춰 둬야 세기가 예측 가능하다.
+		var pk0: float = 0.0
+		for i in range(n):
+			pk0 = maxf(pk0, absf(buf[i]))
+		if pk0 > 0.0001:
+			var drive: float = (1.0 + saturate * 3.0) / pk0
+			for i in range(n):
+				buf[i] = tanh(buf[i] * drive)
 	# 양끝 램프
 	var rel_n: int = int(0.003 * float(SFX_RATE))
 	for i in range(n):
@@ -1009,10 +1048,17 @@ func _sfx_build_bank() -> void:
 			{}, SFX_PEAK_NORM, {"to": 1.62, "t": 0.045})
 	# clear — 종. 배음을 3.5kHz까지 뻗어 폰이 가장 잘 내는 대역(1~4kHz)에 광택을 준다.
 	#   4.2·5.4·6.8배는 비정수 = 금속 광택(정수만 쌓으면 오르간처럼 밋밋).
-	_sfx_bank["clear"] = _sfx_render(0.32,
+	#   ⚠**2단 사건**(R4) — 레퍼런스 삭제음은 904Hz 타격 뒤 40ms에 1550Hz 광택이 따라붙는다.
+	#   단층 종소리는 아무리 다듬어도 '비어' 들린다(유저 피드백). 여기에 3.4kHz 잡음 트랜지언트로
+	#   때린 느낌을 주고, tanh 포화로 배음을 채워 전자음 느낌을 걷는다.
+	_sfx_bank["clear"] = _sfx_render(0.34,
 			[[523.25, 1.00, 0.105], [1046.5, 0.55, 0.070], [1569.8, 0.34, 0.050],
 			[2197.7, 0.28, 0.036], [2825.6, 0.20, 0.026], [3558.1, 0.14, 0.018]],
-			{}, SFX_PEAK_NORM)
+			{"f": 3400.0, "bw": 2600.0, "dur": 0.008, "amp": 0.85}, SFX_PEAK_NORM, {},
+			{"at": 0.040, "parts": [[880.0, 0.70, 0.070], [1760.0, 0.38, 0.045],
+				[2640.0, 0.22, 0.028], [3696.0, 0.12, 0.016]],
+				"click": {"f": 4200.0, "bw": 3000.0, "dur": 0.004, "amp": 0.40}},
+			0.35)
 	# chain — 마림바. clear보다 한 옥타브 위(880Hz)로 올려 **종과 대역을 분리**한다 = 캐스케이드에서
 	#   둘이 안 가린다. 4배 부분음은 실제 마림바가 조율하는 자리(2옥타브 위)라 나무 울림이 산다.
 	_sfx_bank["chain"] = _sfx_render(0.17,
@@ -1022,6 +1068,22 @@ func _sfx_build_bank() -> void:
 	_sfx_bank["tap"] = _sfx_render(0.05,
 			[[1200.0, 1.00, 0.013], [2400.0, 0.32, 0.007]],
 			{"f": 3200.0, "bw": 2400.0, "dur": 0.002, "amp": 0.45}, SFX_PEAK_NORM)
+	# score — 점수가 또르르 오를 때의 카운터 틱. 아주 짧고 높고 작다(연달아 수십 발 나간다).
+	#   레퍼런스에도 점수 오르는 소리가 있다(유저 관찰) — 이게 '보상이 쌓인다'를 귀로 말한다.
+	_sfx_bank["score"] = _sfx_render(0.035,
+			[[1760.0, 1.00, 0.008], [3520.0, 0.30, 0.004]],
+			{"f": 4000.0, "bw": 3000.0, "dur": 0.0015, "amp": 0.35}, SFX_PEAK_NORM)
+	# fail — 판이 끝났다(더 못 이어간다). **하강**이라 축하(상승)와 정반대로 읽힌다.
+	#   ⚠"손실엔 무음" 결정을 유저 요청으로 뒤집은 것(2026-07-31). 벌주는 소리가 아니라 '문이 닫힘'이라
+	#   짧고 부드럽게 — 620→380Hz로 내려앉고, 둘째 층이 한 옥타브 아래서 받쳐 마무리를 만든다.
+	#   ⚠음역을 한 번 올렸다 — 620→380Hz로 뒀더니 에너지의 29%가 300Hz 아래로 깔려 폰 시뮬에서
+	#   −8.9dB 빠졌다(P0와 같은 병의 세 번째 재발). 하강 제스처는 그대로 두고 착지점만 올린다.
+	_sfx_bank["fail"] = _sfx_render(0.42,
+			[[840.0, 1.00, 0.130], [1680.0, 0.30, 0.070], [560.0, 0.35, 0.100]],
+			{}, SFX_PEAK_NORM, {"to": 0.620, "t": 0.180},
+			{"at": 0.150, "parts": [[520.0, 0.75, 0.150], [780.0, 0.30, 0.090]],
+				"glide": {"to": 0.80, "t": 0.160}},
+			0.20)
 	# fanfare는 샘플이 없다 — clear를 0/+4/+7/+12로 4연타(아래 _sfx).
 
 # 전용 SFX 버스 + 하드 리미터를 **런타임에** 만든다 — 버스 레이아웃 리소스 파일을 안 만들므로
@@ -1070,7 +1132,11 @@ func _sfx(kind: String, intensity: float = 0.0) -> void:
 		_sfx_last[kind] = _sfx_t
 		# 판을 닫는 유일한 긴 소리. 아르페지오라 '끝났다'가 한 음보다 확실히 읽힌다.
 		for k in range(4):
-			_sfx_queue.append({"at": _sfx_t + float(k) * 0.10, "kind": "clear", "semi": [0, 4, 7, 12][k]})
+			# ⚠db를 명시해 넘긴다 — 아르페지오는 `clear` 파형을 빌려 쓰지만 **4음이 겹쳐 쌓이므로**
+			#   clear의 레벨 그대로면 합이 리미터를 세게 때린다(프리뷰에서 클립 8샘플로 드러남).
+			#   이걸 안 넘기면 SFX_WORDS["fanfare"].db가 아무 데도 안 쓰이는 죽은 값이 된다.
+			_sfx_queue.append({"at": _sfx_t + float(k) * 0.10, "kind": "clear",
+					"semi": [0, 4, 7, 12][k], "db": float(w["db"])})
 		return
 	var semi: int = 0
 	if kind == "clear":
@@ -1083,7 +1149,7 @@ func _sfx(kind: String, intensity: float = 0.0) -> void:
 	_sfx_last[kind] = _sfx_t
 	_sfx_fire(kind, semi)
 
-func _sfx_fire(kind: String, semi: int) -> bool:
+func _sfx_fire(kind: String, semi: int, db_over: float = 99.0) -> bool:
 	if _sfx_budget < 1.0:
 		_sfx_note(kind, semi, "budget")
 		return false
@@ -1101,7 +1167,7 @@ func _sfx_fire(kind: String, semi: int) -> bool:
 	var pl: AudioStreamPlayer = _sfx_take_voice()
 	pl.stream = st2
 	pl.pitch_scale = pow(2.0, float(semi) / 12.0) * det
-	pl.volume_db = float(SFX_WORDS[kind]["db"])
+	pl.volume_db = float(SFX_WORDS[kind]["db"]) if db_over > 90.0 else db_over
 	pl.play()
 	_sfx_note(kind, semi, "")
 	return true
@@ -1128,7 +1194,7 @@ func _sfx_step(delta: float) -> void:
 	for q in _sfx_queue:
 		var e: Dictionary = q as Dictionary
 		if _sfx_t >= float(e["at"]):
-			_sfx_fire(String(e["kind"]), int(e["semi"]))
+			_sfx_fire(String(e["kind"]), int(e["semi"]), float(e.get("db", 99.0)))
 		else:
 			keep.append(e)
 	_sfx_queue = keep
@@ -2685,6 +2751,7 @@ func _end_turn() -> void:
 	#   그래서 _check_win보다 먼저 판정하고, 죽었으면 return해 clear 판정 자체를 건너뛴다.
 	if pending_core_dead:
 		game_over = true
+		_fb("fail")             # 거점사 — 판이 닫혔다(하강)
 		pending_core_dead = false
 		fail_streak[stage_idx] = int(fail_streak.get(stage_idx, 0)) + 1   # 연속 실패 → 갓 모드 근접
 		# 폭탄사(비행 중 합계 하트가 죽인 경우)면 붕괴 연출을 하트 착지까지 미룬다 = "하트 꽂힘 → 죽음" 순서.
@@ -2702,6 +2769,7 @@ func _end_turn() -> void:
 	# 금고 전소 = 상실축 패배(거점사와 병렬 경로). 도둑에게 다 털린 게임오버 — 거점은 멀쩡해도 진다.
 	if pending_vault_dead:
 		game_over = true
+		_fb("fail")             # 금고 전소(상실축 패배)
 		pending_vault_dead = false
 		fail_streak[stage_idx] = int(fail_streak.get(stage_idx, 0)) + 1
 		_begin_core_death()   # TODO(렌더): 금고-전소 전용 연출로 분기(현재는 거점 붕괴 재사용)
@@ -2711,6 +2779,7 @@ func _end_turn() -> void:
 	_check_win()
 	if not game_clear and not _has_valid_placement():
 		game_over = true
+		_fb("fail")             # 막힘사 — 놓을 자리가 없다
 		stuck = true
 		_begin_stuck_death()
 		fail_streak[stage_idx] = int(fail_streak.get(stage_idx, 0)) + 1
@@ -4233,6 +4302,7 @@ func _process(delta: float) -> void:
 		var _sdiff: float = float(endless_score) - endless_score_shown
 		var _sstep: float = maxf(_sdiff * SCORE_ROLL_RATE, SCORE_ROLL_MIN) * delta
 		endless_score_shown = minf(endless_score_shown + _sstep, float(endless_score))
+		_fb("score")   # 카운터 틱 — 간격(0.055s)이 발화율을 잡으므로 롤업 속도와 무관하게 안정적이다
 		if endless_best > 0 and not endless_beat_best and endless_score_shown > float(endless_best):
 			endless_beat_best = true
 			pb_pop_t = PB_POP_DUR   # 판전체 폭발 팝인 — 표시 숫자가 크라운을 넘는 그 순간.
