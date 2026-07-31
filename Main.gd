@@ -844,8 +844,13 @@ const SFX_WORDS: Dictionary = {
 	#   두 파형의 크레스트가 달라(low 10.8dB · high 14.6dB) db 숫자만으론 위계를 못 읽는다.
 	#   **실효 RMS 기준**으로 맞춘 값: clear −20 / fail −22 / place −23 / grab −25 / chain −26 /
 	#   tap −27 / score −28 dBFS. 파형을 바꾸면 이 표를 반드시 다시 계산할 것.
-	"grab": {"gap": 0.04, "db": -7.0, "det": 0.012},
-	"place": {"gap": 0.04, "db": -8.8, "det": 0.012},
+	# ⚠집기·착지 음정(유저 요청 2026-07-31 "놓기를 더 높은 소리로"):
+	#   놓기 = low 파형 **+7반음**(775→1161Hz) · 집기 = high 파형 **−2반음**(1034→921Hz)
+	#   → 놓기가 집기보다 4반음 위. **파형을 맞바꾸지 않은 이유**: high는 크레스트 14.6dB로 더 얇아서
+	#   가장 잦은 place를 거기 얹으면 "타격감 없음"으로 되돌아간다. 밀도는 low로 지키고 음정만 올린다.
+	#   ⚠음을 올리면 샘플이 그만큼 짧아진다(+7반음 = 길이 67%).
+	"grab": {"gap": 0.04, "db": -7.0, "det": 0.012, "base": -2},
+	"place": {"gap": 0.04, "db": -8.8, "det": 0.012, "base": 7},
 	"clear": {"gap": 0.00, "db": -5.8, "det": 0.004},    # 간격 0 = 절대 안 드롭한다(이게 보상이다)
 	"chain": {"gap": 0.03, "db": -8.0, "det": 0.004},
 	"fanfare": {"gap": 0.00, "db": -11.8, "det": 0.004},  # 아르페지오 4음이 겹치므로 clear보다 낮게
@@ -1015,7 +1020,11 @@ func _sfx_fire(kind: String, semi: int, db_over: float = 99.0) -> bool:
 	var det: float = 1.0 + (float((_sfx_n * 7) % 5) - 2.0) * dw
 	var pl: AudioStreamPlayer = _sfx_take_voice()
 	pl.stream = st2
-	pl.pitch_scale = pow(2.0, float(semi) / 12.0) * det
+	# base = 단어별 기본 음정(반음). 파형이 둘뿐이므로 **음정이 어휘를 가르는 두 번째 축**이다.
+	#   사다리(semi)와 따로 두는 이유: clear·chain은 semi가 콤보/계단을 나르므로 거기에 기본값을
+	#   섞으면 사다리 시작점이 밀린다. base = '이 단어의 자리', semi = '지금 몇 번째'.
+	var base: int = int((SFX_WORDS[kind] as Dictionary).get("base", 0))
+	pl.pitch_scale = pow(2.0, float(base + semi) / 12.0) * det
 	pl.volume_db = float(SFX_WORDS[kind]["db"]) if db_over > 90.0 else db_over
 	pl.play()
 	_sfx_note(kind, semi, "")
