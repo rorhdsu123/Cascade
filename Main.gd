@@ -835,7 +835,11 @@ const SFX_WORDS: Dictionary = {
 	#   (place 14.2 · clear 15.2 · chain 11.6 · tap 12.1dB) 같은 db여도 체감 크기가 다르므로,
 	#   숫자는 실효 RMS로 맞췄다: clear 0 / chain −5 / place −7 / tap −8 dB.
 	#   ⚠chain이 clear에 너무 가까우면 안 된다 — 한 연쇄에 5~9발이 연달아 나가서 종을 덮는다.
-	"place": {"gap": 0.04, "db": -12.0, "det": 0.012},
+	# ⚠grab·place는 **한 쌍**이라 실효 레벨을 맞춰 둔다(레퍼런스도 둘이 사실상 같은 레벨이다).
+	#   피크 정규화 기준이라 db 숫자는 크게 다르다 — place는 딸깍이 피크를 끌어올려 크레스트가
+	#   18.9dB인데 grab은 10.4dB뿐이다. 숫자가 아니라 실효 RMS를 맞춘 값이다.
+	"grab": {"gap": 0.04, "db": -19.0, "det": 0.012},
+	"place": {"gap": 0.04, "db": -10.0, "det": 0.012},
 	"clear": {"gap": 0.00, "db": -6.0, "det": 0.004},    # 간격 0 = 절대 안 드롭한다(이게 보상이다)
 	"chain": {"gap": 0.03, "db": -14.5, "det": 0.004},
 	"fanfare": {"gap": 0.00, "db": -6.0, "det": 0.004},
@@ -864,6 +868,8 @@ var _sfx_log: Array = []
 # 사건 → 채널 매핑의 유일한 정본. 빈 문자열 = 그 채널엔 의도적으로 아무것도 없음.
 #   손실(누수·거점사·막힘사)이 여기 없는 건 누락이 아니라 결정이다 — "축하만, 손실은 눈으로".
 const FB_MAP: Dictionary = {
+	# 집기는 소리만 — 드래그 시작마다 진동을 주면 너무 잦다(HAPTIC_PLAN의 '드래그/호버 기각'과 같은 줄).
+	"grab": {"hap": "", "sfx": "grab"},
 	"place": {"hap": "tick", "sfx": "place"},
 	"clear": {"hap": "pop", "sfx": "clear"},
 	"chain": {"hap": "", "sfx": "chain"},     # 순차 처치는 진동 없음(캐스케이드 뭉갬)
@@ -892,16 +898,27 @@ func _sfx_lcg(s: int) -> int:
 #   click = {} 또는 {f, bw, dur, amp} — **대역 제한된** 딸깍. R1은 광대역 잡음이라 에너지가
 #     흩어져 폰에서 아무 도움이 안 됐다. 2~3kHz에 몰아야 소형 스피커에서 '때린 느낌'이 산다.
 #   양끝 램프 필수: 어택 없이 시작하거나 감쇠 전에 자르면 파형 불연속 = '틱' 잡음이 낀다.
-func _sfx_render(dur: float, parts: Array, click: Dictionary, peak_norm: float) -> AudioStreamWAV:
+#   glide = {} 또는 {to, t} — 전 부분음을 t초에 걸쳐 주파수 ×to로 미끄러뜨린다. **제스처 방향**이
+#     동작을 말하게 하려는 것(레퍼런스 실측: 집기는 345→560Hz 상승, 착지는 904→388Hz 하강).
+#     위상을 **누적**해서 만든다 — sin(TAU·f(t)·t)로 하면 f가 변할 때 위상이 튀어 잡음이 낀다.
+func _sfx_render(dur: float, parts: Array, click: Dictionary, peak_norm: float,
+		glide: Dictionary = {}) -> AudioStreamWAV:
 	var n: int = maxi(1, int(dur * float(SFX_RATE)))
 	var buf := PackedFloat32Array()
 	buf.resize(n)
+	var g_to: float = float(glide.get("to", 1.0))
+	var g_t: float = maxf(0.001, float(glide.get("t", 0.04)))
+	var ph: Array = []
+	ph.resize(parts.size())
+	ph.fill(0.0)
 	for i in range(n):
 		var t: float = float(i) / float(SFX_RATE)
+		var gf: float = lerpf(1.0, g_to, clampf(t / g_t, 0.0, 1.0))
 		var v: float = 0.0
-		for p in parts:
-			var pa: Array = p as Array
-			v += sin(TAU * float(pa[0]) * t) * float(pa[1]) * exp(-t / float(pa[2]))
+		for pi in range(parts.size()):
+			var pa: Array = parts[pi] as Array
+			ph[pi] = float(ph[pi]) + TAU * float(pa[0]) * gf / float(SFX_RATE)
+			v += sin(float(ph[pi])) * float(pa[1]) * exp(-t / float(pa[2]))
 		buf[i] = v
 	# 딸깍 — 백색잡음을 2극 공진 필터에 통과시켜 좁은 대역에 몰아넣는다.
 	#   y[n] = x[n] + 2·r·cos θ·y[n-1] − r²·y[n-2]  (r이 1에 가까울수록 좁고 길게 링잉)
@@ -976,9 +993,20 @@ func _sfx_build_bank() -> void:
 	# place — 나무 블록 톡. 가장 잦은 소리 = 폰에서 반드시 들려야 한다.
 	#   몸통을 520Hz로 올리고(190Hz는 폰이 못 냄) 2.8kHz 딸깍으로 '때린 느낌'을 낸다.
 	#   235Hz는 헤드폰·데스크톱에서만 얻는 무게 — 여기에 정보를 싣지 않는다.
+	#   ⚠**하강 제스처**(R3) — 레퍼런스 실측에서 착지는 904→388Hz로 떨어진다. 소리가 음정 방향으로
+	#   "내려놓았다"를 말한다. 도착 주파수는 R2 그대로(520/1040/235)고, 그 위 ×1.7에서 미끄러져 온다.
 	_sfx_bank["place"] = _sfx_render(0.085,
-			[[520.0, 0.60, 0.026], [1040.0, 0.25, 0.012], [2600.0, 0.22, 0.006], [235.0, 0.30, 0.018]],
-			{"f": 2800.0, "bw": 1600.0, "dur": 0.005, "amp": 1.10}, SFX_PEAK_NORM)
+			[[884.0, 0.60, 0.026], [1768.0, 0.25, 0.012], [2600.0, 0.22, 0.006], [400.0, 0.30, 0.018]],
+			{"f": 2800.0, "bw": 1600.0, "dur": 0.005, "amp": 1.10}, SFX_PEAK_NORM,
+			{"to": 0.588, "t": 0.035})
+	# grab — 조각을 집는 순간. **상승 글라이드**(착지의 하강과 짝) = "들어올렸다".
+	#   레퍼런스에서 가장 잦은 소리인데 우리엔 아예 없었다(드래그 시작이 무음이었다).
+	#   충격이 아니라 '들림'이라 딸깍을 안 붙인다. 420→680Hz(+8.4반음, 레퍼런스 345→560과 같은 폭).
+	#   ⚠시작음을 480Hz로 잡았다 — 420Hz로 뒀더니 폰 시뮬에서 −8.0dB 빠졌다(§9의 P0와 같은 병).
+	#   폭(+8.4반음)은 레퍼런스 그대로 두고 전체를 위로 옮긴다.
+	_sfx_bank["grab"] = _sfx_render(0.075,
+			[[480.0, 1.00, 0.030], [960.0, 0.30, 0.018], [1440.0, 0.12, 0.010]],
+			{}, SFX_PEAK_NORM, {"to": 1.62, "t": 0.045})
 	# clear — 종. 배음을 3.5kHz까지 뻗어 폰이 가장 잘 내는 대역(1~4kHz)에 광택을 준다.
 	#   4.2·5.4·6.8배는 비정수 = 금속 광택(정수만 쌓으면 오르간처럼 밋밋).
 	_sfx_bank["clear"] = _sfx_render(0.32,
@@ -3780,6 +3808,7 @@ func _pick_up(pos: Vector2) -> bool:
 		if tray[i].is_empty():
 			continue
 		if _tray_slot_rect(i).has_point(pos):
+			_fb("grab")      # 손가락이 조각에 닿는 순간 — 상승 글라이드로 '들어올렸다'
 			dragging = true
 			drag_slot = i
 			sel = i

@@ -22,7 +22,7 @@ func _init() -> void:
 	var rate: int = m.SFX_RATE
 
 	var n_ok: int = 0
-	for kind in ["place", "clear", "chain", "tap"]:
+	for kind in ["grab", "place", "clear", "chain", "tap"]:
 		var w: AudioStreamWAV = m._sfx_bank[kind]
 		var path: String = "%s/%s.wav" % [OUT_DIR, kind]
 		if w.save_to_wav(path) == OK:

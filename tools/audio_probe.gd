@@ -23,7 +23,7 @@ const IDLE_HUMAN: int = 108      # 1/60 프레임 = 1.8초/수(사람 템포). �
 const IDLE_STRESS: int = 1       # 인간이 불가능한 최고 속도 = 상한 시험
 
 # 단어별 물리 길이(초) — 겹침 계산용. pitch_scale이 올라가면 실제론 더 짧게 끝나므로 보수적 상한이다.
-const WORD_DUR: Dictionary = {"place": 0.09, "clear": 0.34, "chain": 0.19, "tap": 0.06}
+const WORD_DUR: Dictionary = {"grab": 0.075, "place": 0.09, "clear": 0.34, "chain": 0.19, "tap": 0.06}
 const MAX_VOICES: int = 8
 const MAX_FIRES_IN_1S: int = 15         # 예산 14/초 + 회복 여유 1
 const LADDER_MAX_SEMI: int = 16
@@ -221,6 +221,13 @@ func _pass_vocab() -> Array:
 	g.seed_game(SEED_CAMPAIGN)
 	g._start_stage(0)
 	_idle(2)
+	# 집기 배선 — 어휘를 직접 때리지 않고 **실제 입력 경로**(_pick_up)를 탄다. 봇은 _place_piece를
+	#   바로 부르므로 패스 A~C에선 grab이 한 번도 안 울린다 → 여기서 안 재면 배선이 끊겨도 초록이다.
+	var slot_c: Vector2 = (g._tray_slot_rect(0) as Rect2).get_center()
+	if g._pick_up(slot_c):
+		g.dragging = false
+		g.drag_slot = -1
+	_idle(6)
 	g._fb("finish")          # 아르페지오 4음(0/+4/+7/+12)
 	_idle(48)                # 0.80초 = 마지막 예약 음(+0.30초)까지 흐른다
 	g._fb("finish")          # 판당 1회 → 드롭되어야 한다
@@ -276,12 +283,12 @@ func _run() -> void:
 	_check("⑥ 같은 시드 = 같은 로그(RNG 미사용)", sig_a == sig_c,
 			"A %d줄 · C %d줄" % [sig_a.size(), sig_c.size()])
 
-	var allowed: Array = ["place", "clear", "chain", "tap"]   # fanfare는 clear로 펼쳐져 로그에 남는다
+	var allowed: Array = ["grab", "place", "clear", "chain", "tap"]   # fanfare는 clear로 펼쳐져 로그에 남는다
 	var unexpected: Array = []
 	for k in kinds_a.keys():
 		if not allowed.has(String(k)):
 			unexpected.append(k)
-	_check("⑦ 어휘는 다섯뿐", unexpected.is_empty(), "예상 밖: %s" % str(unexpected))
+	_check("⑦ 어휘는 여섯뿐", unexpected.is_empty(), "예상 밖: %s" % str(unexpected))
 
 	# ── 패스 D: 어휘 직접 타격(fanfare 1회 상한·판 경계 리셋)
 	var log_d: Array = _pass_vocab()
@@ -296,7 +303,13 @@ func _run() -> void:
 		if String(e["kind"]) == "clear":
 			fan_notes += 1
 			semis.append(int(e["semi"]))
-	print("── 어휘: fanfare 음 %d발 · 드롭 %s · 음정 %s" % [fan_notes, str(fan_drops), str(semis)])
+	var grabs: int = 0
+	for e0 in log_d:
+		var e: Dictionary = e0 as Dictionary
+		if String(e["drop"]) == "" and String(e["kind"]) == "grab":
+			grabs += 1
+	print("── 어휘: fanfare 음 %d발 · 드롭 %s · 음정 %s · grab %d발" % [fan_notes, str(fan_drops), str(semis), grabs])
+	_check("⑧ 집기 배선(_pick_up → grab)", grabs == 1, "%d발" % grabs)
 	_check("⑤ fanfare = 4음 아르페지오 ×2판", fan_notes == 8, "%d발 · %s" % [fan_notes, str(semis)])
 	_check("⑤ 같은 판 두 번째 fanfare = 드롭", fan_drops.has("once"), "드롭 %s" % str(fan_drops))
 
