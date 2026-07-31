@@ -5629,6 +5629,14 @@ func _draw_lock(c: Vector2, s: float, col: Color) -> void:
 	draw_rect(Rect2(c.x - s * 0.40, c.y - s * 0.10, s * 0.80, s * 0.62), col)
 
 # 상단 카드 패널(Toon Blast식) — 배경 + 강조 테두리
+# 상단 목표 카드의 세로 위치·높이 — HUD와 튜토리얼 문구가 같은 출처를 쓴다(하드코딩 y가 카드를 관통했던 사고).
+const HUD_CARD_H: float = 104.0
+
+# 세로 중앙: 헤더 top(노치 아래 safe_top) ~ 보드 top(board_y) 구간 정중앙에 카드를 놓는다.
+#   예전엔 safe_top+14 고정이라 밴드~보드 사이 갭 위쪽으로 쏠렸다. 콤보는 이 값 파생이라 함께 따라온다.
+func _hud_card_y() -> float:
+	return safe_top + maxf(0.0, (float(board_y) - safe_top - HUD_CARD_H) * 0.5)
+
 func _draw_card(r: Rect2, accent: Color) -> void:
 	draw_rect(r, Color(0.14, 0.14, 0.21))
 	draw_rect(r, accent, false, 3.0)
@@ -5675,11 +5683,9 @@ func _draw_hud(fnt: Font) -> void:
 	# ── GOAL 카드 단독(중앙). '적 전진 시계' 카드는 제거했다 — 단일 글로벌 카운트다운은
 	#   적마다 다른 step_every(swarm desync)를 뭉개 거짓 '턴'이었다. 전진 타이밍은 이제 전부
 	#   보드가 말한다: 적 자세(lean, 전역·조용) + 붉은 착지칸(바닥 게이팅·시끄러움). _draw_enemies 참조.
-	var box_h: float = 104.0
+	var box_h: float = HUD_CARD_H
 	var gw: float = 310.0
-	# 세로 중앙: 헤더 top(노치 아래 sy) ~ 보드 top(board_y) 구간 정중앙에 카드를 놓는다.
-	#   예전엔 sy+14 고정이라 밴드~보드 사이 갭 위쪽으로 쏠렸다. 콤보는 box_y 파생이라 함께 따라온다.
-	var box_y: float = sy + maxf(0.0, (float(board_y) - sy - box_h) * 0.5)
+	var box_y: float = _hud_card_y()
 	var goal_r: Rect2 = Rect2((800.0 - gw) * 0.5, box_y, gw, box_h)
 
 	# 보스 스테이지: GOAL=감시자 HP, ADVANCE=다음 잔해 투척 카운트다운. 나머지 HUD(콤보·기어)는 공유.
@@ -5952,9 +5958,24 @@ func _draw_tut_msg(fnt: Font) -> void:
 		col.a = clampf(tut_flash_t / 0.9, 0.0, 1.0)
 	if msg == "":
 		return
-	var sz: int = 24
+	# 위치는 레이아웃 파생이다. 예전엔 y=132 하드코딩이라 800×1280에서 목표 카드('Goal 💀 20') 한복판을
+	#   같은 노랑으로 관통했다 — 카드 아래 ~ 보드 위 띠에 바닥 정렬로 앉힌다(긴 폰에선 갭이 넓어 여유).
+	# 배경 판(불투명 알약)은 필수: 카드든 보드든 뒤에 뭐가 오든 글자가 늘 뜬다. [[hud-signal-by-color-not-text]]는
+	#   '상태를 글자로 알리지 말라'지, 튜토리얼 지시문까지 배경 없이 띄우라는 뜻이 아니다.
+	var sz: int = 22
 	var w: float = fnt.get_string_size(msg, HORIZONTAL_ALIGNMENT_LEFT, -1, sz).x
-	_draw_text_outlined(fnt, Vector2(400.0 - w * 0.5, 132.0 + safe_top), msg, sz, col)
+	while w > float(COLS * CELL) - 24.0 and sz > 15:   # 보드 폭을 넘으면 줄인다(영어 문장이 길다)
+		sz -= 1
+		w = fnt.get_string_size(msg, HORIZONTAL_ALIGNMENT_LEFT, -1, sz).x
+	var ph: float = float(sz) + 14.0
+	var pbot: float = float(board_y) - 6.0                       # 판 바닥을 보드 상단에 붙인다
+	var card_bot: float = _hud_card_y() + HUD_CARD_H + 6.0
+	if pbot - ph < card_bot:
+		pbot = card_bot + ph    # 갭이 모자라면 카드를 피해 아래로(보드 상단을 조금 덮더라도 판이 불투명)
+	var plate: Rect2 = Rect2(400.0 - w * 0.5 - 14.0, pbot - ph, w + 28.0, ph)
+	draw_rect(plate, Color(0.09, 0.09, 0.14, 0.92 * col.a))
+	draw_rect(plate, Color(col.r, col.g, col.b, 0.55 * col.a), false, 2.0)
+	_draw_text_outlined(fnt, Vector2(400.0 - w * 0.5, pbot - 10.0), msg, sz, col)
 
 func _draw_tut_target() -> void:
 	if not tut_lock or tut_cells.is_empty():
