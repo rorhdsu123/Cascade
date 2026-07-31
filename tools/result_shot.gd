@@ -2,7 +2,7 @@ extends SceneTree
 # 결과 팝업 캡처 — 광고 부활(C47) 3케이스. 창 모드 필수(헤드리스는 렌더 텍스처 null).
 # 실행: godot --path . --script tools/result_shot.gd
 
-const OUT: String = "/private/tmp/claude-501/-Users-im-yujin-Desktop-Cascade-worktrees-plumbing/fd5e584d-b2cc-4e3d-b6e6-32854ef08700/scratchpad/res"
+const OUT: String = "/private/tmp/claude-501/-Users-im-yujin-Desktop-Cascade-worktrees-stage/309ebea2-5f92-4557-9f51-4e014e6e67d6/scratchpad/res"
 
 var main: Node
 
@@ -49,6 +49,7 @@ func _run() -> void:
 	quit()
 
 func _grab(tag: String) -> void:
+	main.set("result_t", 1.0)   # 개봉 완료 상태로 — 안 세우면 버튼이 안 그려진 프레임을 찍는다(RESULT_BTN_IN)
 	main.call("queue_redraw")
 	await process_frame
 	await RenderingServer.frame_post_draw

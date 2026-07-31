@@ -115,6 +115,7 @@ var _runs_since_ad: int = 0
 var _last_interstitial_ms: int = 0
 
 var debug_events: Array = []          # 프로브 검증용 발화 이름 로그(상한 64) — 게임엔 영향 없음
+var debug_interstitial_attempts: int = 0   # 인터스티셜을 '띄우기로 결정한' 횟수(프로브 전용 관측)
 
 # --- 실 SDK 상태 ---
 var _platform_on: bool = false        # 실 AdMob 백엔드를 쓰는가(아니면 페이크)
@@ -286,6 +287,7 @@ func show_interstitial(placement: String = PLACEMENT_RUN_TRANSITION, cb: Callabl
 		return
 	_runs_since_ad = 0
 	_last_interstitial_ms = _now_ms()
+	debug_interstitial_attempts += 1   # 프로브용 — debug_events는 이름만 담아 포맷(리워드/인터스티셜) 구분이 안 된다
 	_log("ad_requested", {"format": FORMAT_INTERSTITIAL, "placement": placement, "mediation": "none"})
 	if _platform_on:
 		_platform_load_interstitial(placement, cb)
