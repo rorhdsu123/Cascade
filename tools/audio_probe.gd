@@ -23,7 +23,7 @@ const IDLE_HUMAN: int = 108      # 1/60 프레임 = 1.8초/수(사람 템포). �
 const IDLE_STRESS: int = 1       # 인간이 불가능한 최고 속도 = 상한 시험
 
 # 단어별 물리 길이(초) — 겹침 계산용. pitch_scale이 올라가면 실제론 더 짧게 끝나므로 보수적 상한이다.
-const WORD_DUR: Dictionary = {"grab": 0.13, "place": 0.09, "clear": 0.09, "chain": 0.13, "score": 0.13, "fail": 0.09, "tap": 0.13, "clear2": 0.13}
+const WORD_DUR: Dictionary = {"grab": 0.13, "place": 0.09, "clear": 0.27, "chain": 0.39, "score": 0.13, "fail": 0.09, "tap": 0.13, "clear2": 0.39}
 const MAX_VOICES: int = 8
 const MAX_FIRES_IN_1S: int = 15         # 예산 14/초 + 회복 여유 1
 const LADDER_MAX_SEMI: int = 16
@@ -317,7 +317,8 @@ func _run() -> void:
 		if String(e["drop"]) != "":
 			fan_drops.append(String(e["drop"]))
 			continue
-		if String(e["kind"]) == "clear":
+		# ⚠아르페지오는 `clear2`(반짝임) 파형으로 나간다 — R9에서 타격 4연타가 거칠어 바꿨다.
+		if String(e["kind"]) == "clear2":
 			fan_notes += 1
 			semis.append(int(e["semi"]))
 	var grabs: int = 0

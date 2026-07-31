@@ -21,22 +21,25 @@ func _init() -> void:
 	DirAccess.make_dir_recursive_absolute(ProjectSettings.globalize_path(OUT_DIR))
 
 	# 낱개 원본 둘(이름을 어휘로 바꿔 저장 — 어느 파형이 어디 쓰이는지 귀로 확인)
-	for pair in [["low__place_clear_fail", "place"], ["high__grab_chain_score_tap", "grab"]]:
+	for pair in [["pop_low__place_fail", "place"], ["pop_high__grab_score_tap", "grab"],
+			["burst__clear", "clear"], ["sparkle__chain_clear2", "chain"]]:
 		var w: AudioStreamWAV = m._sfx_bank[pair[1]]
 		var path: String = "%s/%s.wav" % [OUT_DIR, pair[0]]
 		if w.save_to_wav(path) == OK:
 			print("  %-28s %5d 샘플 · %dHz · %d bytes" % [pair[0], w.data.size() / 2, w.mix_rate, w.data.size()])
 
-	var lo: AudioStreamWAV = m._sfx_bank["place"]
-	var hi: AudioStreamWAV = m._sfx_bank["chain"]
+	var lo: AudioStreamWAV = m._sfx_bank["clear"]      # 터지는 층
+	var hi: AudioStreamWAV = m._sfx_bank["chain"]      # 반짝이는 층
 	# ① 연쇄 사다리 — chain 파형을 5음계로 훑는다(연쇄가 음악으로 들리는지)
 	_seq("%s/ladder.wav" % OUT_DIR, [[hi, 0], [hi, 2], [hi, 4], [hi, 7], [hi, 9], [hi, 12], [hi, 14], [hi, 16]], 0.11)
 	# ② 판 닫는 아르페지오
 	_seq("%s/fanfare.wav" % OUT_DIR, [[lo, 0], [lo, 4], [lo, 7], [lo, 12]], 0.10)
 	# ③ 2단 삭제음 — 낮은 파형 타격 + 40ms 뒤 높은 파형(+9반음). 게임에선 이게 한 사건으로 들린다.
 	_seq("%s/clear_2layer.wav" % OUT_DIR, [[lo, 0], [hi, 9]], 0.040)
-	# ④ 집기→착지 한 쌍
-	_seq("%s/grab_then_place.wav" % OUT_DIR, [[hi, 0], [lo, 0]], 0.35)
+	# ④ 집기→착지 한 쌍(동작 계열)
+	var g: AudioStreamWAV = m._sfx_bank["grab"]
+	var pl: AudioStreamWAV = m._sfx_bank["place"]
+	_seq("%s/grab_then_place.wav" % OUT_DIR, [[g, -2], [pl, 7]], 0.35)
 	m.free()
 	quit()
 

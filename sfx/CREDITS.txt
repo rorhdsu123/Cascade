@@ -10,3 +10,9 @@ pop_high.wav  = OpenGameArt "Pop sounds" / pop3.wav  (모노 44.1kHz로 변환)
   교체·재라이선스 판단이 불가능해진다).
 
 전 SFX가 이 두 파형에서 나온다 — 음정·레벨·층으로만 갈린다(AUDIO_PLAN.md §13).
+
+── R9 보상음 추가 ──
+burst.wav     = OpenGameArt "100 CC0 SFX" / hit_01.ogg    (터지는 층)
+sparkle.wav   = OpenGameArt "100 CC0 SFX" / glass_01.ogg  (반짝이는 층)
+출처: https://opengameart.org/content/100-cc0-sfx
+라이선스: CC0 1.0 Universal — 상업 사용 가능, 표기 의무 없음.
