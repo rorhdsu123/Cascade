@@ -11,8 +11,12 @@ pop_high.wav  = OpenGameArt "Pop sounds" / pop3.wav  (모노 44.1kHz로 변환)
 
 전 SFX가 이 두 파형에서 나온다 — 음정·레벨·층으로만 갈린다(AUDIO_PLAN.md §13).
 
-── R9 보상음 추가 ──
-burst.wav     = OpenGameArt "100 CC0 SFX" / hit_01.ogg    (터지는 층)
-sparkle.wav   = OpenGameArt "100 CC0 SFX" / glass_01.ogg  (반짝이는 층)
-출처: https://opengameart.org/content/100-cc0-sfx
-라이선스: CC0 1.0 Universal — 상업 사용 가능, 표기 의무 없음.
+── R10 보상음(레퍼런스 스펙트럼 매칭 1위) ──
+hit.wav    = OpenGameArt "100 CC0 SFX" / wooden_02.ogg   — 삭제 타격 1464Hz
+             https://opengameart.org/content/100-cc0-sfx   (CC0 1.0)
+shine.wav  = Kenney "Interface Sounds" / switch_01.ogg     — 40ms 뒤 광택 1758Hz
+             https://kenney.nl/assets/interface-sounds      (CC0 1.0)
+
+선정 방법: 레퍼런스(Block Blast) 녹화에서 소리를 잘라 특징 벡터(1/3옥타브 밴드·길이·크레스트)를
+만들고, CC0 후보 391개를 그 벡터와의 거리로 줄 세워 1위를 골랐다. 내가 정한 임계값으로 거르던
+방식(R9)은 유저 판정 "거슬린다"로 실패했다 — 기준은 레퍼런스가 갖고 있다.

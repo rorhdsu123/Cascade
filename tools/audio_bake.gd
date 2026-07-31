@@ -22,7 +22,7 @@ func _init() -> void:
 
 	# 낱개 원본 둘(이름을 어휘로 바꿔 저장 — 어느 파형이 어디 쓰이는지 귀로 확인)
 	for pair in [["pop_low__place_fail", "place"], ["pop_high__grab_score_tap", "grab"],
-			["burst__clear", "clear"], ["sparkle__chain_clear2", "chain"]]:
+			["hit__clear", "clear"], ["shine__clear2", "clear2"]]:
 		var w: AudioStreamWAV = m._sfx_bank[pair[1]]
 		var path: String = "%s/%s.wav" % [OUT_DIR, pair[0]]
 		if w.save_to_wav(path) == OK:
@@ -35,7 +35,7 @@ func _init() -> void:
 	# ② 판 닫는 아르페지오
 	_seq("%s/fanfare.wav" % OUT_DIR, [[lo, 0], [lo, 4], [lo, 7], [lo, 12]], 0.10)
 	# ③ 2단 삭제음 — 낮은 파형 타격 + 40ms 뒤 높은 파형(+9반음). 게임에선 이게 한 사건으로 들린다.
-	_seq("%s/clear_2layer.wav" % OUT_DIR, [[lo, 0], [hi, 9]], 0.040)
+	_seq("%s/clear_2layer.wav" % OUT_DIR, [[lo, 0], [m._sfx_bank["clear2"], 0]], 0.040)
 	# ④ 집기→착지 한 쌍(동작 계열)
 	var g: AudioStreamWAV = m._sfx_bank["grab"]
 	var pl: AudioStreamWAV = m._sfx_bank["place"]

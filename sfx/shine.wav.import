@@ -2,13 +2,13 @@
 
 importer="wav"
 type="AudioStreamWAV"
-uid="uid://cu7l3oljerjiq"
-path="res://.godot/imported/sparkle.wav-427432acc32a384fb5729c1c3143b9be.sample"
+uid="uid://cmi601acedw55"
+path="res://.godot/imported/shine.wav-0b46078b24f66b6a90e394d8909f5d63.sample"
 
 [deps]
 
-source_file="res://sfx/sparkle.wav"
-dest_files=["res://.godot/imported/sparkle.wav-427432acc32a384fb5729c1c3143b9be.sample"]
+source_file="res://sfx/shine.wav"
+dest_files=["res://.godot/imported/shine.wav-0b46078b24f66b6a90e394d8909f5d63.sample"]
 
 [params]
 

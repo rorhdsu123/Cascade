@@ -845,7 +845,7 @@ const SFX_WORDS: Dictionary = {
 	#   ⚠**보상 계열은 실효 RMS가 아니라 '보이스 피크' 기준**이다(R9). burst는 크레스트가 25dB라
 	#   RMS를 다른 단어와 맞추려면 +8.7dB가 필요한데, 그러면 피크가 +8dBFS가 되어 리미터를 뭉갠다.
 	#   짧고 뾰족한 소리는 peak이 체감 세기를 지배하므로 peak으로 잡는다:
-	#     clear −2.7 / clear2 −9 / chain −12 / place −12 / fail −13 / grab −10 / tap −12 / score −13 dBFS.
+	#     clear −5.0 / clear2 −11 / chain −11 / place −12 / fail −13 / grab −10 / tap −12 / score −13 dBFS.
 	#   동작 계열(pop)은 여전히 실효 RMS로 맞춰져 있다. **파형을 바꾸면 이 표를 다시 계산할 것.**
 	# ⚠집기·착지 음정(유저 요청 2026-07-31 "놓기를 더 높은 소리로"):
 	#   놓기 = low 파형 **+7반음**(775→1161Hz) · 집기 = high 파형 **−2반음**(1034→921Hz)
@@ -854,15 +854,15 @@ const SFX_WORDS: Dictionary = {
 	#   ⚠음을 올리면 샘플이 그만큼 짧아진다(+7반음 = 길이 67%).
 	"grab": {"gap": 0.04, "db": -7.0, "det": 0.012, "base": -2},
 	"place": {"gap": 0.04, "db": -8.8, "det": 0.012, "base": 7},
-	"clear": {"gap": 0.00, "db": -2.0, "det": 0.004},    # 간격 0 = 절대 안 드롭한다(이게 보상이다)
-	"chain": {"gap": 0.03, "db": -12.0, "det": 0.004},
-	"fanfare": {"gap": 0.00, "db": -13.0, "det": 0.004},  # 아르페지오 4음이 겹치므로 clear보다 낮게
+	"clear": {"gap": 0.00, "db": -3.6, "det": 0.004},    # 간격 0 = 절대 안 드롭한다(이게 보상이다)
+	"chain": {"gap": 0.03, "db": -7.6, "det": 0.004},
+	"fanfare": {"gap": 0.00, "db": -14.0, "det": 0.004},  # 아르페지오 4음이 겹치므로 clear보다 낮게
 	"score": {"gap": 0.055, "db": -10.0, "det": 0.010},  # 연달아 나가므로 작게(단, 안 들리면 없느니만 못하다)
 	"fail": {"gap": 0.00, "db": -7.8, "det": 0.004},   # 유저 요청이 "약하지만 짧게" — 축하보다 낮게 둔다
 	"tap": {"gap": 0.05, "db": -9.0, "det": 0.012},
 	# clear의 둘째 층 전용. FB_MAP엔 없다(호출부가 부르는 사건이 아니라 clear의 일부).
 	#   ⚠`chain` 이름으로 발화시켰더니 사다리 분석이 이걸 계단으로 세어 역행으로 읽었다(프로브가 잡음).
-	"clear2": {"gap": 0.00, "db": -9.0, "det": 0.004},
+	"clear2": {"gap": 0.00, "db": -11.0, "det": 0.004},
 }
 const SFX_VOICES: int = 8
 const SFX_BUDGET_MAX: float = 14.0      # 초당 발화 상한 — 진흙 방어의 마지막 선
@@ -923,14 +923,18 @@ func _fb(kind: String, intensity: float = 0.0) -> void:
 #   놓기·집기엔 맞지만 "팡 터지는" 보상은 안 된다(유저 판정).
 const SFX_LOW: String = "res://sfx/pop_low.wav"       # 775Hz  — 동작: 착지·실패
 const SFX_HIGH: String = "res://sfx/pop_high.wav"     # 1034Hz — 동작: 집기·점수·탭
-const SFX_BURST: String = "res://sfx/burst.wav"       # 3146Hz — 보상 타격층(2~5kHz 58%, 어택 22dB)
-const SFX_SPARK: String = "res://sfx/sparkle.wav"     # 5156Hz — 보상 반짝임층(2~5kHz 52%)
+# ⚠**R10에서 보상 파형을 갈아치웠다.** R9의 burst(3146Hz·2~5kHz 58%)·sparkle(5156Hz·52%)은
+#   레퍼런스보다 2~3배 밝아서 유저 판정이 "거슬린다"였다. 레퍼런스 삭제음은 **1479Hz·22%**다.
+#   이번엔 기준을 내가 정하지 않고 **레퍼런스 클립을 목표 벡터로 삼아 391개를 스펙트럼 거리로**
+#   줄 세워 1위를 골랐다(sparkle은 그 순위에서 258/380으로 꼴찌권이었다 = 거슬림의 정체).
+const SFX_HIT: String = "res://sfx/hit.wav"           # 1464Hz — 삭제 타격(REF 1479Hz와 거의 일치)
+const SFX_SHINE: String = "res://sfx/shine.wav"       # 1758Hz — 40ms 뒤 광택(2~5kHz 33%)
 
 func _sfx_build_bank() -> void:
 	var lo: AudioStream = load(SFX_LOW)
 	var hi: AudioStream = load(SFX_HIGH)
-	var bu: AudioStream = load(SFX_BURST)
-	var sk: AudioStream = load(SFX_SPARK)
+	var bu: AudioStream = load(SFX_HIT)
+	var sk: AudioStream = load(SFX_SHINE)
 	if lo == null or hi == null or bu == null or sk == null:
 		push_warning("SFX 로드 실패 — `godot --headless --path . --import` 먼저(새 워크트리 함정)")
 		return
@@ -941,9 +945,11 @@ func _sfx_build_bank() -> void:
 	_sfx_bank["grab"] = hi
 	_sfx_bank["score"] = hi
 	_sfx_bank["tap"] = hi
-	_sfx_bank["clear"] = bu       # 줄 삭제 = 터지는 타격
-	_sfx_bank["clear2"] = sk      # 40ms 뒤 반짝임(+ fanfare 아르페지오도 이 파형)
-	_sfx_bank["chain"] = sk       # 적 처치 한 알 = 반짝임이 사다리를 오른다
+	_sfx_bank["clear"] = bu       # 줄 삭제 타격(1464Hz)
+	_sfx_bank["clear2"] = sk      # 40ms 뒤 광택(1758Hz) + fanfare 아르페지오
+	# ⚠적 처치는 pop_high로 되돌렸다 — 연쇄는 한 판에 5~9발이라 밝은 파형을 쓰면 가장 먼저 귀를
+	#   피곤하게 한다. 964Hz는 레퍼런스 삭제음 1층(904Hz)과 같은 자리다.
+	_sfx_bank["chain"] = hi
 
 
 # 전용 SFX 버스 + 하드 리미터를 **런타임에** 만든다 — 버스 레이아웃 리소스 파일을 안 만들므로
@@ -1008,7 +1014,9 @@ func _sfx(kind: String, intensity: float = 0.0) -> void:
 		# **2단 사건**(레퍼런스 실측: 904Hz 타격 + 40ms 뒤 1550Hz 광택 ≈ +9반음). 낮은 파형으로
 		#   때리고 40ms 뒤 높은 파형이 따라붙어 '팡!'이 된다. 한 음짜리 삭제음은 비어 들린다.
 		#   ⚠_sfx가 아니라 큐(=_sfx_fire 직행)로 넣는다 — `chain`으로 넣으면 사다리 계단이 헛돈다.
-		_sfx_queue.append({"at": _sfx_t + 0.040, "kind": "clear2", "semi": semi + 9})
+		#   ⚠+9반음을 안 준다 — 둘째 층 파형(1758Hz)이 **이미** 첫 층(1464Hz)보다 높다.
+		#   R9까지는 같은 파형을 썼기에 음정으로 올렸지만, 이제 올리면 2462Hz로 다시 날카로워진다.
+		_sfx_queue.append({"at": _sfx_t + 0.040, "kind": "clear2", "semi": semi})
 	elif kind == "chain":
 		semi = _sfx_semi(_sfx_chain_step)
 		_sfx_chain_step += 1
