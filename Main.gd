@@ -41,6 +41,25 @@ const LINE_BASE: int = 120
 const STREAK_STEP: float = 0.5
 const BLAST_RING_DELAY: float = 0.26  # 링(추가 레인) 간 순차 발사 텀 (물결 확산 속도. 클수록 극적·느림).
                                       #   0.4→0.26(C83): 콤보2~4 꼬리가 길어 '느린 템포'로 체감 → 조임. 스펙터클은 열색·칭찬·축포가 채움.
+# 유도 종이비행기(2줄+ 동시 삭제 시 자동 발사) — 임시 OFF.
+#   이유: 이 보너스가 "줄을 지우면 그 줄 위의 적이 죽는다"는 기본 규칙 위에 겹쳐 얹히는 바람에,
+#   신규 플레이어가 무엇 때문에 적이 죽었는지 귀속을 못 한다(규칙 인지 실패). 규칙이 몸에 붙은 뒤
+#   다시 켤 후보. false면 표적 선정·발사·전용 피격이 통째로 빠지고, 그 적들은 평범한 밴드 규칙만 받는다.
+const SEEKER_ENABLED: bool = false
+
+# ── 비행기 아이템(픽업) ────────────────────────────────────────────────────────
+# 자동 발사(SEEKER_ENABLED)를 대체하는 R1. 자동일 땐 "왜 저 적이 죽었나"를 귀속할 수 없었다
+#   (유저 확인: 알고 봐도 헷갈림) — 원인은 판 위쪽 줄 삭제, 결과는 판 아래쪽 적 사망이라 인과가
+#   공간적으로 끊기고, 표적 규칙("거점에 제일 가까운 N마리")은 화면에 아무 표시도 없었다.
+# 픽업은 그 둘을 다 고친다: 획득 이유가 보드 위에 물체로 놓이고(그 행이나 열을 터뜨리면 내 것),
+#   발동은 유저의 탭이다. 표적은 자동이되 들고 있는 동안 조준 링으로 미리 보인다(규칙이 보임).
+# 희소 규칙 = 세상에 한 대. 보드에 놓여 있거나 슬롯에 들려 있거나 둘 중 하나, 둘 다 비면 쿨다운.
+const PLANE_ENABLED: bool = true
+const PLANE_FLY_DUR: float = 0.34    # 슬롯 → 표적 호밍 비행(기존 seekers 연출 재사용)
+const PLANE_GRAB_DUR: float = 0.42   # 획득: 보드 → 슬롯으로 빨려가는 비행(보석과 같은 문법)
+const C_PLANE: Color = Color(0.93, 0.98, 1.0)        # 종이 흰색 — 유닛 팔레트(채도 높은 색)와 안 겹침
+const C_PLANE_GLOW: Color = Color(0.45, 0.93, 1.0)   # 청록 글로우 = 발사체(seekers)와 같은 정체성
+
 const FLASH_DUR: float = 0.7
 const PRAISE_DUR: float = 1.15   # 칭찬 텍스트 수명 — 섬광(FLASH_DUR)과 분리해 오래 읽히게(팍 등장→유지→페이드)
 const PRAISE_LEAD: float = 0.09  # 리듬 계단시차(C90): 블록 파괴(t=0) → 이 지연 뒤 칭찬 단어 팝인. 블블 관찰=터짐과 텍스트를 '한 박' 분리(0.06~0.12 튜닝대상).
@@ -515,6 +534,17 @@ var resolve_hits: Array = []       # [{id, dmg, kb, at, done}] 거점 가까운 
 var resolve_rocket_plan: Array = []  # [{dir, idx}] 로켓은 충전 뒤에 발사
 var resolve_seeker_plan: Array = []  # [{to_pos, from, launch, arrive, fired}] 유도 로켓 예약(동시 N줄 → N발)
 var seekers: Array = []              # [{from, to_pos, t, dur}] 유도 로켓(진행) — 거점서 곧 샐 적으로
+# 비행기 아이템 상태. plane_held + 보드 위 픽업 + plane_flights(획득 비행 중) 셋을 합쳐 '세상에 한 대'.
+var plane_held: bool = false         # 슬롯 보유(1개 한도)
+var plane_cd_left: int = 0           # 다음 픽업 등장까지 남은 배치 수(세상에 있는 동안은 만충 유지)
+var plane_flights: Array = []        # 획득 연출 {from, to, t, dur} — 슬롯 '도착' 시점에 plane_held=true
+var plane_shots: Array = []          # 발사 예약 피격 {id, dmg, kb, at(남은 초), seeker} — resolve 밖에서 진행
+var plane_pop: float = 0.0           # 슬롯 도착 팝(스케일 바운스)
+# 조준 상태(2탭 사용 플로우). 1탭 = 조준(누가 죽는지 링으로 보여줌) → 2탭 = 발사.
+#   조준링을 보유 내내 띄우면 쓰지도 않을 표적을 계속 가리켜 시끄럽고, 1탭 즉발은 확인 없이 나간다.
+#   조준은 '지금 이 순간의 표적'에 대한 약속이라 판이 움직이면(배치·조각 집기) 바로 푼다 — 안 그러면
+#   미리 보여준 적과 실제로 죽는 적이 달라진다.
+var plane_armed: bool = false
 var resolve_fx_done: bool = false    # 로켓 발사 트리거됐나
 var pending_leaks: Array = []      # 이번 스텝 누수 열 목록(공격 뒤 표시)
 var pending_core_dead: bool = false
@@ -1066,6 +1096,12 @@ func _init_game() -> void:
 	resolve_rocket_plan = []
 	resolve_seeker_plan = []
 	seekers = []
+	plane_held = false
+	plane_cd_left = int(st.get("plane_cd", 10))
+	plane_flights = []
+	plane_shots = []
+	plane_pop = 0.0
+	plane_armed = false
 	resolve_fx_done = false
 	pending_leaks = []
 	pending_core_dead = false
@@ -1770,14 +1806,14 @@ func _begin_resolve(rows: Array, cols: Array) -> void:
 		#   비행기가 가로채 잡는다(아래 hit_list서 제외 → 한 마리 이중 처치 금지, [[wave-accounting-invariant]]).
 		var living: Array = []
 		for le in enemies:
-			if String(le["etype"]) == "gem":
+			if String(le["etype"]) == "gem" or String(le["etype"]) == "plane":
 				continue
 			living.append(le)
 		living.sort_custom(func(a, b):
 			if a["row"] != b["row"]:
 				return a["row"] > b["row"]
 			return a["col"] < b["col"])
-		var n_seek: int = (mini(l, living.size()) if l >= 2 else 0)
+		var n_seek: int = (mini(l, living.size()) if (SEEKER_ENABLED and l >= 2) else 0)
 		var seeker_ids: Dictionary = {}
 		for si0 in range(n_seek):
 			seeker_ids[living[si0]["id"]] = true
@@ -1946,6 +1982,17 @@ func _apply_hit(h: Dictionary) -> void:
 		var gcol: Color = GEM_COLORS[gt % GEM_COLORS.size()]
 		impacts.append({"pos": ep, "life": 0.20, "max": 0.20, "color": gcol, "radius": CELL * 0.42, "star": true})
 		gem_flights.append({"from": ep, "to": _collect_counter_pos(gt), "t": 0.0, "dur": 0.42, "gtype": gt, "color": gcol})
+		kill_pulse = 0.35
+		hitstop = maxf(hitstop, 0.05)
+		enemies.remove_at(found)
+		return
+	# 비행기 픽업: 보석과 같은 낚아채기 — 처치가 아니라 획득. 보유는 슬롯에 '도착'할 때 켜진다
+	#   (연출·로직 일치). 이미 하나 들고 있으면 획득하지 않는다 = 1개 한도가 여기서도 지켜진다.
+	if etype == "plane":
+		if plane_held or not plane_flights.is_empty():
+			return
+		impacts.append({"pos": ep, "life": 0.22, "max": 0.22, "color": C_PLANE_GLOW, "radius": CELL * 0.45, "star": true})
+		plane_flights.append({"from": ep, "to": _plane_slot_rect().get_center(), "t": 0.0, "dur": PLANE_GRAB_DUR})
 		kill_pulse = 0.35
 		hitstop = maxf(hitstop, 0.05)
 		enemies.remove_at(found)
@@ -2527,6 +2574,12 @@ func advance_step() -> void:
 				var gmp: Vector2 = _enemy_pos(int(en["col"]), ROWS - 1)
 				impacts.append({"pos": gmp, "life": 0.32, "max": 0.32, "color": Color(0.5, 0.5, 0.56), "radius": CELL * 0.42, "star": false})
 				enemies.remove_at(i)
+			elif en["etype"] == "plane":
+				# 놓친 비행기 — 거점 무피해, 진행 손해도 없다. 세상이 비었으니 쿨다운 뒤 다시 나온다
+				#   (= 손실이 아니라 지연). 벌처럼 읽히면 안 되므로 회색 파프 하나로 조용히.
+				var pmp: Vector2 = _enemy_pos(int(en["col"]), ROWS - 1)
+				impacts.append({"pos": pmp, "life": 0.32, "max": 0.32, "color": Color(0.5, 0.5, 0.56), "radius": CELL * 0.42, "star": false})
+				enemies.remove_at(i)
 			elif detonated:
 				# 데드라인 놓친 대가: 큰 한 방(일반 누수 -1보다 큼). 웨이브 회계는 leak과 동일 취급 = 불변식 보존.
 				var dmg: int = director.bomb_dmg()
@@ -2577,6 +2630,85 @@ func advance_step() -> void:
 		var ge: int = maxi(1, int(st.get("gem_every", 3)))
 		if not _collect_done() and place_count % ge == 0:
 			_spawn_gem(_quiet_gem_col())
+
+	# 비행기 픽업: '세상에 한 대'. 보드에 있거나 슬롯에 들려 있는 동안은 쿨다운을 만충으로 붙들고,
+	#   둘 다 비었을 때만 배치마다 깎다가 0에서 떨군다 → 한 사이클 = 보드 체류 + plane_cd 배치.
+	#   plane_cd는 실측(tools/plane_rate_probe.gd)으로 판당 사용 횟수를 맞춘 값이다.
+	if _plane_allowed():
+		if plane_held or not plane_flights.is_empty() or _plane_on_board():
+			plane_cd_left = int(st.get("plane_cd", 10))
+		elif plane_cd_left > 0:
+			plane_cd_left -= 1
+		else:
+			_spawn_plane(_quiet_gem_col())
+
+# 비행기가 나올 판인가. 나오면 안 되는 곳을 여기 한 곳에 모은다.
+func _plane_allowed() -> bool:
+	if not PLANE_ENABLED:
+		return false
+	if endless:
+		return false                        # R1은 캠페인 전용 — 경쟁 모드 밸런스는 별도 결정
+	if bool(st.get("collect", false)):
+		return false                        # 수집 판: '먹는 물건'이 둘이면 배우는 단계서 뭉갠다
+	if _tut_active():
+		return false                        # 튜토리얼: 이미 가르치는 게 셋
+	return true
+
+func _plane_on_board() -> bool:
+	for e in enemies:
+		if String(e["etype"]) == "plane":
+			return true
+	return false
+
+# 픽업 스폰 — 보석과 같은 문법(조용한 열·맨 윗줄·감독의 전진 주기). 위협이 아니므로
+#   spawned/killed/leaked 카운터는 건드리지 않는다([[wave-accounting-invariant]] 보존).
+func _spawn_plane(col: int) -> void:
+	var pcol: int = _free_top_col(col)
+	if pcol < 0:
+		return
+	enemies.append({"col": pcol, "row": 0, "vis_row": 0.0, "hp": 1, "maxhp": 1,
+			"etype": "plane", "id": enemy_seq, "step_every": director.hud_step_every()})
+	enemy_seq += 1
+	if not seen_types.get("plane", false):
+		seen_types["plane"] = true
+		_set_callout(_t("callout_plane"))
+
+# 아이템 슬롯 = 트레이(x 200~600) 왼쪽의 빈 자리. 트레이와 같은 y에 앉혀 '손에 든 것들' 줄로 읽히게.
+func _plane_slot_rect() -> Rect2:
+	return Rect2(56.0, float(bot_y) + 20.0, 90.0, 90.0)
+
+# 표적 = '가장 위험한 적' = 거점에 제일 가까운 놈(row 큰 순, 동률이면 왼쪽).
+#   ⚠가중치(장갑·분열 보정 등)를 섞지 않는다 — 섞는 순간 한눈에 못 읽는 규칙이 되고, 자동 표적이
+#   다시 "왜 저놈?"이 된다. '제일 아래 놈'은 보면 바로 아는 규칙이라 조준 링과 함께 저절로 학습된다.
+func _plane_target() -> Dictionary:
+	var best: Dictionary = {}
+	for e in enemies:
+		var et: String = String(e["etype"])
+		if et == "gem" or et == "plane":
+			continue                       # 픽업·보석은 표적이 아니다
+		var er: int = int(e["row"])
+		if er < 0 or er >= ROWS:
+			continue                       # 화면 밖(도둑 탈출 중 등)은 제외
+		if best.is_empty() or er > int(best["row"]) or (er == int(best["row"]) and int(e["col"]) < int(best["col"])):
+			best = e
+	return best
+
+# 발사 = 유저의 탭. 표적이 없으면 아무 일도 안 일어난다(비행기는 그대로 보유 — 헛되이 소모시키지 않는다).
+func _fire_plane() -> void:
+	if not plane_held or game_over or game_clear or resolving:
+		return
+	var tgt: Dictionary = _plane_target()
+	if tgt.is_empty():
+		return
+	plane_held = false
+	plane_armed = false
+	var from: Vector2 = _plane_slot_rect().get_center()
+	# 비행 연출은 기존 seekers를 그대로 재사용 — 픽업과 발사체가 같은 물건으로 읽힌다.
+	seekers.append({"from": from, "to_pos": _enemy_pos(int(tgt["col"]), int(tgt["row"])),
+			"t": 0.0, "dur": PLANE_FLY_DUR})
+	# 확정 처치. 도착 시각에 맞춰 _apply_hit이 처리한다(resolve 밖이라 plane_shots가 따로 굴린다).
+	plane_shots.append({"id": int(tgt["id"]), "dmg": maxi(LINE_BASE, int(tgt["hp"])), "kb": 0,
+			"at": PLANE_FLY_DUR, "seeker": true})
 
 # _pick_etype는 StageMode.pick_etype로 이동(감독이 스폰 결정을 소유).
 
@@ -3240,6 +3372,7 @@ func _place_piece() -> void:
 	if not _can_place(cells):
 		return
 	tut_lock = false   # 중앙에 성공적으로 놓았다 → 잠금 해제(리필될 정상 조각은 자유 배치)
+	plane_armed = false   # 판이 바뀌면 조준 해제 — 미리 보여준 표적과 실제 표적이 어긋나면 안 된다
 	for ci in cells:
 		var c: Vector2i = ci as Vector2i
 		board[c.y][c.x] = active["color"]
@@ -3613,8 +3746,21 @@ func _input(event: InputEvent) -> void:
 		# 설정 기어 → 모달 열기(들고 있던 조각은 트레이로 되돌림)
 		if mbe.pressed and gear_rect.has_point(mbe.position):
 			settings_open = true
+			plane_armed = false   # 모달 뒤에 조준이 살아 있으면 돌아왔을 때 유령 링이 떠 있다
 			_return_held()
 			return
+
+		# 비행기 슬롯 탭 — 1탭=조준(표적 링 표시) / 2탭=발사. 조각을 들고 있어도 된다(손엔 그대로).
+		#   빈 슬롯은 히트 영역이 없다 — 눌리는데 아무 일도 안 일어나면 고장으로 읽힌다.
+		if mbe.pressed and plane_held and _plane_slot_rect().has_point(mbe.position):
+			if plane_armed:
+				_fire_plane()
+			elif not _plane_target().is_empty():
+				plane_armed = true   # 표적이 없으면 조준 자체를 안 켠다(빈 링 = 거짓 약속)
+			return
+		# 슬롯 밖을 누르면 조준 해제 — '한 번 더 눌러야 나간다'의 짝은 '딴 데 누르면 취소된다'다.
+		if mbe.pressed:
+			plane_armed = false
 
 		# 입력 방식 토글 버튼 (PC 테스트 편의용) — 안 그릴 땐 히트 영역도 없다(show_input_toggle)
 		if show_input_toggle and mbe.pressed and mode_btn.has_point(mbe.position):
@@ -3835,6 +3981,29 @@ func _process(delta: float) -> void:
 	for pi in range(collect_pop.size()):
 		if collect_pop[pi] > 0.0:
 			collect_pop[pi] = maxf(0.0, collect_pop[pi] - delta)
+	# 비행기 획득 비행 — 슬롯에 '도착'하는 순간 보유가 켜진다(보석 카운터와 같은 문법: 연출이 곧 로직).
+	var pf: int = plane_flights.size() - 1
+	while pf >= 0:
+		plane_flights[pf]["t"] += delta
+		if plane_flights[pf]["t"] >= float(plane_flights[pf]["dur"]):
+			if not game_over:
+				plane_held = true
+				plane_pop = 0.42
+			plane_flights.remove_at(pf)
+		pf -= 1
+	if plane_pop > 0.0:
+		plane_pop = maxf(0.0, plane_pop - delta)
+	# 발사된 비행기의 예약 피격 — resolve 밖에서도 굴러야 하므로 자체 타이머로 센다.
+	var pshot: int = plane_shots.size() - 1
+	while pshot >= 0:
+		plane_shots[pshot]["at"] = float(plane_shots[pshot]["at"]) - delta
+		if float(plane_shots[pshot]["at"]) <= 0.0:
+			var sh: Dictionary = plane_shots[pshot]
+			plane_shots.remove_at(pshot)
+			_apply_hit(sh)
+			if not game_clear and not game_over:
+				_check_win()   # 마지막 적을 비행기가 잡으며 클리어되는 경로
+		pshot -= 1
 	# 연쇄 도미노 순차 발화: hop 딜레이가 다 된 폭발을 지금 터뜨린다(붐 + 피해 토큰 비행). 회계는 이미 확정, 연출만.
 	var bq: int = boom_queue.size() - 1
 	while bq >= 0:
@@ -4039,6 +4208,14 @@ func _draw() -> void:
 		var gfc: Color = gfl["color"]
 		draw_circle(gpos, gsz * 0.5 + 4.0, Color(gfc.r, gfc.g, gfc.b, 0.28 * (1.0 - gft)))
 		_draw_gem_icon(gpos, gsz, int(gfl["gtype"]))
+	# 비행기 획득 비행: 낚아챈 자리 → 하단 슬롯. 보석과 같은 문법(가속·축소·꼬리광)이라
+	#   "먹었다"가 한 번 배우면 두 물건 모두에 통한다.
+	for pfl in plane_flights:
+		var pft: float = clampf(float(pfl["t"]) / float(pfl["dur"]), 0.0, 1.0)
+		var ppos: Vector2 = (pfl["from"] as Vector2).lerp(pfl["to"] as Vector2, pft * pft)
+		var psz: float = lerpf(CELL * 0.58, CELL * 0.26, pft)
+		draw_circle(ppos, psz * 0.5 + 5.0, Color(C_PLANE_GLOW.r, C_PLANE_GLOW.g, C_PLANE_GLOW.b, 0.30 * (1.0 - pft)))
+		_draw_plane_icon(ppos, psz)
 	# 폭탄 피해 토큰: 깨진 하트 + −N 이 폭발서 HP 바로 날아간다(움직이는 물체 = 강한 인과). 살짝 아치 그리며 내려꽂힘.
 	for dfl in dmg_flights:
 		var dft: float = clampf(float(dfl["t"]) / float(dfl["dur"]), 0.0, 1.0)
@@ -5898,6 +6075,20 @@ func _draw_gem_icon(center: Vector2, s: float, gtype: int = 0) -> void:
 	outline.append(pts[0])
 	draw_polyline(outline, col.darkened(0.6), 1.5)
 
+# 종이비행기 아이콘 — 위를 향한 접힌 삼각형(중앙 접힘선 + 아래 꼬리 노치). 보드 픽업·슬롯이 공유한다.
+func _draw_plane_icon(center: Vector2, s: float) -> void:
+	var h: float = s * 0.5
+	var nose: Vector2 = center + Vector2(0.0, -h)                  # 코(위)
+	var lw: Vector2 = center + Vector2(-h * 1.04, h * 0.66)         # 왼 날개끝
+	var rw: Vector2 = center + Vector2(h * 1.04, h * 0.66)          # 오른 날개끝
+	var tail: Vector2 = center + Vector2(0.0, h * 0.26)             # 꼬리 노치(가운데가 파임)
+	# 두 장의 날개를 따로 칠해 접힘을 명암으로 표현 — 단색 삼각형은 '표지판'처럼 보인다.
+	draw_colored_polygon(PackedVector2Array([nose, lw, tail]), C_PLANE)
+	draw_colored_polygon(PackedVector2Array([nose, rw, tail]), C_PLANE.darkened(0.22))
+	var edge: Color = C_PLANE_GLOW.darkened(0.35)
+	draw_polyline(PackedVector2Array([nose, lw, tail, rw, nose]), edge, 1.8)
+	draw_line(nose, tail, edge, 1.6)                                # 중앙 접힘선
+
 func _draw_boss_cards(fnt: Font, goal_r: Rect2, adv_r: Rect2, gw: float, aw: float, box_y: float) -> void:
 	# GOAL 카드 → 감시자 HP (바이올렛 = 보스, 조각 3원색과 분리)
 	_draw_card(goal_r, Color(0.6, 0.35, 0.72))
@@ -6323,7 +6514,9 @@ func _draw_board(fnt: Font) -> void:
 		#   내려올수록 차오른다 → 위협 있는 곳에서만 정확한 착지점. 전 깊이 알람(구 방식)의 정신없음을 없앰.
 		#   depth: row4=0 → row7=1 완만 램프. imm: 다음 박자에 이동=꽉, remain==2(그 다음)=먼저 흐리게.
 		#   ⚠칸은 계획이 준다 — 앞이 막혀 대기하는 놈은 붉은 칸도 꿈틀도 없다(안 움직이니 예고할 게 없다).
-		if not fleeing:
+		# 픽업엔 붉은 착지칸을 안 그린다 — 위협 어휘(붉은 경고칸)를 주우라는 물건에 얹으면 정반대로 읽힌다.
+		#   자세(lean)는 남긴다: '곧 한 칸 내려간다' = 마감 정보라 픽업에도 그대로 유효하다.
+		if not fleeing and e["etype"] != "plane":
 			var tel_row: int = er + 1
 			var imm: float = 0.0
 			if will_move:
@@ -6436,6 +6629,15 @@ func _draw_board(fnt: Font) -> void:
 					# 흉터: 짧은 사선 하나(갈라진 흔적, 세로 균열 아님 = 더는 안 쪼개짐)
 					draw_line(Vector2(cx - cr * 0.4, cy - cr * 0.3), Vector2(cx + cr * 0.2, cy + cr * 0.5), C_E_RIM, 2.0)
 					rad = cr
+			"plane":
+				# 비행기 픽업 = 흰 종이비행기 + 청록 후광. 유닛 팔레트가 전부 채도 높은 색이라
+				#   흰색 삼각형 하나로 "적이 아니다"가 즉시 읽힌다. 후광 색·형태는 발사체(seekers)와
+				#   같아서, 주운 것과 날아가는 것이 같은 물건으로 이어진다.
+				var ppulse: float = 0.5 + 0.5 * sin(anim_t * 4.0)
+				draw_circle(Vector2(cx, cy), CELL * (0.36 + 0.05 * ppulse),
+						Color(C_PLANE_GLOW.r, C_PLANE_GLOW.g, C_PLANE_GLOW.b, 0.18 + 0.14 * ppulse))
+				_draw_plane_icon(Vector2(cx, cy), CELL * 0.60)
+				rad = CELL * 0.34
 			"gem":
 				# 보석 = 타입색 다이아 + 맥동 반짝임. 위협(원·블록)과 form이 달라 '착한 보물', 색은 타입 구분.
 				var gcol2: Color = GEM_COLORS[int(e.get("gtype", 0)) % GEM_COLORS.size()]
@@ -6664,6 +6866,32 @@ func _draw_held() -> void:
 # 좁은 밝은)로 맥동해 '이 적을 저 로켓이 친다'로 잇는다. 위치·반지름은 _draw_board 적 루프가
 # aim_marks에 적재한 값(단일 출처) — 커서가 적을 덮어도 이 신호만은 안 가려진다.
 func _draw_aim_overlay() -> void:
+	# 비행기 표적 링 — 들고 있는 동안 '지금 쏘면 누가 죽나'를 계속 보여준다. 자동 표적의 규칙이
+	#   화면에 없던 것이 원래 병이었으므로, 이 링이 그 규칙을 매 프레임 말해주는 장치다.
+	#   조각 위(최상단)에 그려 커서·들고 있는 조각에 안 가린다([[signal-layer-above-occluders]]).
+	if plane_held and plane_armed and not game_over and not game_clear:
+		var pt: Dictionary = _plane_target()
+		if not pt.is_empty():
+			var tc: Vector2 = _enemy_pos(int(pt["col"]), int(pt["row"]))
+			var tp: float = 0.5 + 0.5 * sin(anim_t * 5.0)
+			var tr2: float = CELL * 0.46 + 3.0 * tp
+			draw_circle(tc, tr2, Color(C_PLANE_GLOW.r, C_PLANE_GLOW.g, C_PLANE_GLOW.b, 0.75 + 0.25 * tp), false, 3.0)
+			# 십자 눈금 4개 = '조준'의 관용 기호(원만 있으면 넉백 링·조준 링과 헷갈린다)
+			for ti in range(4):
+				var ang2: float = float(ti) * TAU / 4.0
+				var dvec: Vector2 = Vector2(cos(ang2), sin(ang2))
+				draw_line(tc + dvec * (tr2 - 7.0), tc + dvec * (tr2 + 7.0),
+						Color(1.0, 1.0, 1.0, 0.85), 2.5)
+			# 슬롯 → 표적을 잇는 점선: '이게 저기로 간다'를 선 하나로 못 박는다(두 탭 사이의 인과).
+			var src: Vector2 = _plane_slot_rect().get_center()
+			var seg: Vector2 = tc - src
+			var seglen: float = seg.length()
+			var dir: Vector2 = seg / maxf(1.0, seglen)
+			var walk: float = 16.0
+			while walk < seglen - 24.0:
+				draw_line(src + dir * walk, src + dir * minf(walk + 9.0, seglen - 24.0),
+						Color(C_PLANE_GLOW.r, C_PLANE_GLOW.g, C_PLANE_GLOW.b, 0.30 + 0.20 * tp), 2.0)
+				walk += 19.0
 	if aim_marks.is_empty():
 		return
 	var dp: float = 0.5 + 0.5 * sin(anim_t * 7.0)
@@ -6702,6 +6930,30 @@ func _draw_collapse() -> void:
 
 func _draw_bottom(fnt: Font) -> void:
 	draw_rect(Rect2(0, bot_y, VW_BASE, vh - float(bot_y)), _zone_tint(C_HUD))   # 존: 하단 바도 여백과 '같은' 존색으로(통일)
+
+	# 비행기 슬롯 — 이 판에 비행기가 나오는 판에서만 그린다(안 나오는 판에 빈 칸이 있으면 '고장'으로 읽힌다).
+	if _plane_allowed():
+		var pr: Rect2 = _plane_slot_rect()
+		if plane_held:
+			# 보유/조준 두 상태를 색과 테두리 세기로만 구분한다([[hud-signal-by-color-not-text]]).
+			#   보유 = 은은한 맥동("쓸 수 있다") / 조준 = 밝게 차오른 판 + 굵은 테두리 + 바깥 후광("한 번 더 누르면 나간다").
+			var hp2: float = 0.5 + 0.5 * sin(anim_t * (6.0 if plane_armed else 3.2))
+			if plane_armed:
+				draw_rect(pr.grow(6.0), Color(C_PLANE_GLOW.r, C_PLANE_GLOW.g, C_PLANE_GLOW.b, 0.16 + 0.14 * hp2))
+				draw_rect(pr, Color(0.22, 0.38, 0.46))
+				draw_rect(pr, Color(1.0, 1.0, 1.0, 0.75 + 0.25 * hp2), false, 4.0)
+			else:
+				draw_rect(pr, Color(0.16, 0.24, 0.30))
+				draw_rect(pr, Color(C_PLANE_GLOW.r, C_PLANE_GLOW.g, C_PLANE_GLOW.b, 0.55 + 0.40 * hp2), false, 2.5)
+			var pop: float = 1.0 + 0.35 * (plane_pop / 0.42)   # 도착 순간 톡 튐
+			if plane_armed:
+				pop *= 1.0 + 0.06 * hp2                        # 조준 중엔 아이콘도 같이 숨쉰다
+			_draw_plane_icon(pr.get_center(), pr.size.x * 0.56 * pop)
+		else:
+			# 빈 슬롯: 자리만 조용히 남긴다. 쿨다운 숫자는 안 띄운다 — 다음 픽업은 보드에 나타나는 것으로
+			#   충분히 예고되고, 여기 숫자를 붙이면 안 읽히는 지표가 하나 더 는다.
+			draw_rect(pr, Color(0.10, 0.10, 0.16))
+			draw_rect(pr, Color(0.30, 0.34, 0.42, 0.5), false, 1.5)
 
 	# 3슬롯 트레이
 	for i in range(3):

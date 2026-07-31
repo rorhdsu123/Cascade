@@ -129,6 +129,7 @@ const STR: Dictionary = {
 		"vault": "Vault",
 		"result_vault": "Vault kept",
 		"callout_gem": "Gems! — catch them, don't just clear",
+		"callout_plane": "A paper plane! — clear its row or column to grab it",
 		# ── 거점(보드 하단 방어선) ──
 		"core_hp": "Core  %d / %d",
 		# ── 게임플레이 콜아웃/tell(원래 영어로 authored — 값 동일, 로케일 확장용으로만 키화) ──
@@ -251,6 +252,7 @@ const STR: Dictionary = {
 		"vault": "금고",
 		"result_vault": "지킨 금고",
 		"callout_gem": "보석! — 그냥 치우지 말고 낚아채라",
+		"callout_plane": "종이비행기! — 그 행이나 열을 터뜨리면 내 것",
 		"core_hp": "거점  %d / %d",
 		# ⚠아래 콜아웃/tell·온보딩의 한국어는 초안(원문이 영어라 대응 한글이 없었음). 검수/조정 여지.
 		"tut_kill": "적이 내려와요! 줄을 채워 잡으세요",
