@@ -1,65 +1,63 @@
 extends SceneTree
-# 음색 청취용 굽기 (정본: AUDIO_PLAN.md §5)
+# 음색 청취용 굽기 (정본: AUDIO_PLAN.md §5·§13)
 #   실행: godot --headless --path . --script tools/audio_bake.gd
 #   결과: build/audio_preview/*.wav  (파인더에서 더블클릭해서 듣는다)
 #
-# 왜 필요한가: 소리는 코드 리뷰로 판정할 수 없다. 합성음이 값싸게 들리는지, place가 거슬리는지,
-#   연쇄 사다리가 음악으로 들리는지는 **사람 귀로만** 답이 나온다. 그래서 게임을 켜지 않고도
-#   어휘를 듣고 상수를 고칠 수 있게 파일로 뽑아 둔다(튜닝 왕복을 짧게).
+# R7부터 음원은 합성이 아니라 `res://sfx/`의 CC0 파형 둘이다. 그래도 이 도구가 필요한 이유:
+#   게임 안에서만 들리던 **조립 결과**(사다리·아르페지오·2단 삭제음)를 파일 하나로 만들어
+#   귀로 확인해야 하기 때문이다. 낱개 파형은 그냥 sfx/ 폴더에서 들으면 된다.
 #
-# 단어 파일 넷 + 조립 파일 둘:
-#   ladder.wav  = chain 사다리 8단을 순서대로(연쇄가 음악으로 들리는지 판정)
-#   fanfare.wav = clear 0/+4/+7/+12 아르페지오(판 닫는 소리)
-# ⚠ .wav는 커밋하지 않는다 — build/는 .gitignore. 산출물이 아니라 청취용 스크래치다.
+# ⚠ .wav는 커밋하지 않는다 — build/는 .gitignore.
 
 const OUT_DIR: String = "res://build/audio_preview"
 
 func _init() -> void:
 	var m: Node = load("res://Main.gd").new()
 	m._sfx_build_bank()
+	if (m._sfx_bank as Dictionary).is_empty():
+		print("뱅크가 비었다 — `godot --headless --path . --import` 먼저 돌릴 것")
+		m.free(); quit(1); return
 
 	DirAccess.make_dir_recursive_absolute(ProjectSettings.globalize_path(OUT_DIR))
-	var rate: int = m.SFX_RATE
 
-	var n_ok: int = 0
-	for kind in ["grab", "place", "clear", "chain", "score", "fail", "tap"]:
-		var w: AudioStreamWAV = m._sfx_bank[kind]
-		var path: String = "%s/%s.wav" % [OUT_DIR, kind]
+	# 낱개 원본 둘(이름을 어휘로 바꿔 저장 — 어느 파형이 어디 쓰이는지 귀로 확인)
+	for pair in [["low__place_clear_fail", "place"], ["high__grab_chain_score_tap", "grab"]]:
+		var w: AudioStreamWAV = m._sfx_bank[pair[1]]
+		var path: String = "%s/%s.wav" % [OUT_DIR, pair[0]]
 		if w.save_to_wav(path) == OK:
-			n_ok += 1
-			print("  %-8s %5d 샘플 (%.3fs, %d bytes)" % [kind, w.data.size() / 2,
-					float(w.data.size() / 2) / float(rate), w.data.size()])
-		else:
-			print("  %-8s SAVE FAILED" % kind)
+			print("  %-28s %5d 샘플 · %dHz · %d bytes" % [pair[0], w.data.size() / 2, w.mix_rate, w.data.size()])
 
-	# 조립 둘 — 게임 안에서만 들리던 '시퀀스'를 파일 하나로 만들어 듣는다.
-	_seq(m, "%s/ladder.wav" % OUT_DIR, "chain",
-			[0, 2, 4, 7, 9, 12, 14, 16], 0.11, rate)
-	_seq(m, "%s/fanfare.wav" % OUT_DIR, "clear", [0, 4, 7, 12], 0.10, rate)
-
-	var total: int = 0
-	for kind in m._sfx_bank:
-		total += (m._sfx_bank[kind] as AudioStreamWAV).data.size()
-	print("── 단어 %d개 저장, 뱅크 총 %d bytes (%.1f KB)" % [n_ok, total, float(total) / 1024.0])
-	print("── 들어보기: open %s" % ProjectSettings.globalize_path(OUT_DIR))
+	var lo: AudioStreamWAV = m._sfx_bank["place"]
+	var hi: AudioStreamWAV = m._sfx_bank["chain"]
+	# ① 연쇄 사다리 — chain 파형을 5음계로 훑는다(연쇄가 음악으로 들리는지)
+	_seq("%s/ladder.wav" % OUT_DIR, [[hi, 0], [hi, 2], [hi, 4], [hi, 7], [hi, 9], [hi, 12], [hi, 14], [hi, 16]], 0.11)
+	# ② 판 닫는 아르페지오
+	_seq("%s/fanfare.wav" % OUT_DIR, [[lo, 0], [lo, 4], [lo, 7], [lo, 12]], 0.10)
+	# ③ 2단 삭제음 — 낮은 파형 타격 + 40ms 뒤 높은 파형(+9반음). 게임에선 이게 한 사건으로 들린다.
+	_seq("%s/clear_2layer.wav" % OUT_DIR, [[lo, 0], [hi, 9]], 0.040)
+	# ④ 집기→착지 한 쌍
+	_seq("%s/grab_then_place.wav" % OUT_DIR, [[hi, 0], [lo, 0]], 0.35)
 	m.free()
 	quit()
 
-# 한 단어를 여러 음정으로 이어 붙여 한 파일로 굽는다(게임의 pitch_scale을 리샘플로 흉내).
-#   선형 보간 리샘플 — 청취용이라 품질보다 '순서·간격이 맞나'가 중요하다.
-func _seq(m: Node, path: String, kind: String, semis: Array, step: float, rate: int) -> void:
-	var src: AudioStreamWAV = m._sfx_bank[kind]
-	var n_src: int = src.data.size() / 2
+# 파형·음정 목록을 이어 붙여 한 파일로. 게임의 pitch_scale을 선형보간 리샘플로 흉내낸다.
+func _seq(path: String, notes: Array, step: float) -> void:
+	var rate: int = (notes[0][0] as AudioStreamWAV).mix_rate
 	var step_n: int = int(step * float(rate))
-	var out_n: int = step_n * semis.size() + n_src + rate / 4
-	var acc: PackedFloat32Array = PackedFloat32Array()
+	var longest: int = 0
+	for nt in notes:
+		longest = maxi(longest, (nt[0] as AudioStreamWAV).data.size() / 2)
+	var out_n: int = step_n * notes.size() + longest + rate / 4
+	var acc := PackedFloat32Array()
 	acc.resize(out_n)
-	for k in range(semis.size()):
-		var ratio: float = pow(2.0, float(semis[k]) / 12.0)
+	for k in range(notes.size()):
+		var src: AudioStreamWAV = notes[k][0]
+		var n_src: int = src.data.size() / 2
+		var ratio: float = pow(2.0, float(notes[k][1]) / 12.0)
 		var at: int = k * step_n
 		var i: int = 0
 		while true:
-			var sp: float = float(i) * ratio      # 피치 업 = 원본을 빨리 읽는다
+			var sp: float = float(i) * ratio
 			var si: int = int(sp)
 			if si + 1 >= n_src or at + i >= out_n:
 				break
@@ -67,21 +65,19 @@ func _seq(m: Node, path: String, kind: String, semis: Array, step: float, rate: 
 			var b: float = float(_s16(src.data, si + 1)) / 32768.0
 			acc[at + i] += lerpf(a, b, sp - float(si))
 			i += 1
-
-	# ⚠합친 뒤 피크 정규화 — 안 하면 겹친 음이 프리뷰 파일 자체를 클립시켜(실측 8샘플) 음색 판정이
-	#   왜곡된다. 게임 안에선 SFX 버스의 리미터와 fanfare 전용 레벨이 그 역할을 한다.
-	var mix_pk: float = 0.0
-	for i in range(out_n):
-		mix_pk = maxf(mix_pk, absf(acc[i]))
-	var mix_g: float = (0.85 / mix_pk) if mix_pk > 0.0001 else 1.0
+	# ⚠합친 뒤 피크 정규화 — 안 하면 겹친 음이 프리뷰 파일 자체를 클립시켜 음색 판정이 왜곡된다.
+	var pk: float = 0.0
+	for i2 in range(out_n):
+		pk = maxf(pk, absf(acc[i2]))
+	var g: float = (0.85 / pk) if pk > 0.0001 else 1.0
 	var data := PackedByteArray()
 	data.resize(out_n * 2)
-	for i in range(out_n):
-		var v: int = clampi(int(round(clampf(acc[i] * mix_g, -1.0, 1.0) * 32767.0)), -32768, 32767)
+	for i3 in range(out_n):
+		var v: int = clampi(int(round(clampf(acc[i3] * g, -1.0, 1.0) * 32767.0)), -32768, 32767)
 		if v < 0:
 			v += 65536
-		data[i * 2] = v & 0xff
-		data[i * 2 + 1] = (v >> 8) & 0xff
+		data[i3 * 2] = v & 0xff
+		data[i3 * 2 + 1] = (v >> 8) & 0xff
 	var w := AudioStreamWAV.new()
 	w.format = AudioStreamWAV.FORMAT_16_BITS
 	w.mix_rate = rate
@@ -89,10 +85,7 @@ func _seq(m: Node, path: String, kind: String, semis: Array, step: float, rate: 
 	w.loop_mode = AudioStreamWAV.LOOP_DISABLED
 	w.data = data
 	if w.save_to_wav(path) == OK:
-		print("  %-8s %5d 샘플 (%.3fs) — %s" % [path.get_file().get_basename(), out_n,
-				float(out_n) / float(rate), str(semis)])
-	else:
-		print("  %s SAVE FAILED" % path)
+		print("  %-28s %5d 샘플 (%.2fs)" % [path.get_file().get_basename(), out_n, float(out_n) / float(rate)])
 
 func _s16(d: PackedByteArray, i: int) -> int:
 	var v: int = d[i * 2] | (d[i * 2 + 1] << 8)
