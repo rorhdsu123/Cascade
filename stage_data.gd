@@ -25,6 +25,17 @@ extends RefCounted
 #   한 레인 청소에 더 많이 쓸려나가기 때문. '더 빨리 온다'가 '더 어렵다'가 아니다.
 # 기준 ⑥ 퍼즐 축 손잡이 = pool(조각 분포, C51 축·기전 / C54 아크 authoring). line-maker(I5) 비율이 주 dial이고,
 #   core_hp가 그 위에 단조로 겹쳐 얹힌다(2D 난이도면). 디펜스 축이 소진된 자리를 여기서 채운다.
+# 기준 ⑦ plane_cd = 비행기 픽업이 다 쓰인 뒤 다음 것이 나오기까지의 배치 수(희소 손잡이).
+#   한 사이클 = 보드 체류(≈7배치, 이 중 ~82%가 획득) + plane_cd → 판당 사용 ≈ P/(7+cd)×0.82.
+#   ⚠체류가 짧은 이유: 픽업은 '우연히 지나가는 줄에 걸리는' 게 아니라 플레이어가 노려서 딴다.
+#   클리어 분포가 픽업과 무관하다고 가정하면 체류를 13.7배치로 과대평가하게 된다(첫 산정의 오류).
+#   ⇒ 산정은 반드시 실측으로: tools/plane_rate_probe.gd(클리어 빈도) + tools/plane_verify.gd(실사용).
+#   현 배정 목표(사용/판): 초반 ~2회 → 후반 ~1회.
+#   ⚠미해결: 비행기 도입으로 승률이 평균 +8.9pt 올랐고(판별 독립시드 A/B, N=40), 상승폭이 후반에
+#   더 크다(st13 +22.5, st11 +22.5, st7 +17.5). 횟수는 후반에 줄여놨지만 '확정 처치 1회'의 값어치가
+#   판이 어려울수록 커지기 때문 — 빈도를 낮춰도 가치 상승을 못 따라간다. 난이도 곡선을 되살리려면
+#   후반 core_hp/total 재조정이 필요하다(캠페인 밸런스 재개 결정 사항이라 여기선 손대지 않았다).
+#   수집·튜토리얼 판엔 아예 안 나온다(Main._plane_allowed) → 그 판들엔 plane_cd 자체가 없다.
 
 # 조각 풀 프리셋 — {조각키: 가중치}. 공통 '변주 base'(테트로미노·직사각 = 손맛)에 I5만 다르게.
 # sim(pool_probe, basic-only) 실측: I5 0%→50%면 승률 5%→84% 단조 상승. 공정성은 _pool_piece
@@ -50,12 +61,14 @@ const STAGES: Array = [
 	{
 		# desync로 무리 절반이 base_step−1로 더 빨리 전진 → 행·열로 흩어져 한 줄론 못 쓸어냄
 		"name": "st2_name", "tag": "st2_tag",
+		"plane_cd": 3,
 		"total": 30, "core_hp": 3, "base_hp": 32, "hp_ramp": 0.4, "tank_mult": 2.5,
 		"spawn_every": 2, "step_every": 3, "onboard": 4, "floor": 5, "surge_at": 0.82,
 		"weights": {"basic": 40, "fast": 0, "tank": 0, "swarm": 60, "split": 0}, "pool": POOL_RICH,
 	},
 	{
 		"name": "st3_name", "tag": "st3_tag",
+		"plane_cd": 8,
 		"total": 34, "core_hp": 4, "base_hp": 34, "hp_ramp": 0.5, "tank_mult": 2.5,
 		"spawn_every": 2, "step_every": 3, "onboard": 3, "floor": 5, "surge_at": 0.80,
 		"weights": {"basic": 40, "fast": 50, "tank": 0, "swarm": 10, "split": 0}, "pool": POOL_STD,
@@ -66,6 +79,7 @@ const STAGES: Array = [
 		# core_hp 5(C96): 온보딩 절벽 완화 — hp3=41% 거점사벽이라 누수 여유만 키움(막힘=퍼즐압은 불변).
 		#   비대칭(st3=4, st4=5): st4가 pool-lean로 구조상 더 어려워 더 큰 보정. sim 41→67.5%.
 		"name": "st4_name", "tag": "st4_tag",
+		"plane_cd": 7,
 		"total": 36, "core_hp": 5, "base_hp": 36, "hp_ramp": 0.4, "tank_mult": 2.5,
 		"spawn_every": 2, "step_every": 3, "onboard": 3, "floor": 5, "surge_at": 0.80,
 		"weights": {"basic": 55, "fast": 0, "tank": 0, "swarm": 45, "split": 0}, "pool": POOL_LEAN,
@@ -87,6 +101,7 @@ const STAGES: Array = [
 	# 격리 도입(basic↔bomb만) = 난이도가 전적으로 새 기전에서(split 도입판 S7과 동형). core_hp 4 = 한두 번 실수 여유.
 	{
 		"name": "st11_name", "tag": "st11_tag", "bomb_fuse": 8, "bomb_dmg": 2,
+		"plane_cd": 20,
 		"total": 26, "core_hp": 6, "base_hp": 30, "hp_ramp": 0.2, "tank_mult": 2.5,
 		"spawn_every": 3, "step_every": 3, "onboard": 3, "floor": 2, "surge_at": 0.80,
 		"weights": {"basic": 85, "bomb": 15}, "pool": POOL_STD,
@@ -94,6 +109,7 @@ const STAGES: Array = [
 	{
 		# tank HP를 콤보3(240) 구간에 앉힌다: base 44~50 × 4.5 = 198~227 → 콤보2(180)로는 안 뚫림.
 		"name": "st5_name", "tag": "st5_tag",
+		"plane_cd": 21,
 		"total": 44, "core_hp": 2, "base_hp": 44, "hp_ramp": 0.3, "tank_mult": 4.5,
 		"spawn_every": 2, "step_every": 3, "onboard": 3, "floor": 5, "surge_at": 0.80,
 		"weights": {"basic": 40, "fast": 0, "tank": 55, "swarm": 5, "split": 0}, "pool": POOL_STD,
@@ -103,6 +119,7 @@ const STAGES: Array = [
 		#   클라이맥스 잠식·비단조 톱니 제거. sim 무릎: hp2→3 +15pt, 3→4 0(패배가 누수사→막힘으로 이동, core_hp 무효).
 		#   복습판은 클라이맥스보다 확실히 위여야 깔때기가 산다. tank_mult/혼합은 성격이라 불변, 누수 여유만.
 		"name": "st6_name", "tag": "st6_tag",
+		"plane_cd": 16,
 		"total": 48, "core_hp": 3, "base_hp": 46, "hp_ramp": 0.4, "tank_mult": 4.2,
 		"spawn_every": 2, "step_every": 3, "onboard": 2, "floor": 6, "surge_at": 0.78,
 		"weights": {"basic": 20, "fast": 35, "tank": 25, "swarm": 20, "split": 0}, "pool": POOL_STD,
@@ -116,6 +133,7 @@ const STAGES: Array = [
 		# ⚠도입은 climax보다 물러야 한다: total·base_hp를 S5/S6 최댓값에서 내리고 split 40%로 격리 —
 		#   split 55%+total52+hp48은 sim서 도입이 climax만큼 가혹(23→10 절벽). 새 기전만 변수로 세운다.
 		"name": "st7_name", "tag": "st7_tag",
+		"plane_cd": 24,
 		"total": 48, "core_hp": 3, "base_hp": 44, "hp_ramp": 0.35, "tank_mult": 4.2,
 		"spawn_every": 2, "step_every": 3, "onboard": 3, "floor": 6, "surge_at": 0.80,
 		"weights": {"basic": 60, "fast": 0, "tank": 0, "swarm": 0, "split": 40}, "pool": POOL_STD,
@@ -125,6 +143,7 @@ const STAGES: Array = [
 		# 분열은 방어축 레버(거점사 지배)라 청소 처리량을 굶기는 tank/fast/swarm 위에 겹쳐 얹힌다.
 		# split 25%(수확 시작점) — 100%가 아니라, 다른 위협과 섞여야 '전부 온다'가 성립.
 		"name": "st8_name", "tag": "st8_tag",
+		"plane_cd": 19,
 		"total": 56, "core_hp": 2, "base_hp": 50, "hp_ramp": 0.4, "tank_mult": 4.2,
 		"spawn_every": 2, "step_every": 3, "onboard": 2, "floor": 6, "surge_at": 0.78,
 		"weights": {"basic": 15, "fast": 25, "tank": 20, "swarm": 15, "split": 25}, "pool": POOL_STD,
@@ -149,6 +168,7 @@ const STAGES: Array = [
 	#   격리(R1)보다 fuse 조이고(7) spawn_every 2로 동시성↑. 2번째 rung이라 목표 승률 R1(71%)보다 낮게(~55%).
 	{
 		"name": "st12_name", "tag": "st12_tag", "bomb_fuse": 8, "bomb_dmg": 2,
+		"plane_cd": 24,
 		"total": 32, "core_hp": 6, "base_hp": 30, "hp_ramp": 0.25, "tank_mult": 2.5,
 		"spawn_every": 2, "step_every": 3, "onboard": 3, "floor": 3, "surge_at": 0.80,
 		"weights": {"basic": 47, "fast": 20, "swarm": 15, "bomb": 18}, "pool": POOL_STD,
@@ -158,6 +178,7 @@ const STAGES: Array = [
 	#   폭탄 밀도↑(뭉쳐서 연쇄 성립)·spawn_every 2로 인접 유도. 연쇄가 -HP를 곱하니 core_hp 여유(연쇄 못 끊으면 급사).
 	{
 		"name": "st13_name", "tag": "st13_tag", "bomb_fuse": 8, "bomb_dmg": 2, "bomb_chain": true,
+		"plane_cd": 23,
 		"total": 32, "core_hp": 7, "base_hp": 30, "hp_ramp": 0.2, "tank_mult": 2.5,
 		"spawn_every": 2, "step_every": 3, "onboard": 3, "floor": 3, "surge_at": 0.80,
 		"weights": {"basic": 62, "bomb": 38}, "pool": POOL_STD,
