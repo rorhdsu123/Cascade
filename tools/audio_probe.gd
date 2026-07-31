@@ -23,7 +23,7 @@ const IDLE_HUMAN: int = 108      # 1/60 프레임 = 1.8초/수(사람 템포). �
 const IDLE_STRESS: int = 1       # 인간이 불가능한 최고 속도 = 상한 시험
 
 # 단어별 물리 길이(초) — 겹침 계산용. pitch_scale이 올라가면 실제론 더 짧게 끝나므로 보수적 상한이다.
-const WORD_DUR: Dictionary = {"grab": 0.075, "place": 0.09, "clear": 0.34, "chain": 0.19, "score": 0.035, "fail": 0.42, "tap": 0.06}
+const WORD_DUR: Dictionary = {"grab": 0.34, "place": 0.42, "clear": 0.34, "chain": 0.19, "score": 0.035, "fail": 0.42, "tap": 0.06}
 const MAX_VOICES: int = 8
 const MAX_FIRES_IN_1S: int = 15         # 예산 14/초 + 회복 여유 1
 const LADDER_MAX_SEMI: int = 16
