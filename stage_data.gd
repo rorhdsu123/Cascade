@@ -52,13 +52,23 @@ const POOL_RICH: Dictionary = {   # 줄-풍부: 온보딩·숨통 (I5 최다)
 const POOL_STD: Dictionary = {    # 표준: I5 중간
 	"1": 1, "D2h": 3, "D2v": 3, "I3h": 5, "I3v": 5, "L3a": 3, "L3b": 3, "L3c": 3, "L3d": 3,
 	"O": 4, "T": 4, "S": 3, "Z": 3, "L": 4, "J": 4, "R32": 3, "R23": 3, "I5h": 11, "I5v": 11}
+# 온보딩 전용(C109) — '큼직하게 채우다가 세로 바로 여러 줄을 싹' 을 만드는 배합.
+#   1칸·도미노를 아예 빼고(전부 3칸 이상), 직사각(R23·R32)으로 행을 덩어리째 메워 여러 행을
+#   동시에 '한 칸 남은' 상태로 만든 다음, 최다 가중인 세로 5바(I5v 24)가 그걸 한 번에 터뜨린다.
+#   I3h·I3v는 남겨둔다 — 큰 조각만 주면 안 맞을 때 보드가 잼된다(탈출 밸브).
+#   실측(campaign_probe 시드베이스 2개 × N=300): 동시2줄 0.57→1.38회/판(2.4배) · 동시3줄 0.04→0.15
+#   · 최대콤보 3.8→4.2 · 배치 24.5→22.0, 그러면서 승률 94.2→94.7% · 막힘 5.7→5.3%.
+#   ⚠기각: R33(3×3)을 3만 얹어도 동시2가 1.50으로 겨우 오르면서 막힘이 8.2%로 뛴다.
+#   ⚠기각: I5v를 32까지 올리기(D2) — 동시3은 늘지만 세로만 손에 잡혀 막힘 10.3%.
+const POOL_ONBOARD: Dictionary = {
+	"I3h": 3, "I3v": 5, "O": 6, "T": 3, "L": 3, "J": 3, "R32": 8, "R23": 10, "I5h": 12, "I5v": 24}
 const POOL_LEAN: Dictionary = {   # 줄-굶김: 퍼즐 축 압박 (I5 희소)
 	"1": 1, "D2h": 3, "D2v": 3, "I3h": 5, "I3v": 5, "L3a": 3, "L3b": 3, "L3c": 3, "L3d": 3,
 	"O": 4, "T": 4, "S": 3, "Z": 3, "L": 4, "J": 4, "R32": 3, "R23": 3, "I5h": 4, "I5v": 4}
 
 const STAGES: Array = [
 	{
-		# 온보딩: basic만 + core_hp 넉넉 + pool RICH(I5 최다) = 퍼즐 무압박으로 '줄 완성' 코어만 가르침
+		# 온보딩: basic만 + core_hp 넉넉 + pool ONBOARD(큰 조각 + 세로바) = 퍼즐 무압박으로 '줄 완성' 코어만 가르침
 		# total 20→14(C108): 판이 길다는 지적(배치 32.4회)의 레버는 total이었다. floor 4가 보드를 계속
 		#   채우니 클리어 조건(killed+leaked >= total)이 곧 길이다 — 적 수를 줄이면 그대로 짧아진다.
 		#   실측(campaign_probe 시드베이스 2개 × N=300): 배치 32.4→24.5(−24%), 막힘 13.3%→5.7%,
@@ -70,7 +80,7 @@ const STAGES: Array = [
 		"name": "st1_name", "tag": "st1_tag",
 		"total": 14, "core_hp": 7, "base_hp": 30, "hp_ramp": 0.0, "tank_mult": 2.5,
 		"spawn_every": 3, "step_every": 3, "onboard": 20, "floor": 4, "surge_at": 0.85,
-		"weights": {"basic": 100, "fast": 0, "tank": 0, "swarm": 0, "split": 0}, "pool": POOL_RICH,
+		"weights": {"basic": 100, "fast": 0, "tank": 0, "swarm": 0, "split": 0}, "pool": POOL_ONBOARD,
 	},
 	{
 		# desync로 무리 절반이 base_step−1로 더 빨리 전진 → 행·열로 흩어져 한 줄론 못 쓸어냄
