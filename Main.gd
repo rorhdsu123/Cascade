@@ -889,7 +889,22 @@ const SFX_WORDS: Dictionary = {
 	"fanfare": {"gap": 0.00, "db": -14.0, "det": 0.004},  # 아르페지오 4음이 겹치므로 clear보다 낮게
 	"score": {"gap": 0.055, "db": -10.0, "det": 0.010},  # 연달아 나가므로 작게(단, 안 들리면 없느니만 못하다)
 	"fail": {"gap": 0.00, "db": -7.8, "det": 0.004},   # 유저 요청이 "약하지만 짧게" — 축하보다 낮게 둔다
-	"tap": {"gap": 0.05, "db": -9.0, "det": 0.012},
+	# ── UI 탭 넷(R13) ─────────────────────────────────────────────────────────
+	# **파형을 안 늘렸다** — 전부 pop_high 하나에서 `base`(§14)로만 갈린다. UI는 판 안의 어떤 사건도
+	#   아니므로 새 음색을 주면 그 자리에 없던 물건이 하나 더 생긴다. 대신 **방향이 뜻을 나른다**
+	#   (§10 레퍼런스 실측: 집기=상승·착지=하강): 진입은 위, 뒤로는 아래, 막힘은 더 아래.
+	# ⚠tap_off는 '벌'이 아니다. 잠긴 버튼이 완전 무음이면 고장으로 읽히고, 경고음을 주면 §4가 기각한
+	#   '탐색을 벌하는 소리'가 된다 → 낮고 조용한 중립음 하나로 "눌리긴 했고, 여긴 아직 아니다"만 말한다.
+	# ⚠음정은 **5음계 가족 안에서** 고른다(+7 5도 위 · −5 4도 아래 · −8 6도 아래) — 연쇄 사다리와
+	#   같은 음률이라 UI 소리가 판의 소리와 협화한다. 크로매틱으로 잡으면 UI만 조성 밖에서 논다.
+	# ⚠**더 내리지 않는 이유는 폰이다.** pop_high를 −9 아래로 내리면 중심이 584Hz 밑으로 내려가
+	#   폰 시뮬 손실이 −3.6dB에서 급격히 깊어진다(−12반음 = −6.0dB). 무릎이 −7~−8이라 거기서 멈췄다.
+	#   §9 P0와 같은 함정 — 가장 조용한 단어가 폰에서 가장 많이 깎이면 '무음'으로 되돌아간다.
+	"tap": {"gap": 0.05, "db": -9.0, "det": 0.012},                 # 중립 — 열기·토글·항목
+	"tap_go": {"gap": 0.05, "db": -9.0, "det": 0.012, "base": 7},   # 진입·확정 — 플레이/재도전/CTA
+	"tap_back": {"gap": 0.05, "db": -9.5, "det": 0.012, "base": -5},# 뒤로·닫기(진입보다 낮고 조용히)
+	# 잠김은 폰 손실(−3.0dB)을 레벨로 절반쯤 되갚아 둔다 — 안 그러면 폰에서만 이 한 단어가 사라진다.
+	"tap_off": {"gap": 0.05, "db": -10.5, "det": 0.012, "base": -8},# 잠김·무반응
 	# clear의 둘째 층 전용. FB_MAP엔 없다(호출부가 부르는 사건이 아니라 clear의 일부).
 	#   ⚠`chain` 이름으로 발화시켰더니 사다리 분석이 이걸 계단으로 세어 역행으로 읽었다(프로브가 잡음).
 	"clear2": {"gap": 0.00, "db": -11.0, "det": 0.004},
@@ -925,6 +940,9 @@ const FB_MAP: Dictionary = {
 	#   그대로 무진동이다 — 실패에 진동까지 얹으면 벌주는 느낌이 되어 코지 톤과 싸운다.
 	"fail": {"hap": "", "sfx": "fail"},
 	"tap": {"hap": "", "sfx": "tap"},         # UI 탭은 진동 없음(OS 터치 피드백과 이중 진동)
+	"tap_go": {"hap": "", "sfx": "tap_go"},
+	"tap_back": {"hap": "", "sfx": "tap_back"},
+	"tap_off": {"hap": "", "sfx": "tap_off"},
 }
 
 # 유일한 접점. 호출부는 '무엇이 일어났나'만 말한다.
@@ -984,6 +1002,10 @@ func _sfx_build_bank() -> void:
 	_sfx_bank["grab"] = hi
 	_sfx_bank["score"] = hi
 	_sfx_bank["tap"] = hi
+	# UI 탭 셋은 같은 파형이다 — 음정(base)만 다르다. 새 파일을 안 늘리는 게 요점(R13).
+	_sfx_bank["tap_go"] = hi
+	_sfx_bank["tap_back"] = hi
+	_sfx_bank["tap_off"] = hi
 	_sfx_bank["clear"] = bu       # 줄 삭제 타격(칩 놓기, 748Hz)
 	_sfx_bank["clear2"] = sk      # 40ms 뒤 광택(칩 부딪힘, 4994Hz)
 	# ⚠**아르페지오는 clear2가 아니라 낮은 파형이다**(R12에서 되돌렸다). clear2(4994Hz)를 +12반음
@@ -3942,13 +3964,18 @@ func _notification(what: int) -> void:
 	if what != NOTIFICATION_WM_GO_BACK_REQUEST:
 		return
 	_track_revive_dismissed("back")   # 결과 팝업에서 뒤로가기 = 부활 거절(아래 홈 분기보다 먼저 잡는다)
+	# ⚠모바일에선 화면 버튼보다 이 경로가 더 자주 눌린다 — 여기 소리를 안 달면 폰에서만 UI가 무음이 된다.
 	if settings_open:
+		_fb("tap_back")
 		settings_open = false
 	elif mode == "play" and (game_over or game_clear):
+		_fb("tap_back")
 		mode = _home_mode()          # 결과 팝업에서 뒤로 = 홈(재도전은 명시 버튼으로만)
 	elif mode == "play":
+		_fb("tap")                   # 일시정지(설정 열기) = 기어와 같은 소리
 		settings_open = true         # 판 중에는 절대 안 나간다 — 일시정지(홈·재시작이 그 안에 있다)
 	elif mode == "select" or mode == "leaderboard":
+		_fb("tap_back")
 		mode = "menu"
 	else:
 		get_tree().quit()            # 허브에서 한 번 더 = 종료(안드로이드 관례)
@@ -3976,6 +4003,7 @@ func _input(event: InputEvent) -> void:
 		elif event is InputEventKey:
 			var sek: InputEventKey = event as InputEventKey
 			if sek.pressed and sek.keycode == KEY_ESCAPE:
+				_fb("tap_back")
 				settings_open = false   # ESC = 모달 닫기(홈 아님)
 		return
 
@@ -3993,24 +4021,36 @@ func _input(event: InputEvent) -> void:
 			if mb.pressed and mb.button_index == MOUSE_BUTTON_LEFT:
 				var mbp: Vector2 = mb.position - mdy
 				if MENU_ADV_BTN.has_point(mbp):
+					_fb("tap_go")
 					_adventure_go()                # 이어하기 = 다음 스테이지로 바로
 				elif MENU_CLASSIC_BTN.has_point(mbp):
 					if _endless_unlocked():
+						_fb("tap_go")
 						_start_endless()           # 무한 모드 바로 시작
+					else:
+						_fb("tap_off")             # 잠김 — 화면은 여전히 무반응이고 소리만 "여긴 아직"이라 말한다
 					# 잠겼으면 무반응 — 선택화면의 잠긴 카드와 같은 어휘(자물쇠는 이유를 이미 적어 둠)
 				elif LEADERBOARD_ENABLED and MENU_LB_BTN.has_point(mbp):
 					# ⚠mbp(=dy 보정 좌표)여야 한다. raw position을 쓰면 그리는 자리와 눌리는 자리가
 					#   _ui_dy만큼 어긋나 1000보다 높은 모든 화면(=모든 폰)에서 이 버튼이 죽는다.
 					#   호버는 보정 좌표라 '불은 들어오는데 안 눌리는' 형태로 숨는다. (tools/ux_hit_probe.gd)
+					_fb("tap")
 					mode = "leaderboard"           # 우상단 트로피 → 리더보드 peek
 		elif event is InputEventKey:
+			# ⚠키 경로도 같은 소리를 태운다 — 버튼에만 달면 키로 눌렀을 때만 조용해져서, 같은 행동이
+			#   입력 방식에 따라 다르게 들린다(데스크톱 플테에서 '가끔 소리가 안 난다'로 보고된다).
 			var mk: InputEventKey = event as InputEventKey
 			if mk.pressed and (mk.keycode == KEY_SPACE or mk.keycode == KEY_ENTER):
+				_fb("tap_go")
 				_adventure_go()                    # 기본 = Adventure(이어하기)
 			elif mk.pressed and (mk.keycode == KEY_E or mk.keycode == KEY_0):
 				if _endless_unlocked():
+					_fb("tap_go")
 					_start_endless()               # E/0 = Classic(무한). 잠금은 버튼과 같은 게이트를 탄다
+				else:
+					_fb("tap_off")
 			elif mk.pressed and mk.keycode == KEY_L and LEADERBOARD_ENABLED:
+				_fb("tap")
 				mode = "leaderboard"               # L = 리더보드
 		return
 
@@ -4026,15 +4066,19 @@ func _input(event: InputEvent) -> void:
 			if lmb.pressed and lmb.button_index == MOUSE_BUTTON_LEFT:
 				var lmp: Vector2 = lmb.position - ldy
 				if BACK_BTN.has_point(lmp):
+					_fb("tap_back")
 					mode = "menu"
 				elif LB_PLAY_BTN.has_point(lmp) and _endless_unlocked():
+					_fb("tap_go")
 					_start_endless()   # ⚠허브 버튼과 같은 게이트 — 여기만 열어두면 잠금이 새는 뒷문이 된다
 		elif event is InputEventKey:
 			var lk: InputEventKey = event as InputEventKey
 			if lk.pressed and lk.keycode == KEY_ESCAPE:
+				_fb("tap_back")
 				mode = "menu"
 			elif lk.pressed and (lk.keycode == KEY_SPACE or lk.keycode == KEY_E):
 				if _endless_unlocked():
+					_fb("tap_go")
 					_start_endless()
 		return
 
@@ -4069,8 +4113,10 @@ func _input(event: InputEvent) -> void:
 							_dev_reset_arm = DEV_RESET_ARM  # 첫 탭 = 무장(시간 지나면 저절로 풀림)
 							queue_redraw()
 					elif BACK_BTN.has_point(smp):
+						_fb("tap_back")
 						mode = "menu"                       # 허브로 복귀
 					elif PLAY_BTN.has_point(smp) and not _all_cleared():
+						_fb("tap_go")
 						_start_stage(_current_stage())      # 하단 버튼 = 프런티어(다음 판)로 진행
 					elif smp.y > SEL_TOP and smp.y < SEL_VIEW_BOT:
 						_sel_drag_y = smp.y                 # 그리드 영역 프레스 = 드래그 스크롤 시작
@@ -4080,8 +4126,10 @@ func _input(event: InputEvent) -> void:
 			var sk: InputEventKey = event as InputEventKey
 			if sk.pressed and (sk.keycode == KEY_SPACE or sk.keycode == KEY_ENTER):
 				if not _all_cleared():
+					_fb("tap_go")
 					_start_stage(_current_stage())         # 프런티어로 진행
 			elif sk.pressed and sk.keycode == KEY_ESCAPE:
+				_fb("tap_back")
 				mode = "menu"                              # 뒤로 = 허브
 				# ⚠'오늘의 판'(featured) 진입은 C60에서 보류 — 플레이어 노출 제거. 엔진은 tools/probe로만 도달.
 			elif sk.pressed and sk.keycode == KEY_0 and OS.is_debug_build():
@@ -4125,23 +4173,28 @@ func _input(event: InputEvent) -> void:
 			var mbe: InputEventMouseButton = event as InputEventMouseButton
 			if mbe.pressed and mbe.button_index == MOUSE_BUTTON_LEFT:
 				if has_cont and (lay["cont"] as Rect2).has_point(mbe.position):
+					_fb("tap_go")
 					_request_revive_ad()
 				elif (lay["retry"] as Rect2).has_point(mbe.position):
+					_fb("tap_go")
 					_track_revive_dismissed("retry")
 					_result_advance()
 				elif (lay["home"] as Rect2).has_point(mbe.position):
+					_fb("tap_back")
 					_track_revive_dismissed("home")
 					mode = _home_mode()
 		elif event is InputEventKey:
 			var ke: InputEventKey = event as InputEventKey
 			# SPACE = 주 동작. 부활 가능하면 '광고 이어하기', 아니면 재도전/다음.
 			if ke.pressed and ke.keycode == KEY_SPACE:
+				_fb("tap_go")
 				if has_cont:
 					_request_revive_ad()
 				else:
 					_track_revive_dismissed("retry")
 					_result_advance()
 			elif ke.pressed and ke.keycode == KEY_ESCAPE:
+				_fb("tap_back")
 				_track_revive_dismissed("home")
 				mode = _home_mode()
 		return
@@ -4157,6 +4210,7 @@ func _input(event: InputEvent) -> void:
 	if event is InputEventKey:
 		var pk: InputEventKey = event as InputEventKey
 		if pk.pressed and pk.keycode == KEY_ESCAPE:
+			_fb("tap_back")
 			mode = _home_mode()  # 플레이 중 포기 → 홈(허브)으로
 			return
 		# ⚠플테 전용 DEV: '9'키 = 점수 +10,000. PB 너머 심화(bf 3~6)를 자연 그라인드 없이 눈으로 보기 위함.
@@ -4198,6 +4252,7 @@ func _input(event: InputEvent) -> void:
 
 		# 설정 기어 → 모달 열기(들고 있던 조각은 트레이로 되돌림)
 		if mbe.pressed and gear_rect.has_point(mbe.position):
+			_fb("tap")
 			settings_open = true
 			plane_armed = false   # 모달 뒤에 조준이 살아 있으면 돌아왔을 때 유령 링이 떠 있다
 			_return_held()
@@ -4207,9 +4262,13 @@ func _input(event: InputEvent) -> void:
 		#   빈 슬롯은 히트 영역이 없다 — 눌리는데 아무 일도 안 일어나면 고장으로 읽힌다.
 		if mbe.pressed and plane_held and _plane_slot_rect().has_point(mbe.position):
 			if plane_armed:
+				_fb("tap_go")        # 발사 확정. ⚠비행(호밍) 자체의 소리는 아직 없다 — AUDIO_PLAN §20 B-11
 				_fire_plane()
 			elif not _plane_target().is_empty():
+				_fb("tap")           # 조준 켜짐
 				plane_armed = true   # 표적이 없으면 조준 자체를 안 켠다(빈 링 = 거짓 약속)
+			else:
+				_fb("tap_off")       # 표적이 없어 조준이 안 켜진다 = 잠긴 버튼과 같은 '아직 아니다'
 			return
 		# 슬롯 밖을 누르면 조준 해제 — '한 번 더 눌러야 나간다'의 짝은 '딴 데 누르면 취소된다'다.
 		if mbe.pressed:
@@ -4217,6 +4276,7 @@ func _input(event: InputEvent) -> void:
 
 		# 입력 방식 토글 버튼 (PC 테스트 편의용) — 안 그릴 땐 히트 영역도 없다(show_input_toggle)
 		if show_input_toggle and mbe.pressed and mode_btn.has_point(mbe.position):
+			_fb("tap")
 			click_mode = not click_mode
 			_return_held()   # 모드가 바뀌면 들고 있던 조각은 트레이로 돌려놓는다
 			return
@@ -5210,16 +5270,24 @@ func _settings_layout() -> Dictionary:
 
 func _settings_click(pos: Vector2, lay: Dictionary) -> void:
 	if (lay["close"] as Rect2).has_point(pos):
+		_fb("tap_back")
 		settings_open = false
 	elif (lay["sound_tog"] as Rect2).has_point(pos):
+		# ⚠**끌 때는 뒤집기 전에** 울린다 — _sfx가 sound_on을 보고 조기 반환하므로, 순서를 바꾸면
+		#   끄는 탭만 응답이 없어 "토글이 씹혔나"로 읽힌다(켤 때만 소리가 나던 게 R12까지의 상태).
+		#   재생은 이미 시작된 보이스가 마저 낸다 — 플래그가 내려가도 잘리지 않는다.
+		if sound_on:
+			_sfx("tap_back")              # 끄기 = 내려가는 음
 		sound_on = not sound_on
 		_save_settings()
 		if sound_on:
 			_sfx("tap")                   # 켠 직후 한 발 = 방금 켠 걸 귀로 확인시킨다(햅틱 토글과 같은 관습)
 	elif (lay["bgm_tog"] as Rect2).has_point(pos):
+		_fb("tap")
 		bgm_on = not bgm_on
 		_save_settings()
 	elif (lay["haptic_tog"] as Rect2).has_point(pos):
+		_fb("tap")
 		haptic_on = not haptic_on
 		_save_settings()
 		if haptic_on:
@@ -5227,14 +5295,17 @@ func _settings_click(pos: Vector2, lay: Dictionary) -> void:
 			#   기기에서 어휘를 재생해 볼 수 있는 유일한 트리거이기도 하다 — 세기 판정용.
 			_haptic("pop", 3.0)
 	elif (lay["home_btn"] as Rect2).has_point(pos):
+		_fb("tap_back")
 		settings_open = false
 		_track_revive_dismissed("home")
 		mode = _home_mode()               # 홈 = 허브(결과팝업 '홈으로'와 동일 경로)
 	elif (lay["replay_btn"] as Rect2).has_point(pos):
+		_fb("tap_go")
 		settings_open = false
 		_track_revive_dismissed("retry")
 		_result_advance()                 # 재시작 = 감독이 정하는 재도전(스테이지=현 스테이지, 무한=새 런)
 	elif bool(lay["privacy_on"]) and (lay["privacy_btn"] as Rect2).has_point(pos):
+		_fb("tap")
 		# 구글의 개인정보 옵션 폼(네이티브)을 띄운다. 모달은 닫지 않는다 — 폼을 닫으면 설정으로 돌아온다.
 		_ads.show_privacy_options()
 	# 그 밖(패널 빈 곳·스크림)은 무시 = 모달. 잘못 눌러 튕기는 사고 방지(결과팝업과 동일 원칙).

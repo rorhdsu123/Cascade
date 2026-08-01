@@ -23,7 +23,10 @@ const IDLE_HUMAN: int = 108      # 1/60 프레임 = 1.8초/수(사람 템포). �
 const IDLE_STRESS: int = 1       # 인간이 불가능한 최고 속도 = 상한 시험
 
 # 단어별 물리 길이(초) — 겹침 계산용. pitch_scale이 올라가면 실제론 더 짧게 끝나므로 보수적 상한이다.
-const WORD_DUR: Dictionary = {"grab": 0.13, "place": 0.09, "clear": 0.16, "chain": 0.06, "score": 0.13, "fail": 0.09, "tap": 0.13, "clear2": 0.10, "fanfare": 0.16}
+#   ⚠UI 탭 셋은 tap과 **같은 파형**이고 base(음정)만 다르다 → 길이가 그만큼 갈린다:
+#   tap_go(+7) 0.13×2^(−7/12)≈0.09 · tap_back(−5) ≈0.18 · tap_off(−8) ≈0.21.
+const WORD_DUR: Dictionary = {"grab": 0.13, "place": 0.09, "clear": 0.16, "chain": 0.06, "score": 0.13, "fail": 0.09,
+		"tap": 0.13, "tap_go": 0.09, "tap_back": 0.18, "tap_off": 0.21, "clear2": 0.10, "fanfare": 0.16}
 const MAX_VOICES: int = 8
 const MAX_FIRES_IN_1S: int = 15         # 예산 14/초 + 회복 여유 1
 const LADDER_MAX_SEMI: int = 16
@@ -255,6 +258,51 @@ func _pass_vocab() -> Array:
 	_idle(60)
 	return g._sfx_log.duplicate(true)
 
+# 패스 E — UI 탭 배선(R13). **어휘를 직접 때리지 않고 진짜 입력 이벤트를 _input에 먹인다.**
+#   봇 패스(A~D)는 버튼을 한 번도 안 누르므로, 여기서 안 재면 호출부가 통째로 빠져 있어도 초록이다
+#   (grab·score·fail에서 이미 겪은 함정과 같은 종류).
+func _click(pos: Vector2) -> void:
+	var ev := InputEventMouseButton.new()
+	ev.button_index = MOUSE_BUTTON_LEFT
+	ev.pressed = true
+	ev.position = pos
+	g._input(ev)
+	_idle(6)          # 발화 간 최소 간격(0.05s)보다 길게 — 안 그러면 뒤 탭이 gap으로 드롭된다
+
+func _pass_ui() -> Array:
+	g.sfx_log_on = true
+	g.sound_on = true
+	g._sfx_log = []
+	g._sfx_t = 0.0
+	var out: Array = []
+	seed(SEED_CAMPAIGN)
+	g.seed_game(SEED_CAMPAIGN)
+	g._start_stage(0)
+	g.intro_t = -1.0          # ⚠인트로 카드가 떠 있으면 첫 클릭이 '스킵'으로 삼켜진다(판 입력 차단 구간)
+	_idle(2)
+	# ① 기어 = 설정 열기(플레이 중 가장 잦은 UI 탭)
+	_click((g.gear_rect as Rect2).get_center())
+	out.append(["기어", g.settings_open])
+	# ② 설정 모달 닫기(×)
+	var lay: Dictionary = g._settings_layout()
+	_click((lay["close"] as Rect2).get_center())
+	out.append(["닫기", not g.settings_open])
+	# ③ 잠긴 Classic — 화면은 무반응이고 소리만 난다. 잠금을 확실히 세워 둔다(실유저 세이브 영향 제거).
+	g.mode = "menu"
+	g.cleared = {}
+	g.dev_unlock_all = false
+	g.endless_best = 0
+	var dy: Vector2 = Vector2(0.0, g._ui_dy())
+	_click((g.MENU_CLASSIC_BTN as Rect2).get_center() + dy)
+	out.append(["잠김", g.mode == "menu"])       # 잠겼으면 화면은 그대로여야 한다
+	# ④ Adventure = 진행 화면 진입
+	_click((g.MENU_ADV_BTN as Rect2).get_center() + dy)
+	out.append(["진입", g.mode == "select"])
+	# ⑤ 뒤로 = 허브 복귀
+	_click((g.BACK_BTN as Rect2).get_center() + dy)
+	out.append(["뒤로", g.mode == "menu"])
+	return [g._sfx_log.duplicate(true), out]
+
 func _run() -> void:
 	g = load("res://Main.tscn").instantiate()
 	root.add_child(g)
@@ -300,12 +348,14 @@ func _run() -> void:
 	_check("⑥ 같은 시드 = 같은 로그(RNG 미사용)", sig_a == sig_c,
 			"A %d줄 · C %d줄" % [sig_a.size(), sig_c.size()])
 
-	var allowed: Array = ["grab", "place", "clear", "clear2", "chain", "score", "fail", "tap", "fanfare"]   # fanfare = 아르페지오 4음(R12부터 자기 이름으로 남는다)
+	# fanfare = 아르페지오 4음(R12부터 자기 이름으로 남는다). tap_* 셋은 R13 UI 탭(같은 파형·다른 음정).
+	var allowed: Array = ["grab", "place", "clear", "clear2", "chain", "score", "fail",
+			"tap", "tap_go", "tap_back", "tap_off", "fanfare"]
 	var unexpected: Array = []
 	for k in kinds_a.keys():
 		if not allowed.has(String(k)):
 			unexpected.append(k)
-	_check("⑦ 어휘는 아홉뿐", unexpected.is_empty(), "예상 밖: %s" % str(unexpected))
+	_check("⑦ 어휘는 열둘뿐", unexpected.is_empty(), "예상 밖: %s" % str(unexpected))
 
 	# ── 패스 D: 어휘 직접 타격(fanfare 1회 상한·판 경계 리셋)
 	var log_d: Array = _pass_vocab()
@@ -345,6 +395,32 @@ func _run() -> void:
 	_check("⑩ 실패 배선(_end_turn 거점사 → fail)", n_fail == 1, "%d발" % n_fail)
 	_check("⑤ fanfare = 4음 아르페지오 ×2판", fan_notes == 8, "%d발 · %s" % [fan_notes, str(semis)])
 	_check("⑤ 같은 판 두 번째 fanfare = 드롭", fan_drops.has("once"), "드롭 %s" % str(fan_drops))
+
+	# ── 패스 E: UI 탭 배선(진짜 입력 이벤트)
+	var re: Array = _pass_ui()
+	var log_e: Array = re[0]
+	var nav: Array = re[1]
+	var ui: Dictionary = {}
+	for e0 in log_e:
+		var e: Dictionary = e0 as Dictionary
+		if String(e["drop"]) != "":
+			continue
+		var k: String = String(e["kind"])
+		if k.begins_with("tap"):
+			ui[k] = int(ui.get(k, 0)) + 1
+	var nav_ok: bool = true
+	var nav_bad: Array = []
+	for n in nav:
+		if not bool((n as Array)[1]):
+			nav_ok = false
+			nav_bad.append((n as Array)[0])
+	print("── UI 탭: %s · 화면 전환 %s" % [str(ui), "정상" if nav_ok else str(nav_bad)])
+	_check("⑪ 기어·닫기 배선(tap / tap_back)", int(ui.get("tap", 0)) >= 1 and int(ui.get("tap_back", 0)) >= 2,
+			"tap %d · tap_back %d" % [int(ui.get("tap", 0)), int(ui.get("tap_back", 0))])
+	_check("⑫ 진입 배선(버튼 → tap_go)", int(ui.get("tap_go", 0)) >= 1, "%d발" % int(ui.get("tap_go", 0)))
+	_check("⑬ 잠긴 버튼 = tap_off(무음도 경고음도 아님)", int(ui.get("tap_off", 0)) == 1,
+			"%d발" % int(ui.get("tap_off", 0)))
+	_check("⑭ UI 탭이 화면 전환과 일치", nav_ok, "어긋남: %s" % str(nav_bad))
 
 	print("=== %s (실패 %d) ===" % ["PASS" if fails == 0 else "FAIL", fails])
 	quit(1 if fails > 0 else 0)
