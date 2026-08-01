@@ -23,7 +23,7 @@ const IDLE_HUMAN: int = 108      # 1/60 프레임 = 1.8초/수(사람 템포). �
 const IDLE_STRESS: int = 1       # 인간이 불가능한 최고 속도 = 상한 시험
 
 # 단어별 물리 길이(초) — 겹침 계산용. pitch_scale이 올라가면 실제론 더 짧게 끝나므로 보수적 상한이다.
-const WORD_DUR: Dictionary = {"grab": 0.13, "place": 0.09, "clear": 0.23, "chain": 0.06, "score": 0.13, "fail": 0.09, "tap": 0.13, "clear2": 0.06}
+const WORD_DUR: Dictionary = {"grab": 0.13, "place": 0.09, "clear": 0.16, "chain": 0.06, "score": 0.13, "fail": 0.09, "tap": 0.13, "clear2": 0.10, "fanfare": 0.16}
 const MAX_VOICES: int = 8
 const MAX_FIRES_IN_1S: int = 15         # 예산 14/초 + 회복 여유 1
 const LADDER_MAX_SEMI: int = 16
@@ -300,12 +300,12 @@ func _run() -> void:
 	_check("⑥ 같은 시드 = 같은 로그(RNG 미사용)", sig_a == sig_c,
 			"A %d줄 · C %d줄" % [sig_a.size(), sig_c.size()])
 
-	var allowed: Array = ["grab", "place", "clear", "clear2", "chain", "score", "fail", "tap"]   # fanfare는 clear로 펼쳐져 로그에 남는다
+	var allowed: Array = ["grab", "place", "clear", "clear2", "chain", "score", "fail", "tap", "fanfare"]   # fanfare = 아르페지오 4음(R12부터 자기 이름으로 남는다)
 	var unexpected: Array = []
 	for k in kinds_a.keys():
 		if not allowed.has(String(k)):
 			unexpected.append(k)
-	_check("⑦ 어휘는 여덟뿐", unexpected.is_empty(), "예상 밖: %s" % str(unexpected))
+	_check("⑦ 어휘는 아홉뿐", unexpected.is_empty(), "예상 밖: %s" % str(unexpected))
 
 	# ── 패스 D: 어휘 직접 타격(fanfare 1회 상한·판 경계 리셋)
 	var log_d: Array = _pass_vocab()
@@ -317,8 +317,9 @@ func _run() -> void:
 		if String(e["drop"]) != "":
 			fan_drops.append(String(e["drop"]))
 			continue
-		# ⚠아르페지오는 `clear2`(반짝임) 파형으로 나간다 — R9에서 타격 4연타가 거칠어 바꿨다.
-		if String(e["kind"]) == "clear2":
+		# ⚠**어휘를 바꾸면 이 검사도 같이 갱신해야 한다** — R9에서 이름 의존 때문에 한 번 FAIL했다.
+		#   R12부터 아르페지오는 `fanfare` 이름으로 남는다(파형은 clear와 같은 낮은 칩).
+		if String(e["kind"]) == "fanfare":
 			fan_notes += 1
 			semis.append(int(e["semi"]))
 	var grabs: int = 0

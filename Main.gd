@@ -923,30 +923,43 @@ func _fb(kind: String, intensity: float = 0.0) -> void:
 #   놓기·집기엔 맞지만 "팡 터지는" 보상은 안 된다(유저 판정).
 const SFX_LOW: String = "res://sfx/pop_low.wav"       # 775Hz  — 동작: 착지·실패
 const SFX_HIGH: String = "res://sfx/pop_high.wav"     # 1034Hz — 동작: 집기·점수·탭
-# ⚠**R10에서 보상 파형을 갈아치웠다.** R9의 burst(3146Hz·2~5kHz 58%)·sparkle(5156Hz·52%)은
-#   레퍼런스보다 2~3배 밝아서 유저 판정이 "거슬린다"였다. 레퍼런스 삭제음은 **1479Hz·22%**다.
-#   이번엔 기준을 내가 정하지 않고 **레퍼런스 클립을 목표 벡터로 삼아 391개를 스펙트럼 거리로**
-#   줄 세워 1위를 골랐다(sparkle은 그 순위에서 258/380으로 꼴찌권이었다 = 거슬림의 정체).
-const SFX_HIT: String = "res://sfx/hit.wav"           # 1464Hz — 삭제 타격(REF 1479Hz와 거의 일치)
-const SFX_SHINE: String = "res://sfx/shine.wav"       # 1758Hz — 40ms 뒤 광택(2~5kHz 33%)
+# ⚠**보상 파형은 R12에서 '카지노 칩'으로 확정됐다**(유저가 20개 A/B 중 고름). 여정을 남긴다:
+#   R9 burst/sparkle(3146·5156Hz) → "거슬린다" · R10 wooden_02 → "나무라 방향성에 안 맞는다" ·
+#   R11 유리/크리스털(impactGlass+pluck) → **"에러 사운드 같다"**. 마지막 건 이유가 있었다 —
+#   pluck_001은 Kenney *Interface* 팩 소속이라 error_00N과 같은 신스 보이스를 쓴다(UI 관용구).
+#   → **선정 방식의 결론: 기계는 명백히 못 쓰는 것만 걷어내고 목록을 넓게 내놓는다.**
+#   내가 좁힌 임계값은 세 라운드 연속 유저 귀와 어긋났다. 거리 순위 1위도 세 번 다 틀렸다.
+# ⚠**선행 무음을 잘라서 넣는다.** R10의 hit.wav는 파일 앞에 **60ms 무음**이 붙어 있어 삭제음이
+#   섬광보다 3.6프레임 늦게 울렸고("같은 프레임" 설계 위반), 2층(+40ms)이 1층의 실어택(60ms)과
+#   **5ms 차로 겹쳐** 2단 구조가 통째로 뭉개져 있었다. 지금 둘 다 리드 ~1ms다.
+#   → **샘플을 새로 넣을 땐 리드를 재고 잘라라.** 스펙트럼 매칭은 시간축 정렬을 안 본다.
+# ⚠**칩 저역은 감수한 값이다.** chip_low는 에너지의 **30%가 300Hz 아래**라 폰 시뮬 −4.9dB —
+#   지금 어휘 중 가장 큰 손실이다(다른 단어는 −1~−2dB). 음정을 +7반음까지 올려도 −3.5dB뿐이라
+#   이득이 작아서 **원음 그대로 뒀다**. 실기기에서 얇으면 그때 하이패스로 다듬는다(§9 P0 계열 위험).
+const SFX_CHIP_LOW: String = "res://sfx/chip_low.wav"    # 748Hz  — 삭제 타격(칩 놓기, 157ms)
+const SFX_CHIP_HIGH: String = "res://sfx/chip_high.wav"  # 4994Hz — 40ms 뒤 광택(칩 부딪힘, 104ms)
 
 func _sfx_build_bank() -> void:
 	var lo: AudioStream = load(SFX_LOW)
 	var hi: AudioStream = load(SFX_HIGH)
-	var bu: AudioStream = load(SFX_HIT)
-	var sk: AudioStream = load(SFX_SHINE)
+	var bu: AudioStream = load(SFX_CHIP_LOW)
+	var sk: AudioStream = load(SFX_CHIP_HIGH)
 	if lo == null or hi == null or bu == null or sk == null:
 		push_warning("SFX 로드 실패 — `godot --headless --path . --import` 먼저(새 워크트리 함정)")
 		return
 	# 낮은 파형 = 확정·무게. 높은 파형 = 가벼움·상승.
-	# 동작 = pop(얌전·잦음) / 보상 = burst+sparkle(밝고 터짐)
+	# 동작 = pop(얌전·잦음) / 보상 = 칩 낮은음+부딪힘(둔탁하게 놓고 짤랑 얹기)
 	_sfx_bank["place"] = lo
 	_sfx_bank["fail"] = lo
 	_sfx_bank["grab"] = hi
 	_sfx_bank["score"] = hi
 	_sfx_bank["tap"] = hi
-	_sfx_bank["clear"] = bu       # 줄 삭제 타격(1464Hz)
-	_sfx_bank["clear2"] = sk      # 40ms 뒤 광택(1758Hz) + fanfare 아르페지오
+	_sfx_bank["clear"] = bu       # 줄 삭제 타격(칩 놓기, 748Hz)
+	_sfx_bank["clear2"] = sk      # 40ms 뒤 광택(칩 부딪힘, 4994Hz)
+	# ⚠**아르페지오는 clear2가 아니라 낮은 파형이다**(R12에서 되돌렸다). clear2(4994Hz)를 +12반음
+	#   올리면 아르페지오 중심이 **9355Hz·5kHz 위 93%**가 되어 R9에서 기각된 그 소리로 돌아간다.
+	#   낮은 파형으로 4연타하면 1329Hz·5kHz 위 2%다. 실측하고 고른 값이니 파형을 바꾸면 다시 잴 것.
+	_sfx_bank["fanfare"] = bu
 	# ⚠적 처치는 pop_high로 되돌렸다 — 연쇄는 한 판에 5~9발이라 밝은 파형을 쓰면 가장 먼저 귀를
 	#   피곤하게 한다. 964Hz는 레퍼런스 삭제음 1층(904Hz)과 같은 자리다.
 	_sfx_bank["chain"] = hi
@@ -998,12 +1011,12 @@ func _sfx(kind: String, intensity: float = 0.0) -> void:
 		_sfx_last[kind] = _sfx_t
 		# 판을 닫는 유일한 긴 소리. 아르페지오라 '끝났다'가 한 음보다 확실히 읽힌다.
 		for k in range(4):
-			# ⚠db를 명시해 넘긴다 — 아르페지오는 `clear` 파형을 빌려 쓰지만 **4음이 겹쳐 쌓이므로**
-			#   clear의 레벨 그대로면 합이 리미터를 세게 때린다(프리뷰에서 클립 8샘플로 드러남).
-			#   이걸 안 넘기면 SFX_WORDS["fanfare"].db가 아무 데도 안 쓰이는 죽은 값이 된다.
-			# ⚠아르페지오는 `clear`(타격)가 아니라 `clear2`(반짝임)를 쓴다 — 타격 4연타는 거칠고,
-			#   판을 닫는 소리는 '기분 좋게' 울려야 한다. db는 겹침 대비로 명시해 넘긴다.
-			_sfx_queue.append({"at": _sfx_t + float(k) * 0.10, "kind": "clear2",
+			# ⚠db를 명시해 넘긴다 — **4음이 겹쳐 쌓이므로** clear의 레벨 그대로면 합이 리미터를
+			#   세게 때린다(프리뷰에서 클립 8샘플로 드러났다).
+			# ⚠**어휘 이름을 `fanfare` 그대로 쓴다**(R12). 예전엔 `clear2` 이름으로 발화시켰는데,
+			#   그러면 로그에서 아르페지오와 삭제 광택층이 구분이 안 되고 프로브 검사가 이름에
+			#   의존해 조용히 깨진다(R9에서 실제로 한 번 FAIL했다). 뱅크에 자기 항목이 있다.
+			_sfx_queue.append({"at": _sfx_t + float(k) * 0.10, "kind": "fanfare",
 					"semi": [0, 4, 7, 12][k], "db": float(w["db"])})
 		return
 	var semi: int = 0

@@ -11,12 +11,23 @@ pop_high.wav  = OpenGameArt "Pop sounds" / pop3.wav  (모노 44.1kHz로 변환)
 
 전 SFX가 이 두 파형에서 나온다 — 음정·레벨·층으로만 갈린다(AUDIO_PLAN.md §13).
 
-── R10 보상음(레퍼런스 스펙트럼 매칭 1위) ──
-hit.wav    = OpenGameArt "100 CC0 SFX" / wooden_02.ogg   — 삭제 타격 1464Hz
-             https://opengameart.org/content/100-cc0-sfx   (CC0 1.0)
-shine.wav  = Kenney "Interface Sounds" / switch_01.ogg     — 40ms 뒤 광택 1758Hz
-             https://kenney.nl/assets/interface-sounds      (CC0 1.0)
+── R12 보상음(유저가 20개 A/B에서 직접 고름) ──
+chip_low.wav   = Kenney "Casino Audio" / chip-lay-3.ogg       — 삭제 타격 748Hz · 157ms
+                 https://kenney.nl/assets/casino-audio        (CC0 1.0)
+chip_high.wav  = Kenney "Casino Audio" / chips-collide-1.ogg  — 40ms 뒤 광택 4994Hz · 104ms
+                 https://kenney.nl/assets/casino-audio        (CC0 1.0)
+⚠둘 다 **선행 무음을 잘라내고** 피크 정규화해서 넣었다. 원본 그대로 쓰면 소리가 섬광보다
+  늦게 울린다 — R10의 hit.wav가 60ms 늦었고, 그 탓에 2단 구조까지 뭉개져 있었다.
+⚠chip_low는 에너지의 **30%가 300Hz 아래**라 폰 시뮬 −4.9dB(어휘 중 최대 손실). 감수한 값이다 —
+  음정을 +7반음 올려도 −3.5dB뿐이라 이득이 작았다. 실기기에서 얇으면 하이패스로 다듬을 것.
 
-선정 방법: 레퍼런스(Block Blast) 녹화에서 소리를 잘라 특징 벡터(1/3옥타브 밴드·길이·크레스트)를
-만들고, CC0 후보 391개를 그 벡터와의 거리로 줄 세워 1위를 골랐다. 내가 정한 임계값으로 거르던
-방식(R9)은 유저 판정 "거슬린다"로 실패했다 — 기준은 레퍼런스가 갖고 있다.
+선정 방법이 세 라운드 만에 바뀌었다. 레퍼런스(Block Blast) 클립을 목표 벡터로 삼아 CC0 후보를
+스펙트럼 거리로 줄 세우는 것까지는 같지만, **거리 1위를 그냥 채택하는 방식은 세 번 다 틀렸다.**
+지금은 기계가 명백히 못 쓰는 것만 걷어내고(폰에서 사라짐 · 2~5kHz 55% 초과) **재질마다 2개씩
+넓게 구워 사람이 고른다**. 후보 굽는 도구가 `build/audio_pick/`을 만든다.
+
+── 기각된 이전 파형(같은 실수를 반복하지 않으려고 남긴다) ──
+R9  burst/sparkle          = 레퍼런스보다 2~3배 밝아 "거슬린다"(2~5kHz 58%·52% vs REF 28%)
+R10 hit(wooden_02)/shine   = 스펙트럼 거리 1위였지만 **재질이 나무**. 벡터는 재질을 안 담는다
+R11 impactGlass/pluck_001  = "에러 사운드 같다". pluck_001은 Kenney *Interface* 팩 소속이라
+                             error_00N과 같은 신스 보이스다 — UI 관용구가 딸려 온다

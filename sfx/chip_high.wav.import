@@ -2,13 +2,13 @@
 
 importer="wav"
 type="AudioStreamWAV"
-uid="uid://cmi601acedw55"
-path="res://.godot/imported/shine.wav-0b46078b24f66b6a90e394d8909f5d63.sample"
+uid="uid://caqc44mooldvn"
+path="res://.godot/imported/chip_high.wav-1411c226f0d5f8b03e1994af65e1a47f.sample"
 
 [deps]
 
-source_file="res://sfx/shine.wav"
-dest_files=["res://.godot/imported/shine.wav-0b46078b24f66b6a90e394d8909f5d63.sample"]
+source_file="res://sfx/chip_high.wav"
+dest_files=["res://.godot/imported/chip_high.wav-1411c226f0d5f8b03e1994af65e1a47f.sample"]
 
 [params]
 
