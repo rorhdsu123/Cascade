@@ -52,6 +52,7 @@ const STR: Dictionary = {
 		"settings": "Settings",
 		"sound": "Sound",
 		"music": "Music",
+		"haptic": "Vibration",       # 'Haptics'보다 폰 설정에서 익숙한 말(안드로이드·iOS 둘 다)
 		"home": "Home",              # 라벨(설정 행 · 뒤로가기)
 		"go_home": "Home",           # 버튼(설정 홈 · 결과 홈)
 		"restart_label": "Restart",
@@ -182,6 +183,7 @@ const STR: Dictionary = {
 		"settings": "설정",
 		"sound": "소리",
 		"music": "배경음",
+		"haptic": "진동",
 		"home": "홈",
 		"go_home": "홈으로",
 		"restart_label": "다시하기",

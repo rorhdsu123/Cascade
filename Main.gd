@@ -379,8 +379,9 @@ var _home_hover: bool = false    # 결과 팝업 홈 버튼 호버
 #   토글(소리·배경음)은 아직 오디오 시스템이 없어 소리를 내지 않는다 — user://에 '선호'만 저장해 두고,
 #   오디오가 붙는 날 이 값을 소비한다(유저 결정: 미리 넣되 지속만). 죽은 토글이 아니라 예약된 선호다.
 var settings_open: bool = false
-var sound_on: bool = true        # SFX 선호(오디오 미구현 — 지속 저장만)
-var bgm_on: bool = false          # BGM 선호(오디오 미구현 — 지속 저장만, 레퍼런스 기본값 OFF)
+var sound_on: bool = true        # SFX 선호 — _sfx()가 소비한다(AUDIO_PLAN.md)
+var bgm_on: bool = false          # ⚠BGM 선호. R1엔 BGM이 없어 **아직 아무것도 안 한다**(AUDIO_PLAN §7).
+                                  #   레퍼런스 기본값 OFF. 죽은 토글을 숨길지는 미결.
 var _gear_hover: bool = false
 var _set_close_hover: bool = false
 var _set_home_hover: bool = false
@@ -599,6 +600,12 @@ func _ready() -> void:
 	randomize()          # 코스메틱 전역 RNG
 	game_rng.randomize()  # 게임 스트림(프리플레이 기본; 데일리/회귀는 seed_game으로 덮어씀)
 	_load_settings()
+	# 햅틱 플랫폼 게이트 — 모바일에서만 실제로 모터를 때린다. 데스크톱·에디터는 no-op이라
+	#   프로브·회귀는 로그만 남기고 조용히 지난다(웹은 amp가 버려지지만 무해).
+	_hap_ok = OS.has_feature("mobile")
+	# 오디오는 플랫폼 게이트가 없다 — 헤드리스는 더미 드라이버라 알아서 조용하고, 데스크톱·모바일은
+	#   동작이 같다. 파형은 여기서 한 번만 굽는다(~27KB, 이후 비용 0).
+	_sfx_init()
 	_load_campaign()
 	_analytics.session_begin()           # 계측 세션 시작(app_opened) — 판·화면보다 먼저여야 첫 판이 이 세션에 묶인다
 	endless_best = _leaderboard.best()   # 로컬 베스트는 LeaderboardService가 소유·로드 — 여기선 캐시로 미러(C64 이음새)
@@ -690,10 +697,16 @@ func _load_settings() -> void:
 		return
 	var f := FileAccess.open(SETTINGS_SAVE, FileAccess.READ)
 	if f != null:
+		var n: int = f.get_length()
 		# 2바이트 미만 = 부분쓰기 손상 → 기본값 유지(안 그러면 sound_on이 조용히 false로 뒤집힘).
-		if f.get_length() >= 2:
+		if n >= 2:
 			sound_on = f.get_8() != 0
 			bgm_on = f.get_8() != 0
+		# 3번째 바이트(햅틱)는 나중에 생겼다 → 없으면 기본값(on)을 그대로 둔다. 길이별로 단계적으로
+		#   읽어야 하는 이유: user://는 트렁크·워크트리·구버전 빌드가 같이 쓴다. 구버전이 쓴 2바이트를
+		#   새 코드가 읽어도, 새 코드가 쓴 3바이트를 구버전이 읽어도 둘 다 안전해야 한다.
+		if n >= 3:
+			haptic_on = f.get_8() != 0
 		f.close()
 
 func _save_settings() -> void:
@@ -701,7 +714,424 @@ func _save_settings() -> void:
 	if f != null:
 		f.store_8(1 if sound_on else 0)
 		f.store_8(1 if bgm_on else 0)
+		f.store_8(1 if haptic_on else 0)
 		f.close()
+
+# ===== 햅틱 (R1 · 정본: HAPTIC_PLAN.md) =====
+# 진동은 '섞이지' 않는다 — 모터가 하나고, 안드로이드는 새 vibrate 호출이 진행 중인 걸 취소·대체한다.
+#   그래서 이 채널은 shake_timer와 같은 승자독식이되, 시간축 관리(불응기·롤링 예산)가 붙는다.
+# 규칙 3개(계측 절과 같은 원칙): ① 관찰만 — 게임 값도 RNG도 안 건드린다(회귀 골든 불변)
+#   ② 접점은 이 블록 한 곳 — 호출부는 '무엇이 일어났나'만 말한다 ③ 어휘는 셋뿐.
+#
+# 어휘: tick(착지) · pop(줄 삭제 — 콤보로 세기, 큰 콤보는 2박) · roll(판 끝 축하 3박, 판당 1회).
+#   누수·사망엔 **의도적으로 아무것도 없다** = "축하만 몸으로, 손실은 눈으로"(코지 톤 유지, 유저 결정).
+#   손실 텍스처(thud)는 R1에서 기각 — 없다가 넣는 게 넣었다 빼는 것보다 판단이 쉽다.
+#
+# 숫자 근거 = 안드로이드 공식 햅틱 원칙: 좋은 키클릭 10~20ms · 잦은 이벤트일수록 약하게(빈도↔세기
+#   반비례) · "less is more"(과하면 유저가 OS 설정에서 아예 끈다).
+# ⚠amp는 하드웨어 의존이다 — 진폭 제어가 없는 폰은 amp를 무시하고 전부 최대 세기로 낸다. Godot은
+#   hasAmplitudeControl() 질의를 안 열어주니 분기도 못 한다 → **의미는 길이·박자 수에 싣는다**
+#   (짧은 1발 / 중간 1발 / 3박). 그래서 '세기만 다른' 어휘는 만들지 않는다.
+# ⚠텍스처 한계: Input.vibrate_handheld는 안드로이드에서 VibrationEffect.createOneShot으로 내려간다 =
+#   안드로이드 지침이 "buzzy하니 피하라"고 한 그 레거시 경로. 크리스프한 프리미티브(TICK/CLICK)는
+#   JavaClassWrapper로 도달 가능하니, 기기에서 buzzy 판정이 나면 _hap_fire 몸통만 갈아끼운다(R2).
+const HAPTIC_WORDS: Dictionary = {
+	# gap = 불응기(초). 이 안에 들어온 같은/낮은 우선순위 요청은 버린다 — 캐스케이드 뭉갬을 여기서 막는다.
+	"tick": {"ms": 12, "amp": 0.30, "prio": 0, "gap": 0.09},
+	"pop": {"ms": 30, "amp": 0.55, "prio": 1, "gap": 0.16},
+	"roll": {"ms": 18, "amp": 0.55, "prio": 2, "gap": 0.40},
+}
+# 롤링 예산 — 평균 초당 진동 시간 상한. 정상 플레이는 여기 근처도 안 가고(착지 12ms/2초 + 삭제 45ms),
+#   버그·미래의 호출부 추가로 폭주할 때만 잘린다. 배터리·둔감·'고장 난 폰' 느낌의 마지막 방어선.
+const HAPTIC_BUDGET_MAX: float = 150.0
+const HAPTIC_BUDGET_REFILL: float = 150.0   # ms/초
+
+var haptic_on: bool = true          # 유저 선호(설정 모달) — 기본 on
+var _set_haptic_hover: bool = false
+var _hap_ok: bool = false           # 플랫폼 게이트(_ready에서 채움) — 데스크톱·에디터는 no-op
+var _hap_t: float = 0.0             # 누적 게임시간. 벽시계가 아니라 delta 합 = 프로브가 결정적으로 재현된다
+var _hap_last: float = -99.0
+var _hap_last_prio: int = -1
+var _hap_budget: float = HAPTIC_BUDGET_MAX
+var _hap_queue: Array = []          # 예약된 후속 박 [{at, kind, ms, amp}] — 2박·3박 모티프
+var _hap_roll_used: bool = false    # roll은 판당 1회(의식은 흔해지면 의식이 아니다)
+var hap_log_on: bool = false        # 프로브만 켠다(tools/haptic_probe.gd)
+var _hap_log: Array = []
+
+# 유일한 접점. 호출부는 kind만 말하고, 세기·드롭·박자는 전부 여기서 정한다.
+#   intensity = pop의 콤보값(다른 어휘는 무시).
+func _haptic(kind: String, intensity: float = 0.0) -> void:
+	if not haptic_on or not HAPTIC_WORDS.has(kind):
+		return
+	var w: Dictionary = HAPTIC_WORDS[kind]
+	var prio: int = int(w["prio"])
+	# ① 불응기 — 높은 우선순위만 선점한다(줄 삭제는 착지를 덮고, 착지는 삭제를 못 덮는다).
+	if _hap_t - _hap_last < float(w["gap"]) and prio <= _hap_last_prio:
+		_hap_note(kind, 0, 0.0, "gap")
+		return
+	var ms: int = int(w["ms"])
+	var amp: float = float(w["amp"])
+	var follow: Array = []
+	if kind == "pop":
+		# 콤보 = 청소 범위(스펙터클) → 길이·세기를 함께 밀지만 상한은 얇게. 큰 콤보는 둘째 박으로
+		#   '크다'를 말한다 — 세기만 올리면 amp 없는 폰에서 구분이 사라진다.
+		var c: float = clampf(intensity, 1.0, 8.0)
+		var f: float = (c - 1.0) / 7.0
+		ms = int(round(lerpf(30.0, 45.0, f)))
+		amp = lerpf(0.55, 1.0, f)
+		if c >= 4.0:
+			follow.append({"at": _hap_t + 0.09, "kind": "pop", "ms": ms, "amp": amp})
+	elif kind == "roll":
+		if _hap_roll_used:
+			_hap_note(kind, 0, 0.0, "once")
+			return
+		# 짧-짧-김 = 마무리. 판당 1회라 예산에 여유가 있다.
+		follow.append({"at": _hap_t + 0.11, "kind": "roll", "ms": 18, "amp": 0.55})
+		follow.append({"at": _hap_t + 0.24, "kind": "roll", "ms": 90, "amp": 0.85})
+	if not _hap_fire(kind, ms, amp):
+		return   # 첫 박이 예산에 걸렸으면 후속 박도 없다(반 토막 모티프 = 고장처럼 느껴진다)
+	if kind == "roll":
+		_hap_roll_used = true
+	for q in follow:
+		_hap_queue.append(q)
+
+# 실제 발화. 예산을 통과한 것만 나간다. 후속 박은 불응기를 건너뛴다 — 그게 리듬 그 자체니까.
+func _hap_fire(kind: String, ms: int, amp: float) -> bool:
+	if _hap_budget < float(ms):
+		_hap_note(kind, ms, amp, "budget")
+		return false
+	_hap_budget -= float(ms)
+	_hap_last = _hap_t
+	_hap_last_prio = int(HAPTIC_WORDS[kind]["prio"]) if HAPTIC_WORDS.has(kind) else 0
+	_hap_note(kind, ms, amp, "")
+	if _hap_ok:
+		Input.vibrate_handheld(ms, amp)
+	return true
+
+# 매 프레임 — 예약 박 발화 + 예산 회복. _process 맨 앞에서 부른다(히트스톱·메뉴 조기 반환보다 먼저:
+#   연출 시간이 멎어도 손은 이미 느꼈고, 예약된 둘째 박이 거기서 멈추면 모티프가 반 토막 난다).
+func _hap_step(delta: float) -> void:
+	_hap_t += delta
+	_hap_budget = minf(HAPTIC_BUDGET_MAX, _hap_budget + delta * HAPTIC_BUDGET_REFILL)
+	if _hap_queue.is_empty():
+		return
+	var keep: Array = []
+	for q in _hap_queue:
+		var e: Dictionary = q as Dictionary
+		if _hap_t >= float(e["at"]):
+			_hap_fire(String(e["kind"]), int(e["ms"]), float(e["amp"]))
+		else:
+			keep.append(e)
+	_hap_queue = keep
+
+# 판 경계 초기화. _hap_t는 일부러 안 되돌린다(세션 단조 시간 = 프로브의 롤링 창 분석이 쉬워진다).
+func _hap_reset() -> void:
+	_hap_last = -99.0
+	_hap_last_prio = -1
+	_hap_budget = HAPTIC_BUDGET_MAX
+	_hap_queue = []
+	_hap_roll_used = false
+
+# 프로브 전용 기록 — 기기 없이 '뭉갬'을 감사하는 유일한 수단(드롭도 남긴다: 무엇을 왜 버렸나).
+func _hap_note(kind: String, ms: int, amp: float, drop: String) -> void:
+	if not hap_log_on:
+		return
+	_hap_log.append({"t": _hap_t, "kind": kind, "ms": ms, "amp": amp, "drop": drop})
+
+# ===== 오디오 (R1 · 정본: AUDIO_PLAN.md) =====
+# 햅틱과 **호출부를 공유하고 믹서를 공유하지 않는다.** 물리가 다르기 때문이다: 진동은 액추에이터가
+#   하나라 승자독식·불응기 드롭이 맞지만, 소리는 겹쳐도 되고 삭제음을 진동 불응기 때문에 삼키면
+#   보상 자체가 사라진다. 한 믹서로 합치면 둘 중 하나가 반드시 망가진다.
+#   → 접점은 _fb() 하나, 라우팅은 FB_MAP, 그 아래 믹서는 둘(_haptic / _sfx).
+#
+# 오디오의 적은 '뭉갬'이 아니라 **진흙**이다(폴리포니가 있으니 드롭이 아니라 탁하게 겹친다).
+#   방어 셋: 보이스 상한(8) + 단어별 최소 간격 + 초당 발화 예산.
+#
+# 음원 = `res://sfx/`의 CC0 파형 **둘뿐**(합계 19KB). 전 어휘가 이 둘에서 나오고 음정·레벨·층으로만
+#   갈린다 → 통일감이 공짜로 생긴다. 출처는 `sfx/CREDITS.txt`(CC0라 표기 의무는 없고 추적용이다).
+# ⚠난수를 한 번도 안 쓴다 — 회귀 골든이 전역 RNG 스트림을 공유하므로 연출이 randf를 더 뽑으면
+#   하류가 시프트할 여지가 생긴다. 디튠은 발화 카운터 기반 결정적 순환으로 대신한다.
+# 장5음계 사다리(반음). 크로매틱은 연쇄 중간이 불협으로 들리는데, 5음계는 **어떤 조합으로 겹쳐도
+#   협화**라 순서가 흐트러져도 음악으로 들린다. 16반음(2.52×)에서 멈춘다 — 더 올리면 개 호루라기다.
+const SFX_LADDER: Array = [0, 2, 4, 7, 9, 12, 14, 16]   # ⚠PackedInt32Array는 상수식이 아니라 const로 못 쓴다
+const SFX_WORDS: Dictionary = {
+	# gap = 최소 간격(초). db = 상대 볼륨(잦을수록 조용하게).
+	# det = 반복 방지 디튠 폭(비율). ⚠음정이 **의미를 나르는** 단어(clear·chain = 콤보/사다리)는
+	#   좁게 준다 — 사다리 한 계단이 200센트인데 디튠이 ±40센트면 계단이 뭉개진다. 반대로 place·tap은
+	#   음정에 의미가 없고 가장 자주 반복되므로 넓게(±2.4% ≈ ±41센트) 줘야 기계음 피로가 깨진다.
+	# db는 **정규화된 샘플(모두 같은 피크) 기준의 위계**다. 실측 크레스트가 단어마다 달라서
+	#   (place 14.2 · clear 15.2 · chain 11.6 · tap 12.1dB) 같은 db여도 체감 크기가 다르므로,
+	#   숫자는 실효 RMS로 맞췄다: clear 0 / chain −5 / place −7 / tap −8 dB.
+	#   ⚠chain이 clear에 너무 가까우면 안 된다 — 한 연쇄에 5~9발이 연달아 나가서 종을 덮는다.
+	# ⚠grab·place는 **한 쌍**이라 실효 레벨을 맞춰 둔다(레퍼런스도 둘이 사실상 같은 레벨이다).
+	#   피크 정규화 기준이라 db 숫자는 크게 다르다 — place는 딸깍이 피크를 끌어올려 크레스트가
+	#   18.9dB인데 grab은 10.4dB뿐이다. 숫자가 아니라 실효 RMS를 맞춘 값이다.
+	# ⚠**R4에서 전체를 5~8dB 올렸다.** 유저 판정 "은은하게 출력되는 것 같다" + 레퍼런스 실측이
+	#   근거다: 레퍼런스는 전 SFX가 −8.3~−9.6dBFS **한 줌 안에 납작하게** 붙어 있는데 우리는
+	#   훨씬 조용하고 위계만 넓었다(집기는 무려 11.5dB 아래). 위계를 좁히고 전체를 올린다.
+	#   합산 피크는 SFX 버스의 하드 리미터가 받는다 — 그러라고 단 것이다.
+	# ⚠**R7에서 전부 다시 잡았다** — 음원이 합성 → CC0 파형으로 바뀌며 라우드니스가 달라졌다.
+	#   두 파형의 크레스트가 달라(low 10.8dB · high 14.6dB) db 숫자만으론 위계를 못 읽는다.
+	#   ⚠**보상 계열은 실효 RMS가 아니라 '보이스 피크' 기준**이다(R9). burst는 크레스트가 25dB라
+	#   RMS를 다른 단어와 맞추려면 +8.7dB가 필요한데, 그러면 피크가 +8dBFS가 되어 리미터를 뭉갠다.
+	#   짧고 뾰족한 소리는 peak이 체감 세기를 지배하므로 peak으로 잡는다:
+	#     clear −5.0 / clear2 −11 / chain −11 / place −12 / fail −13 / grab −10 / tap −12 / score −13 dBFS.
+	#   동작 계열(pop)은 여전히 실효 RMS로 맞춰져 있다. **파형을 바꾸면 이 표를 다시 계산할 것.**
+	# ⚠집기·착지 음정(유저 요청 2026-07-31 "놓기를 더 높은 소리로"):
+	#   놓기 = low 파형 **+7반음**(775→1161Hz) · 집기 = high 파형 **−2반음**(1034→921Hz)
+	#   → 놓기가 집기보다 4반음 위. **파형을 맞바꾸지 않은 이유**: high는 크레스트 14.6dB로 더 얇아서
+	#   가장 잦은 place를 거기 얹으면 "타격감 없음"으로 되돌아간다. 밀도는 low로 지키고 음정만 올린다.
+	#   ⚠음을 올리면 샘플이 그만큼 짧아진다(+7반음 = 길이 67%).
+	"grab": {"gap": 0.04, "db": -7.0, "det": 0.012, "base": -2},
+	"place": {"gap": 0.04, "db": -8.8, "det": 0.012, "base": 7},
+	"clear": {"gap": 0.00, "db": -3.6, "det": 0.004},    # 간격 0 = 절대 안 드롭한다(이게 보상이다)
+	"chain": {"gap": 0.03, "db": -7.6, "det": 0.004},
+	"fanfare": {"gap": 0.00, "db": -14.0, "det": 0.004},  # 아르페지오 4음이 겹치므로 clear보다 낮게
+	"score": {"gap": 0.055, "db": -10.0, "det": 0.010},  # 연달아 나가므로 작게(단, 안 들리면 없느니만 못하다)
+	"fail": {"gap": 0.00, "db": -7.8, "det": 0.004},   # 유저 요청이 "약하지만 짧게" — 축하보다 낮게 둔다
+	"tap": {"gap": 0.05, "db": -9.0, "det": 0.012},
+	# clear의 둘째 층 전용. FB_MAP엔 없다(호출부가 부르는 사건이 아니라 clear의 일부).
+	#   ⚠`chain` 이름으로 발화시켰더니 사다리 분석이 이걸 계단으로 세어 역행으로 읽었다(프로브가 잡음).
+	"clear2": {"gap": 0.00, "db": -11.0, "det": 0.004},
+}
+const SFX_VOICES: int = 8
+const SFX_BUDGET_MAX: float = 14.0      # 초당 발화 상한 — 진흙 방어의 마지막 선
+const SFX_BUDGET_REFILL: float = 14.0
+
+var _sfx_bank: Dictionary = {}          # kind -> AudioStreamWAV (런타임 합성)
+var _sfx_pool: Array = []               # AudioStreamPlayer × SFX_VOICES
+var _sfx_rr: int = 0
+var _sfx_t: float = 0.0                 # 누적 게임시간(delta 합 = 프로브가 결정적으로 재현)
+var _sfx_last: Dictionary = {}
+var _sfx_budget: float = SFX_BUDGET_MAX
+var _sfx_queue: Array = []              # 예약 음 [{at, kind, semi}] — fanfare 아르페지오
+var _sfx_chain_step: int = 0            # 이번 연쇄 안의 사다리 계단(clear 다운비트가 0으로 되돌림)
+var _sfx_fanfare_used: bool = false     # 판당 1회
+var _sfx_n: int = 0                     # 발화 카운터 = 결정적 디튠의 원천
+var sfx_log_on: bool = false            # 프로브만 켠다(tools/audio_probe.gd)
+var _sfx_log: Array = []
+
+# 사건 → 채널 매핑의 유일한 정본. 빈 문자열 = 그 채널엔 의도적으로 아무것도 없음.
+#   손실(누수·거점사·막힘사)이 여기 없는 건 누락이 아니라 결정이다 — "축하만, 손실은 눈으로".
+const FB_MAP: Dictionary = {
+	# 집기는 소리만 — 드래그 시작마다 진동을 주면 너무 잦다(HAPTIC_PLAN의 '드래그/호버 기각'과 같은 줄).
+	"grab": {"hap": "", "sfx": "grab"},
+	"place": {"hap": "tick", "sfx": "place"},
+	"clear": {"hap": "pop", "sfx": "clear"},
+	"chain": {"hap": "", "sfx": "chain"},     # 순차 처치는 진동 없음(캐스케이드 뭉갬)
+	"finish": {"hap": "roll", "sfx": "fanfare"},
+	"score": {"hap": "", "sfx": "score"},     # 점수 롤업 틱 — 초당 십수 발이라 진동은 절대 안 붙인다
+	# ⚠fail은 **소리만**. "손실엔 무음" 중 오디오만 유저 요청으로 뒤집었고(2026-07-31), 햅틱은
+	#   그대로 무진동이다 — 실패에 진동까지 얹으면 벌주는 느낌이 되어 코지 톤과 싸운다.
+	"fail": {"hap": "", "sfx": "fail"},
+	"tap": {"hap": "", "sfx": "tap"},         # UI 탭은 진동 없음(OS 터치 피드백과 이중 진동)
+}
+
+# 유일한 접점. 호출부는 '무엇이 일어났나'만 말한다.
+func _fb(kind: String, intensity: float = 0.0) -> void:
+	var m: Dictionary = FB_MAP.get(kind, {}) as Dictionary
+	if m.is_empty():
+		return
+	if String(m["hap"]) != "":
+		_haptic(String(m["hap"]), intensity)
+	if String(m["sfx"]) != "":
+		_sfx(String(m["sfx"]), intensity)
+
+# ===== 음원 (R7) =====
+# ⚠**합성을 버리고 샘플로 갔다.** R1~R6은 사인 부분음을 런타임 합성했고 6라운드를 튜닝했지만
+#   유저 판정은 계속 "전자음 같다"였다. CC0 팩을 심사해 유저가 고른 두 파형으로 교체한다.
+#   합성 코드(_sfx_render/_sfx_layer/_sfx_lcg)는 통째로 지웠다 — git C104~C109에 남아 있고,
+#   "나중에 쓸지 몰라서" 남긴 죽은 코드가 제일 잘 썩는다.
+#
+# **전 어휘가 이 두 파형에서 나온다** — 음정(pitch_scale)·레벨(db)·층(지연 발화)으로만 갈린다.
+#   한 가족에서 나오니 통일감이 공짜로 생기고, 사다리·리미터·프로브는 하나도 안 바뀐다.
+#
+# ⚠지표의 교훈: pop은 **몸통비 0인데 크레스트도 낮다**(9~11dB). R5에서 나는 '몸통'과 '밀도'를
+#   혼동해 "꼬리가 길어야 타격감"이라 결론냈지만, 유저가 고른 건 **짧지만 꽉 찬** 소리였다.
+#   지표는 방향을 좁힐 뿐 판정은 귀가 한다.
+# 파형 넷. **동작 계열(pop)과 보상 계열(burst/sparkle)을 갈랐다**(R9) — pop은 본질적으로 얌전해서
+#   놓기·집기엔 맞지만 "팡 터지는" 보상은 안 된다(유저 판정).
+const SFX_LOW: String = "res://sfx/pop_low.wav"       # 775Hz  — 동작: 착지·실패
+const SFX_HIGH: String = "res://sfx/pop_high.wav"     # 1034Hz — 동작: 집기·점수·탭
+# ⚠**보상 파형은 R12에서 '카지노 칩'으로 확정됐다**(유저가 20개 A/B 중 고름). 여정을 남긴다:
+#   R9 burst/sparkle(3146·5156Hz) → "거슬린다" · R10 wooden_02 → "나무라 방향성에 안 맞는다" ·
+#   R11 유리/크리스털(impactGlass+pluck) → **"에러 사운드 같다"**. 마지막 건 이유가 있었다 —
+#   pluck_001은 Kenney *Interface* 팩 소속이라 error_00N과 같은 신스 보이스를 쓴다(UI 관용구).
+#   → **선정 방식의 결론: 기계는 명백히 못 쓰는 것만 걷어내고 목록을 넓게 내놓는다.**
+#   내가 좁힌 임계값은 세 라운드 연속 유저 귀와 어긋났다. 거리 순위 1위도 세 번 다 틀렸다.
+# ⚠**선행 무음을 잘라서 넣는다.** R10의 hit.wav는 파일 앞에 **60ms 무음**이 붙어 있어 삭제음이
+#   섬광보다 3.6프레임 늦게 울렸고("같은 프레임" 설계 위반), 2층(+40ms)이 1층의 실어택(60ms)과
+#   **5ms 차로 겹쳐** 2단 구조가 통째로 뭉개져 있었다. 지금 둘 다 리드 ~1ms다.
+#   → **샘플을 새로 넣을 땐 리드를 재고 잘라라.** 스펙트럼 매칭은 시간축 정렬을 안 본다.
+# ⚠**칩 저역은 감수한 값이다.** chip_low는 에너지의 **30%가 300Hz 아래**라 폰 시뮬 −4.9dB —
+#   지금 어휘 중 가장 큰 손실이다(다른 단어는 −1~−2dB). 음정을 +7반음까지 올려도 −3.5dB뿐이라
+#   이득이 작아서 **원음 그대로 뒀다**. 실기기에서 얇으면 그때 하이패스로 다듬는다(§9 P0 계열 위험).
+const SFX_CHIP_LOW: String = "res://sfx/chip_low.wav"    # 748Hz  — 삭제 타격(칩 놓기, 157ms)
+const SFX_CHIP_HIGH: String = "res://sfx/chip_high.wav"  # 4994Hz — 40ms 뒤 광택(칩 부딪힘, 104ms)
+
+func _sfx_build_bank() -> void:
+	var lo: AudioStream = load(SFX_LOW)
+	var hi: AudioStream = load(SFX_HIGH)
+	var bu: AudioStream = load(SFX_CHIP_LOW)
+	var sk: AudioStream = load(SFX_CHIP_HIGH)
+	if lo == null or hi == null or bu == null or sk == null:
+		push_warning("SFX 로드 실패 — `godot --headless --path . --import` 먼저(새 워크트리 함정)")
+		return
+	# 낮은 파형 = 확정·무게. 높은 파형 = 가벼움·상승.
+	# 동작 = pop(얌전·잦음) / 보상 = 칩 낮은음+부딪힘(둔탁하게 놓고 짤랑 얹기)
+	_sfx_bank["place"] = lo
+	_sfx_bank["fail"] = lo
+	_sfx_bank["grab"] = hi
+	_sfx_bank["score"] = hi
+	_sfx_bank["tap"] = hi
+	_sfx_bank["clear"] = bu       # 줄 삭제 타격(칩 놓기, 748Hz)
+	_sfx_bank["clear2"] = sk      # 40ms 뒤 광택(칩 부딪힘, 4994Hz)
+	# ⚠**아르페지오는 clear2가 아니라 낮은 파형이다**(R12에서 되돌렸다). clear2(4994Hz)를 +12반음
+	#   올리면 아르페지오 중심이 **9355Hz·5kHz 위 93%**가 되어 R9에서 기각된 그 소리로 돌아간다.
+	#   낮은 파형으로 4연타하면 1329Hz·5kHz 위 2%다. 실측하고 고른 값이니 파형을 바꾸면 다시 잴 것.
+	_sfx_bank["fanfare"] = bu
+	# ⚠적 처치는 pop_high로 되돌렸다 — 연쇄는 한 판에 5~9발이라 밝은 파형을 쓰면 가장 먼저 귀를
+	#   피곤하게 한다. 964Hz는 레퍼런스 삭제음 1층(904Hz)과 같은 자리다.
+	_sfx_bank["chain"] = hi
+
+
+# 전용 SFX 버스 + 하드 리미터를 **런타임에** 만든다 — 버스 레이아웃 리소스 파일을 안 만들므로
+#   project.godot·에셋 무변화(설계 §5의 '파일 0개'가 유지된다).
+#   왜 리미터인가: 폴리포니 8 + 콤보 아르페지오를 클립 없이 담으려면 보이스마다 헤드룸을 크게
+#   비워야 하고, 그러면 **평상시 소리가 너무 작아진다**(R1 실효 −24~−34dBFS). 리미터가 꼭대기만
+#   눌러 주면 평균을 모바일 수준으로 올리면서 합산 클리핑을 막을 수 있다.
+func _sfx_setup_bus() -> void:
+	if AudioServer.get_bus_index("SFX") >= 0:
+		return          # 이미 있다 — Main을 두 번 띄우는 하네스에서 버스가 쌓이는 걸 막는다
+	var idx: int = AudioServer.bus_count
+	AudioServer.add_bus(idx)
+	AudioServer.set_bus_name(idx, "SFX")
+	AudioServer.set_bus_send(idx, "Master")
+	var lim = ClassDB.instantiate("AudioEffectHardLimiter")
+	if lim != null:
+		lim.set("ceiling_db", -0.5)     # 0dBFS 직전에서 자른다(폰 DAC 인터샘플 여유)
+		lim.set("pre_gain_db", 0.0)
+		AudioServer.add_bus_effect(idx, lim)
+
+func _sfx_init() -> void:
+	_sfx_build_bank()
+	_sfx_setup_bus()
+	var bus_name: String = "SFX" if AudioServer.get_bus_index("SFX") >= 0 else "Master"
+	for _i in range(SFX_VOICES):
+		var p := AudioStreamPlayer.new()
+		p.bus = bus_name
+		add_child(p)
+		_sfx_pool.append(p)
+
+func _sfx_semi(step: int) -> int:
+	return SFX_LADDER[clampi(step, 0, SFX_LADDER.size() - 1)]
+
+func _sfx(kind: String, intensity: float = 0.0) -> void:
+	if not sound_on or not SFX_WORDS.has(kind) or _sfx_pool.is_empty():
+		return
+	var w: Dictionary = SFX_WORDS[kind]
+	if _sfx_t - float(_sfx_last.get(kind, -99.0)) < float(w["gap"]):
+		_sfx_note(kind, 0, "gap")
+		return
+	if kind == "fanfare":
+		if _sfx_fanfare_used:
+			_sfx_note(kind, 0, "once")
+			return
+		_sfx_fanfare_used = true
+		_sfx_last[kind] = _sfx_t
+		# 판을 닫는 유일한 긴 소리. 아르페지오라 '끝났다'가 한 음보다 확실히 읽힌다.
+		for k in range(4):
+			# ⚠db를 명시해 넘긴다 — **4음이 겹쳐 쌓이므로** clear의 레벨 그대로면 합이 리미터를
+			#   세게 때린다(프리뷰에서 클립 8샘플로 드러났다).
+			# ⚠**어휘 이름을 `fanfare` 그대로 쓴다**(R12). 예전엔 `clear2` 이름으로 발화시켰는데,
+			#   그러면 로그에서 아르페지오와 삭제 광택층이 구분이 안 되고 프로브 검사가 이름에
+			#   의존해 조용히 깨진다(R9에서 실제로 한 번 FAIL했다). 뱅크에 자기 항목이 있다.
+			_sfx_queue.append({"at": _sfx_t + float(k) * 0.10, "kind": "fanfare",
+					"semi": [0, 4, 7, 12][k], "db": float(w["db"])})
+		return
+	var semi: int = 0
+	if kind == "clear":
+		# 콤보 = 청소 범위 → 음정. 세기가 아니라 음높이라 볼륨을 낮춰 들어도 구분이 살아남는다.
+		semi = _sfx_semi(int(clampf(intensity, 1.0, 99.0)) - 1)
+		_sfx_chain_step = 0     # 다운비트가 연쇄 사다리를 0으로 되돌린다(종 → 뒤이어 오르는 런)
+		# **2단 사건**(레퍼런스 실측: 904Hz 타격 + 40ms 뒤 1550Hz 광택 ≈ +9반음). 낮은 파형으로
+		#   때리고 40ms 뒤 높은 파형이 따라붙어 '팡!'이 된다. 한 음짜리 삭제음은 비어 들린다.
+		#   ⚠_sfx가 아니라 큐(=_sfx_fire 직행)로 넣는다 — `chain`으로 넣으면 사다리 계단이 헛돈다.
+		#   ⚠+9반음을 안 준다 — 둘째 층 파형(1758Hz)이 **이미** 첫 층(1464Hz)보다 높다.
+		#   R9까지는 같은 파형을 썼기에 음정으로 올렸지만, 이제 올리면 2462Hz로 다시 날카로워진다.
+		_sfx_queue.append({"at": _sfx_t + 0.040, "kind": "clear2", "semi": semi})
+	elif kind == "chain":
+		semi = _sfx_semi(_sfx_chain_step)
+		_sfx_chain_step += 1
+	_sfx_last[kind] = _sfx_t
+	_sfx_fire(kind, semi)
+
+func _sfx_fire(kind: String, semi: int, db_over: float = 99.0) -> bool:
+	if _sfx_budget < 1.0:
+		_sfx_note(kind, semi, "budget")
+		return false
+	var st2 = _sfx_bank.get(kind, null)
+	if st2 == null:
+		return false
+	_sfx_budget -= 1.0
+	_sfx_n += 1
+	# 결정적 디튠 — 같은 소리가 연달아 나도 기계음으로 안 들리게. RNG는 안 쓴다.
+	#   ⚠R1의 ±0.6%(≈10센트)는 사람 귀에 사실상 안 들려서 반복 피로를 못 막았다. 폭은 단어가
+	#   소유한다(SFX_WORDS.det): 음정이 의미를 나르는 clear·chain은 좁게, 반복되는 place·tap은 넓게.
+	#   7의 곱은 순환 길이를 늘리려는 것(연속 두 발이 같은 값을 안 갖게).
+	var dw: float = float((SFX_WORDS[kind] as Dictionary).get("det", 0.004))
+	var det: float = 1.0 + (float((_sfx_n * 7) % 5) - 2.0) * dw
+	var pl: AudioStreamPlayer = _sfx_take_voice()
+	pl.stream = st2
+	# base = 단어별 기본 음정(반음). 파형이 둘뿐이므로 **음정이 어휘를 가르는 두 번째 축**이다.
+	#   사다리(semi)와 따로 두는 이유: clear·chain은 semi가 콤보/계단을 나르므로 거기에 기본값을
+	#   섞으면 사다리 시작점이 밀린다. base = '이 단어의 자리', semi = '지금 몇 번째'.
+	var base: int = int((SFX_WORDS[kind] as Dictionary).get("base", 0))
+	pl.pitch_scale = pow(2.0, float(base + semi) / 12.0) * det
+	pl.volume_db = float(SFX_WORDS[kind]["db"]) if db_over > 90.0 else db_over
+	pl.play()
+	_sfx_note(kind, semi, "")
+	return true
+
+# 노는 보이스 우선, 없으면 가장 오래된 것을 뺏는다(라운드로빈 머리).
+func _sfx_take_voice() -> AudioStreamPlayer:
+	for i in range(SFX_VOICES):
+		var idx: int = (_sfx_rr + i) % SFX_VOICES
+		var p: AudioStreamPlayer = _sfx_pool[idx]
+		if not p.playing:
+			_sfx_rr = (idx + 1) % SFX_VOICES
+			return p
+	var v: AudioStreamPlayer = _sfx_pool[_sfx_rr]
+	_sfx_rr = (_sfx_rr + 1) % SFX_VOICES
+	return v
+
+# _hap_step 바로 뒤에서 부른다 — 조기 반환(메뉴·히트스톱)보다 먼저여야 예약된 fanfare 음이 안 끊긴다.
+func _sfx_step(delta: float) -> void:
+	_sfx_t += delta
+	_sfx_budget = minf(SFX_BUDGET_MAX, _sfx_budget + delta * SFX_BUDGET_REFILL)
+	if _sfx_queue.is_empty():
+		return
+	var keep: Array = []
+	for q in _sfx_queue:
+		var e: Dictionary = q as Dictionary
+		if _sfx_t >= float(e["at"]):
+			_sfx_fire(String(e["kind"]), int(e["semi"]), float(e.get("db", 99.0)))
+		else:
+			keep.append(e)
+	_sfx_queue = keep
+
+# 판 경계. _sfx_t는 일부러 안 되돌린다(_hap_t와 같은 이유 = 프로브의 롤링 창 분석).
+func _sfx_reset() -> void:
+	_sfx_last = {}
+	_sfx_budget = SFX_BUDGET_MAX
+	_sfx_queue = []
+	_sfx_chain_step = 0
+	_sfx_fanfare_used = false
+
+func _sfx_note(kind: String, semi: int, drop: String) -> void:
+	if not sfx_log_on:
+		return
+	_sfx_log.append({"t": _sfx_t, "kind": kind, "semi": semi, "drop": drop})
 
 # 캠페인 진행도 영속(user://). cleared 딕셔너리를 스테이지 비트마스크(비트 i = 스테이지 i 클리어)로 저장.
 # ≤32스테이지면 32비트 하나에 담겨 store_32로 고정 4바이트 — 부분쓰기 내성이 가변길이보다 낫다.
@@ -1081,6 +1511,8 @@ func _init_game() -> void:
 	flash_climax = false
 	surge_active = false
 	shake_timer = 0.0
+	_hap_reset()      # 햅틱 판 경계(roll 1회 상한·불응기·예산) — shake와 같은 자리에서 리셋
+	_sfx_reset()      # 오디오 판 경계(fanfare 1회 상한·간격·예산·연쇄 사다리)
 	step_beat = 0.0
 	dragging = false
 	drag_slot = -1
@@ -1922,6 +2354,9 @@ func _burst_lines() -> void:
 	outline_timer = LINE_OUTLINE_DUR   # ④ 줄 자리에 남는 색 테두리 잔상
 	# 섬광은 파괴 순간(t=0)에. 칭찬 단어는 PRAISE_LEAD 뒤에 팝인 — '터짐→단어'를 한 박 분리(C90 리듬 계단시차, 블블 관찰).
 	flash_timer = FLASH_DUR
+	# 햅틱 다운비트는 섬광과 같은 프레임에 — 어긋난 진동은 하드웨어 고장처럼 느껴진다(안드로이드 지침).
+	#   링이 순차로 터져도 진동은 이 한 발뿐이다(연쇄의 맛은 시각 순차 재생이 담당).
+	_fb("clear", float(maxi(flash_combo, 1)))
 	if flash_combo >= 2:                 # 칭찬 텍스트는 섬광보다 오래 산다(읽을 시간 확보)
 		praise_delay = PRAISE_LEAD       # 지금 켜지 않고 예약 — _process가 만료 시 praise_t를 켠다
 		praise_pending_combo = flash_combo
@@ -1984,6 +2419,7 @@ func _apply_hit(h: Dictionary) -> void:
 		gem_flights.append({"from": ep, "to": _collect_counter_pos(gt), "t": 0.0, "dur": 0.42, "gtype": gt, "color": gcol})
 		kill_pulse = 0.35
 		hitstop = maxf(hitstop, 0.05)
+		_fb("chain")            # 획득도 연쇄의 한 알 — 사다리를 같이 오른다
 		enemies.remove_at(found)
 		return
 	# 비행기 픽업: 보석과 같은 낚아채기 — 처치가 아니라 획득. 보유는 슬롯에 '도착'할 때 켜진다
@@ -2006,6 +2442,8 @@ func _apply_hit(h: Dictionary) -> void:
 	_add_floater(ep + Vector2(0.0, -6.0), "-%d" % h["dmg"], Color(1.0, 0.95, 0.5), FLOAT_DUR, dmg_sz, true)
 	if e["hp"] <= 0:
 		# ① 극적 사망: 스케일 팝 + 파편 버스트 + 밝은 플래시 + 히트스톱
+		# 연쇄 사다리 한 계단 — 링이 시간차로 터지는 이 시퀀스가 게임 이름의 '연쇄'가 귀에 들리는 자리다.
+		_fb("chain")
 		_spawn_death(etype, ep)
 		# 종이비행기 착지 = 흰 별-폭발(레퍼런스 임팩트) — 처치 파편은 _spawn_death가 이미 뿌림
 		if bool(h.get("seeker", false)):
@@ -2251,6 +2689,7 @@ func _end_turn() -> void:
 	#   그래서 _check_win보다 먼저 판정하고, 죽었으면 return해 clear 판정 자체를 건너뛴다.
 	if pending_core_dead:
 		game_over = true
+		_fb("fail")             # 거점사 — 판이 닫혔다(하강)
 		pending_core_dead = false
 		fail_streak[stage_idx] = int(fail_streak.get(stage_idx, 0)) + 1   # 연속 실패 → 갓 모드 근접
 		# 폭탄사(비행 중 합계 하트가 죽인 경우)면 붕괴 연출을 하트 착지까지 미룬다 = "하트 꽂힘 → 죽음" 순서.
@@ -2268,6 +2707,7 @@ func _end_turn() -> void:
 	# 금고 전소 = 상실축 패배(거점사와 병렬 경로). 도둑에게 다 털린 게임오버 — 거점은 멀쩡해도 진다.
 	if pending_vault_dead:
 		game_over = true
+		_fb("fail")             # 금고 전소(상실축 패배)
 		pending_vault_dead = false
 		fail_streak[stage_idx] = int(fail_streak.get(stage_idx, 0)) + 1
 		_begin_core_death()   # TODO(렌더): 금고-전소 전용 연출로 분기(현재는 거점 붕괴 재사용)
@@ -2277,6 +2717,7 @@ func _end_turn() -> void:
 	_check_win()
 	if not game_clear and not _has_valid_placement():
 		game_over = true
+		_fb("fail")             # 막힘사 — 놓을 자리가 없다
 		stuck = true
 		_begin_stuck_death()
 		fail_streak[stage_idx] = int(fail_streak.get(stage_idx, 0)) + 1
@@ -2877,6 +3318,7 @@ func _check_win() -> void:
 		fail_streak[stage_idx] = 0     # 깼으니 갓 모드 해제
 		clear_show_t = -CLEAR_HOLD     # 프리롤부터 — 판을 켠 채 승리 여운을 보여준 뒤 무대가 열린다
 		_plan_clear_fx()               # 폭죽 계획. 색종이는 CLEAR_CONFETTI_AT까지 미룬다(_process)
+		_fb("finish")                  # 판이 끝났다 = 진동 3박 + 소리 아르페지오(판당 1회)
 		_track_stage_clear()
 
 # 클리어 축하 색종이. 화면 위에서 3색(조각 색) 조각이 나풀나풀 떨어진다.
@@ -3377,6 +3819,7 @@ func _place_piece() -> void:
 		var c: Vector2i = ci as Vector2i
 		board[c.y][c.x] = active["color"]
 	last_color = active["color"]   # 색 통일용: 터질 줄이 이 색으로 물든다
+	_fb("place")   # 착지 = 가장 잦은 이벤트 → 진동도 소리도 가장 약하게
 	# 착지 팝: 놓은 칸마다 '탁' 들어앉는 신호. 완성 못 시킨 수(절반 이상)도 이제 손맛이 남는다.
 	# 소멸 팝(밖으로 부풂)과 반대로 수축해 '도착'을 말한다. 숫자 없음(C9/C23: 목표는 '남은 적').
 	var place_col: Color = _color_of(active["color"])
@@ -3458,6 +3901,7 @@ func _pick_up(pos: Vector2) -> bool:
 		if tray[i].is_empty():
 			continue
 		if _tray_slot_rect(i).has_point(pos):
+			_fb("grab")      # 손가락이 조각에 닿는 순간 — 상승 글라이드로 '들어올렸다'
 			dragging = true
 			drag_slot = i
 			sel = i
@@ -3516,6 +3960,7 @@ func _input(event: InputEvent) -> void:
 			_set_privacy_hover = (slay["privacy_btn"] as Rect2).has_point(mp2)
 			_set_sound_hover = (slay["sound_tog"] as Rect2).has_point(mp2)
 			_set_bgm_hover = (slay["bgm_tog"] as Rect2).has_point(mp2)
+			_set_haptic_hover = (slay["haptic_tog"] as Rect2).has_point(mp2)
 		elif event is InputEventMouseButton:
 			var sb: InputEventMouseButton = event as InputEventMouseButton
 			if sb.pressed and sb.button_index == MOUSE_BUTTON_LEFT:
@@ -3805,6 +4250,8 @@ func _process(delta: float) -> void:
 	# 광고 비동기 진행 — 어떤 화면이든, 히트스톱 중이든 계속 돌아야 한다. 여기서 멈추면
 	#   결과 팝업의 대기 상태가 안 풀린다(콜백 미도착 = 다른 버튼도 막힌 채 = 소프트락). 유휴면 비용 0.
 	_ads.poll(delta)
+	_hap_step(delta)   # 햅틱 시간축 — 조기 반환(메뉴·히트스톱)보다 먼저여야 예약 박이 안 끊긴다
+	_sfx_step(delta)   # 오디오 시간축 — 같은 이유(예약된 fanfare 아르페지오가 화면 전환에 안 끊기게)
 	# 광고 이음매 안전밸브 — 콜백이 안 오면 그냥 다음 판으로 넘긴다(진행을 광고에 인질로 두지 않는다).
 	if _ad_seam_t >= 0.0:
 		_ad_seam_t += delta
@@ -3892,10 +4339,12 @@ func _process(delta: float) -> void:
 		var _sdiff: float = float(endless_score) - endless_score_shown
 		var _sstep: float = maxf(_sdiff * SCORE_ROLL_RATE, SCORE_ROLL_MIN) * delta
 		endless_score_shown = minf(endless_score_shown + _sstep, float(endless_score))
+		_fb("score")   # 카운터 틱 — 간격(0.055s)이 발화율을 잡으므로 롤업 속도와 무관하게 안정적이다
 		if endless_best > 0 and not endless_beat_best and endless_score_shown > float(endless_best):
 			endless_beat_best = true
 			pb_pop_t = PB_POP_DUR   # 판전체 폭발 팝인 — 표시 숫자가 크라운을 넘는 그 순간.
 			_spawn_confetti()       # 산개 컨페티(C90) — 폭발과 함께 쏟아짐
+			_fb("finish")           # PB 돌파 = 클리어와 같은 의식(무한엔 클리어가 없으니 이게 그 자리)
 	if outline_timer > 0.0:
 		outline_timer = maxf(0.0, outline_timer - delta)
 	if red_flash > 0.0:
@@ -4723,11 +5172,13 @@ func _settings_layout() -> Dictionary:
 	var py: float = p.position.y
 	var pw: float = p.size.x
 	var ctrl_r: float = px + pw - 36.0    # 컨트롤 오른쪽 정렬 기준선
-	var r1: float = py + 120.0            # 소리
-	var r2: float = py + 190.0            # 배경음
-	var r3: float = py + 288.0            # 홈
-	var r4: float = py + 356.0            # 다시하기
-	var r5: float = py + 424.0            # 개인정보 옵션(조건부)
+	# 토글이 셋으로 늘어 행 간격을 70→58로 좁혔다(패널 높이는 그대로 = 긴 화면에서 아래로 안 삐져나감).
+	var r1: float = py + 104.0            # 소리
+	var r2: float = py + 162.0            # 배경음
+	var r3: float = py + 220.0            # 진동(햅틱)
+	var r4: float = py + 296.0            # 홈
+	var r5: float = py + 362.0            # 다시하기
+	var r6: float = py + 430.0            # 개인정보 옵션(조건부)
 	var tw: float = 66.0
 	var th: float = 32.0
 	var bw: float = 140.0
@@ -4736,27 +5187,37 @@ func _settings_layout() -> Dictionary:
 		"panel": p,
 		"label_x": px + 36.0,
 		"title_y": py + 50.0,
-		"divider_y": py + 235.0,
+		"divider_y": py + 254.0,
 		"close": Rect2(px + pw - 56.0, py + 16.0, 40.0, 40.0),
 		"sound_tog": Rect2(ctrl_r - tw, r1 - th * 0.5, tw, th),
 		"bgm_tog": Rect2(ctrl_r - tw, r2 - th * 0.5, tw, th),
-		"home_btn": Rect2(ctrl_r - bw, r3 - bh * 0.5, bw, bh),
-		"replay_btn": Rect2(ctrl_r - bw, r4 - bh * 0.5, bw, bh),
+		"haptic_tog": Rect2(ctrl_r - tw, r3 - th * 0.5, tw, th),
+		"home_btn": Rect2(ctrl_r - bw, r4 - bh * 0.5, bw, bh),
+		"replay_btn": Rect2(ctrl_r - bw, r5 - bh * 0.5, bw, bh),
 		# 행이 없을 땐 빈 Rect2 = 히트 영역도 없음(그리기·입력이 같은 조건을 따로 읽지 않게).
-		"privacy_btn": Rect2(ctrl_r - bw, r5 - bh * 0.5, bw, bh) if priv else Rect2(),
+		"privacy_btn": Rect2(ctrl_r - bw, r6 - bh * 0.5, bw, bh) if priv else Rect2(),
 		"privacy_on": priv,
-		"r1": r1, "r2": r2, "r3": r3, "r4": r4, "r5": r5,
+		"r1": r1, "r2": r2, "r3": r3, "r4": r4, "r5": r5, "r6": r6,
 	}
 
 func _settings_click(pos: Vector2, lay: Dictionary) -> void:
 	if (lay["close"] as Rect2).has_point(pos):
 		settings_open = false
 	elif (lay["sound_tog"] as Rect2).has_point(pos):
-		sound_on = not sound_on           # 지금은 소리를 안 내지만 선호를 저장(오디오 붙는 날 소비)
+		sound_on = not sound_on
 		_save_settings()
+		if sound_on:
+			_sfx("tap")                   # 켠 직후 한 발 = 방금 켠 걸 귀로 확인시킨다(햅틱 토글과 같은 관습)
 	elif (lay["bgm_tog"] as Rect2).has_point(pos):
 		bgm_on = not bgm_on
 		_save_settings()
+	elif (lay["haptic_tog"] as Rect2).has_point(pos):
+		haptic_on = not haptic_on
+		_save_settings()
+		if haptic_on:
+			# 켠 직후 한 발 = 방금 켠 걸 손으로 확인시킨다(OS 햅틱 설정과 같은 관습).
+			#   기기에서 어휘를 재생해 볼 수 있는 유일한 트리거이기도 하다 — 세기 판정용.
+			_haptic("pop", 3.0)
 	elif (lay["home_btn"] as Rect2).has_point(pos):
 		settings_open = false
 		_track_revive_dismissed("home")
@@ -4826,24 +5287,26 @@ func _draw_settings(fnt: Font) -> void:
 	draw_line(cc + Vector2(-9, -9), cc + Vector2(9, 9), xcol, 4.0)
 	draw_line(cc + Vector2(9, -9), cc + Vector2(-9, 9), xcol, 4.0)
 
-	# 토글 행: 소리 · 배경음
+	# 토글 행: 소리 · 배경음 · 진동
 	_draw_text_outlined(fnt, Vector2(lx, float(lay["r1"]) + 9.0), _t("sound"), 26, Color(0.86, 0.87, 0.95))
 	_draw_toggle(lay["sound_tog"], sound_on, _set_sound_hover)
 	_draw_text_outlined(fnt, Vector2(lx, float(lay["r2"]) + 9.0), _t("music"), 26, Color(0.86, 0.87, 0.95))
 	_draw_toggle(lay["bgm_tog"], bgm_on, _set_bgm_hover)
+	_draw_text_outlined(fnt, Vector2(lx, float(lay["r3"]) + 9.0), _t("haptic"), 26, Color(0.86, 0.87, 0.95))
+	_draw_toggle(lay["haptic_tog"], haptic_on, _set_haptic_hover)
 
 	# 구분선
 	draw_line(Vector2(lx, lay["divider_y"]), Vector2(p.position.x + p.size.x - 36.0, lay["divider_y"]), Color(1.0, 1.0, 1.0, 0.10), 2.0)
 
 	# 액션 행: 홈(메뉴로) · 다시하기(재시작)
-	_draw_text_outlined(fnt, Vector2(lx, float(lay["r3"]) + 9.0), _t("home"), 26, Color(0.86, 0.87, 0.95))
+	_draw_text_outlined(fnt, Vector2(lx, float(lay["r4"]) + 9.0), _t("home"), 26, Color(0.86, 0.87, 0.95))
 	_draw_mini_button(fnt, lay["home_btn"], _t("go_home"), _set_home_hover, Color(0.30, 0.33, 0.44), Color(0.92, 0.93, 1.0))
-	_draw_text_outlined(fnt, Vector2(lx, float(lay["r4"]) + 9.0), _t("restart_label"), 26, Color(0.86, 0.87, 0.95))
+	_draw_text_outlined(fnt, Vector2(lx, float(lay["r5"]) + 9.0), _t("restart_label"), 26, Color(0.86, 0.87, 0.95))
 	_draw_mini_button(fnt, lay["replay_btn"], _t("restart"), _set_replay_hover, Color(0.34, 0.72, 0.26), Color(0.98, 1.0, 0.94))
 
 	# 개인정보 옵션 — 필요한 지역에서만(EEA/UK). 홈과 같은 회색빛 유틸 언어를 쓴다(진행 버튼 아님).
 	if bool(lay["privacy_on"]):
-		_draw_text_outlined(fnt, Vector2(lx, float(lay["r5"]) + 9.0), _t("privacy_label"), 26, Color(0.86, 0.87, 0.95))
+		_draw_text_outlined(fnt, Vector2(lx, float(lay["r6"]) + 9.0), _t("privacy_label"), 26, Color(0.86, 0.87, 0.95))
 		_draw_mini_button(fnt, lay["privacy_btn"], _t("privacy_btn"), _set_privacy_hover, Color(0.30, 0.33, 0.44), Color(0.92, 0.93, 1.0))
 
 # 재생 삼각형(▶) — '광고 영상을 본다'는 뜻. 오른쪽을 향한 정삼각형.
