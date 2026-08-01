@@ -453,9 +453,7 @@ R10이 고른 1위는 **문자 그대로 나무 샘플**(OGA `wooden_02`)이었�
 소리가 안 붙어 있다. 붙일 자리는 다 있고, 그러고도 늘어지면 그때 `BLAST_RING_DELAY`를 본다.
 
 검증: `audio_probe` **13검사 PASS** · 폰 시뮬 −1.5dB(경고 없음) · 뱅크 55KB→**21KB**(리드·꼬리 절단) ·
-`clear_2layer` 봉투에서 2층 40ms 확인. ⚠**regress 골든은 안 돌렸다** — `tools/regress.gd`에
-`persist_enabled=false` 가드가 없어 실유저 세이브를 각인한다([[campaign-save-reset-gotchas]]).
-이번 변경은 wav 파일과 상수뿐이라 게임 RNG를 못 건드리지만, **확인은 안 한 상태다.**
+`clear_2layer` 봉투에서 2층 40ms 확인. regress 골든은 R12에서 한꺼번에 확인했다(§18).
 
 A/B용으로 `build/audio_preview/CLEAR_{A_glass,B_crystal,C_deep}.wav`를 구워 뒀다(각 3연타,
 게임과 같은 2층·레벨). A가 채택안이고 B는 더 맑은 쪽, C는 더 낮고 차분한 쪽이다.
@@ -514,8 +512,15 @@ R9에서 실제로 한 번 조용히 깨졌다. 프로브 ⑤·⑦·`WORD_DUR`�
 택했다. `chip_low__clear_PHONE.wav`로 폰에서 어떻게 들리는지 확인할 수 있고, 얇으면 하이패스로
 다듬는 게 다음 수다.
 
-검증: `audio_probe` **13검사 PASS** · 전 프리뷰 클리핑 0 · 동시 보이스 최대 2 · 뱅크 23KB.
-⚠regress 골든은 이번에도 안 돌렸다(§17의 같은 이유 — 하네스가 실유저 세이브를 각인한다).
+검증: `audio_probe` **13검사 PASS**(main 병합 후 재실행 포함) · 전 프리뷰 클리핑 0 ·
+동시 보이스 최대 2 · 뱅크 48KB · `tools/regress.gd` 골든 **byte-identical**.
+
+⚠**regress를 안전하게 돌리는 법**(그동안 못 돌리고 미뤄 온 것): 하네스에 `persist_enabled=false`
+가드가 없어 14판 전승 결과가 실유저 세이브에 각인된다([[campaign-save-reset-gotchas]]).
+**세이브를 복사해 두고 돌린 뒤 되돌리면 된다** — 이번에 그렇게 확인했고, 실제로 각인이
+일어났다(`campaign.save` 0x00000000 → 0x00000001). 경로는
+`~/Library/Application Support/Godot/app_userdata/BlockCastle/{campaign,endless}.save`.
+근본 수정(가드 추가)은 하네스 소유 트랙 몫으로 남긴다.
 
 ## 19. 남은 것
 
