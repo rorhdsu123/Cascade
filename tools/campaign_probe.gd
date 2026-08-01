@@ -22,8 +22,11 @@ func _init() -> void:
 	if only_env != "":
 		for tok in only_env.split(","):
 			only.append(int(tok))
-	print("idx | 승률   | 거점사 | 막힘 | 이름키")
-	print("----+--------+--------+------+-------")
+	# 튜토리얼 비활성 — 안 끄면 si=0의 첫 시행만 스크립트 판(tut_lock)이라 봇 통계가 섞인다.
+	g.cleared[0] = true
+	# 배치·줄 = 판 길이(체감 소요 시간)의 대리 지표. 승률만 보면 '쉽지만 지루한 판'을 못 잡는다.
+	print("idx | 승률   | 거점사 | 막힘 | 배치  | 줄   | 이름키")
+	print("----+--------+--------+------+-------+------+-------")
 	for si in range(g.STAGES.size()):
 		if not only.is_empty() and not only.has(si):
 			continue
@@ -35,6 +38,8 @@ func _probe_stage(g: Node, si: int, TRIALS: int) -> void:
 	var wins: int = 0
 	var dead_core: int = 0
 	var dead_stuck: int = 0
+	var places: float = 0.0
+	var clears: float = 0.0
 	for t in range(TRIALS):
 		var r: Dictionary = _play(g, si)
 		if r["win"]:
@@ -43,15 +48,20 @@ func _probe_stage(g: Node, si: int, TRIALS: int) -> void:
 			dead_core += 1
 		if r["dead_stuck"]:
 			dead_stuck += 1
+		places += float(r["places"])
+		clears += float(r["clears"])
 	var n: float = float(TRIALS)
-	print(" %2d | %5.1f%% |  %3d   | %3d  | %s" % [
-		si + 1, 100.0 * float(wins) / n, dead_core, dead_stuck, String(g.STAGES[si]["name"])])
+	print(" %2d | %5.1f%% |  %3d   | %3d  | %5.1f | %4.1f | %s" % [
+		si + 1, 100.0 * float(wins) / n, dead_core, dead_stuck,
+		places / n, clears / n, String(g.STAGES[si]["name"])])
 
 func _play(g: Node, si: int) -> Dictionary:
 	g._start_stage(si)
 	var guard: int = 0
 	var deton: int = 0
 	var defuse: int = 0
+	var places: int = 0
+	var clears: int = 0   # 판정법은 regress와 동일(resolving 진입 or 콤보 증가)
 	while not g.game_over and not g.game_clear and guard < 3000:
 		guard += 1
 		var s: int = 0
@@ -70,7 +80,11 @@ func _play(g: Node, si: int) -> Dictionary:
 		g.sel = mv["slot"]
 		g.hover_col = mv["col"]
 		g.hover_row = mv["row"]
+		var combo_before: int = g.combo
 		g._place_piece()
+		places += 1
+		if g.resolving or g.combo > combo_before:
+			clears += 1
 		var s3: int = 0
 		while g.resolving and s3 < 400:
 			g._process(0.05)
@@ -91,7 +105,7 @@ func _play(g: Node, si: int) -> Dictionary:
 		s2 += 1
 	return {
 		"win": g.game_clear, "leaked": g.leaked, "killed": g.killed,
-		"deton": deton, "defuse": defuse,
+		"deton": deton, "defuse": defuse, "places": places, "clears": clears,
 		"dead_core": g.game_over and not g.stuck,
 		"dead_stuck": g.game_over and g.stuck,
 	}

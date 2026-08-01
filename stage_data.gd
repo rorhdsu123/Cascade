@@ -59,8 +59,16 @@ const POOL_LEAN: Dictionary = {   # 줄-굶김: 퍼즐 축 압박 (I5 희소)
 const STAGES: Array = [
 	{
 		# 온보딩: basic만 + core_hp 넉넉 + pool RICH(I5 최다) = 퍼즐 무압박으로 '줄 완성' 코어만 가르침
+		# total 20→14(C108): 판이 길다는 지적(배치 32.4회)의 레버는 total이었다. floor 4가 보드를 계속
+		#   채우니 클리어 조건(killed+leaked >= total)이 곧 길이다 — 적 수를 줄이면 그대로 짧아진다.
+		#   실측(campaign_probe 시드베이스 2개 × N=300): 배치 32.4→24.5(−24%), 막힘 13.3%→5.7%,
+		#   승률 86.3→94.2%. ⚠기각한 대안 = '조각을 키워 줄을 잘 나게'(I5·직사각↑, 1칸·도미노 제거):
+		#   배치는 29.3으로 3회밖에 안 줄면서 막힘이 18.3%로 올랐다(승률 81.7%). 큰 조각은 안 맞으면
+		#   보드를 더 빨리 잼시킨다 — 온보딩의 실패는 거점사가 아니라 전부 막힘이라 정반대 방향이었다.
+		#   부수효과: 허용 누수 비율이 6/20→6/14로 커진다(기준 ③). 온보딩은 관대함이 설계라 그대로 뒀다
+		#   — 거점사가 600판에 1건이라 core_hp 7은 이미 놀고 있는 슬랙이다.
 		"name": "st1_name", "tag": "st1_tag",
-		"total": 20, "core_hp": 7, "base_hp": 30, "hp_ramp": 0.0, "tank_mult": 2.5,
+		"total": 14, "core_hp": 7, "base_hp": 30, "hp_ramp": 0.0, "tank_mult": 2.5,
 		"spawn_every": 3, "step_every": 3, "onboard": 20, "floor": 4, "surge_at": 0.85,
 		"weights": {"basic": 100, "fast": 0, "tank": 0, "swarm": 0, "split": 0}, "pool": POOL_RICH,
 	},
