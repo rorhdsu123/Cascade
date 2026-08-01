@@ -44,6 +44,13 @@ func _init() -> void:
 	# ⑤ UI 탭 넷(R13) — 진입(+7) · 중립(0) · 뒤로(−5) · 잠김(−8). 한 파형에서 음정·레벨로만 갈린다.
 	#   ⚠**상대 레벨을 보존해야 판정이 된다** → 음마다 db를 실어 넘긴다(정규화는 합친 뒤 한 번뿐).
 	#   순서대로 들으면 "위로 들어가고 아래로 나온다"가 방향으로 읽혀야 한다.
+	# ⑥ 전멸 3층(R14) — 타격 + 45ms 광택 + 135ms 상승 광택. clear(2층)과 나란히 들어 '더 큰가'를 본다.
+	var sk2: AudioStreamWAV = m._sfx_bank["clear2"]
+	_seq("%s/climax_3layer.wav" % OUT_DIR, [[lo, 0, -1.5], [sk2, 0, -11.0], [sk2, 5, -11.0]], 0.045)
+	# ⑦ 누수·칭찬 — 둘 다 '작아야' 하는 소리다. 삭제음 뒤에 붙여 위계가 맞는지 듣는다.
+	_seq("%s/leak_and_praise.wav" % OUT_DIR, [
+			[lo, 0, -3.6], [m._sfx_bank["leak"], 3, -13.0],
+			[lo, 0, -3.6], [m._sfx_bank["praise"], -5, -13.0]], 0.55)
 	var ui: AudioStreamWAV = m._sfx_bank["tap"]
 	var wds: Dictionary = m.SFX_WORDS
 	_seq("%s/ui_taps.wav" % OUT_DIR, [

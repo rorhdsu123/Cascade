@@ -26,7 +26,8 @@ const IDLE_STRESS: int = 1       # 인간이 불가능한 최고 속도 = 상한
 #   ⚠UI 탭 셋은 tap과 **같은 파형**이고 base(음정)만 다르다 → 길이가 그만큼 갈린다:
 #   tap_go(+7) 0.13×2^(−7/12)≈0.09 · tap_back(−5) ≈0.18 · tap_off(−8) ≈0.21.
 const WORD_DUR: Dictionary = {"grab": 0.13, "place": 0.09, "clear": 0.16, "chain": 0.06, "score": 0.13, "fail": 0.09,
-		"tap": 0.13, "tap_go": 0.09, "tap_back": 0.18, "tap_off": 0.21, "clear2": 0.10, "fanfare": 0.16}
+		"tap": 0.13, "tap_go": 0.09, "tap_back": 0.18, "tap_off": 0.21, "clear2": 0.10, "fanfare": 0.16,
+		"climax": 0.16, "praise": 0.14, "leak": 0.08}   # R14 — 블라스트 창 채우기
 const MAX_VOICES: int = 8
 const MAX_FIRES_IN_1S: int = 15         # 예산 14/초 + 회복 여유 1
 const LADDER_MAX_SEMI: int = 16
@@ -81,12 +82,20 @@ func _idle(frames: int) -> void:
 	for _i in range(frames):
 		g._process(1.0 / 60.0)
 
+# 블라스트 연출 창 [시작, 끝] 목록 — §17③의 '창 양 끝이 비었다'를 계속 감시하기 위한 것.
+#   R14의 목표가 총 발화수가 아니라 **분포**였으므로, 총량만 보면 고쳤는지 알 수 없다.
+var windows: Array = []
+
 # 연출이 끝날 때까지 굴린다 — 연쇄(순차 피격)가 전부 재생돼야 사다리가 로그에 남는다.
 func _settle() -> void:
 	var s: int = 0
+	var t0: float = g._sfx_t
+	var was: bool = g.resolving
 	while g.resolving and s < 1200:
 		g._process(1.0 / 60.0)
 		s += 1
+	if was:
+		windows.append([t0, g._sfx_t])
 
 func _play(max_places: int, idle: int) -> int:
 	var places: int = 0
@@ -207,6 +216,7 @@ func _pass(idle: int) -> Array:
 	g.sound_on = true      # ⚠유저 settings.save에 소리 off가 들어 있으면 프로브가 조용히 0발을 재게 된다
 	g._sfx_log = []
 	g._sfx_t = 0.0
+	windows = []
 	seed(SEED_CAMPAIGN)
 	g.seed_game(SEED_CAMPAIGN)
 	g._start_stage(0)
@@ -303,6 +313,59 @@ func _pass_ui() -> Array:
 	out.append(["뒤로", g.mode == "menu"])
 	return [g._sfx_log.duplicate(true), out]
 
+# 패스 F — 블라스트 창 beat 배선(R14). 전멸·비행기 픽업·누수는 봇 패스에서 안 나오거나(전멸)
+#   다른 사건과 섞여(픽업의 chain) 구분이 안 된다 → **단계마다 로그를 비워** 따로 센다.
+func _count(kind: String) -> int:
+	var n: int = 0
+	for e0 in g._sfx_log:
+		var e: Dictionary = e0 as Dictionary
+		if String(e["drop"]) == "" and String(e["kind"]) == kind:
+			n += 1
+	return n
+
+func _pass_fx() -> Dictionary:
+	g.sfx_log_on = true
+	g.sound_on = true
+	g._sfx_log = []
+	g._sfx_t = 0.0
+	seed(SEED_CAMPAIGN)
+	g.seed_game(SEED_CAMPAIGN)
+	g._start_stage(0)
+	g.intro_t = -1.0
+	_idle(2)
+	var out: Dictionary = {}
+	# ① 전멸 + 칭찬 — 플테 '8'키와 같은 강제 경로(바닥 한 줄 + 콤보5)로 실제 _begin_resolve를 태운다.
+	var row: int = g.ROWS - 2
+	for c in range(g.COLS):
+		g.board[row][c] = g.COLORS[c % g.COLORS.size()]
+	g.last_color = g.COLORS[0]
+	g.combo = 5
+	g._sfx_log = []
+	g._begin_resolve([row], [])
+	_settle()
+	_idle(30)
+	out["climax"] = _count("climax")
+	out["praise"] = _count("praise")
+	out["clear2"] = _count("clear2")     # 삭제 광택 1 + 전멸 3층의 2 = 3발이어야 한다
+	# ② 비행기 픽업 — 실제 _apply_hit 경로. chain이 다른 처치와 안 섞이게 로그를 비우고 센다.
+	g._spawn_plane(0)
+	var pid: int = -1
+	for e in g.enemies:
+		if String(e["etype"]) == "plane":
+			pid = int(e["id"])
+	g._sfx_log = []
+	if pid >= 0:
+		g._apply_hit({"id": pid, "dmg": 1, "kb": 0})
+	_idle(10)
+	out["plane"] = _count("chain")
+	# ③ 누수 — **3열 동시**로 세워 한 발만 나는지 본다(열마다 울면 진흙).
+	g._sfx_log = []
+	g.pending_leaks = [0, 1, 2]
+	g._reveal_leaks()
+	_idle(10)
+	out["leak"] = _count("leak")
+	return out
+
 func _run() -> void:
 	g = load("res://Main.tscn").instantiate()
 	root.add_child(g)
@@ -317,6 +380,7 @@ func _run() -> void:
 	var placed_a: int = int(ra[1])
 	var ma: Dictionary = _analyze(log_a)
 	_report("사람 템포", ma)
+	var win_a: Array = windows.duplicate(true)
 
 	var rb: Array = _pass(IDLE_STRESS)
 	var mb: Dictionary = _analyze(rb[0])
@@ -324,6 +388,44 @@ func _run() -> void:
 
 	var rc: Array = _pass(IDLE_HUMAN)      # 결정성 — A 재현
 	var log_c: Array = rc[0]
+
+	# ── 블라스트 창 분포(§17③ 재측정) — 이번 라운드가 고치려 한 바로 그 지표.
+	#   ⚠총 발화수로는 판정이 안 된다. 이미 있는 소리를 붐비는 자리에 더 쌓아도 총량은 오르기 때문.
+	var worst_lead: float = 0.0
+	var worst_trail: float = 0.0
+	var worst_hole: float = 0.0
+	var lines: Array = []
+	for w0 in win_a:
+		var w: Array = w0 as Array
+		var t0: float = float(w[0])
+		var t1: float = float(w[1])
+		if t1 - t0 < 0.3:
+			continue                     # 삭제 없는 짧은 정산은 창이 아니다
+		var ts: Array = []
+		for e0 in log_a:
+			var e: Dictionary = e0 as Dictionary
+			if String(e["drop"]) != "":
+				continue
+			var t: float = float(e["t"])
+			# ⚠**경계의 배치음은 뺀다.** _place_piece와 _settle 사이에 프레임이 안 흐르므로 place가
+			#   창 시작과 정확히 같은 시각에 찍힌다 → 그걸 세면 '앞침묵 0.00'이라는 가짜 합격이 나온다.
+			#   §17③이 잰 앞침묵은 **충전 구간의 침묵**이다. 자를 먼저 의심할 것.
+			if t > t0 and t <= t1:
+				ts.append(t - t0)
+		var lead: float = float(ts[0]) if ts.size() > 0 else (t1 - t0)
+		var trail: float = ((t1 - t0) - float(ts[ts.size() - 1])) if ts.size() > 0 else (t1 - t0)
+		var hole: float = 0.0
+		for i in range(1, ts.size()):
+			hole = maxf(hole, float(ts[i]) - float(ts[i - 1]))
+		worst_lead = maxf(worst_lead, lead)
+		worst_trail = maxf(worst_trail, trail)
+		worst_hole = maxf(worst_hole, hole)
+		lines.append("     창 %.2fs · %d발 · 앞침묵 %.2f · 뒤침묵 %.2f · 최대구멍 %.2f"
+				% [t1 - t0, ts.size(), lead, trail, hole])
+	print("── 블라스트 창 분포 (레퍼런스 대비: 앞·뒤가 비면 '소리가 적다'로 느껴진다)")
+	for ln in lines:
+		print(ln)
+	print("     최악 — 앞침묵 %.2fs · 뒤침묵 %.2fs · 중간구멍 %.2fs" % [worst_lead, worst_trail, worst_hole])
 
 	print("── 판정")
 	var kinds_a: Dictionary = ma["kinds"]
@@ -350,12 +452,12 @@ func _run() -> void:
 
 	# fanfare = 아르페지오 4음(R12부터 자기 이름으로 남는다). tap_* 셋은 R13 UI 탭(같은 파형·다른 음정).
 	var allowed: Array = ["grab", "place", "clear", "clear2", "chain", "score", "fail",
-			"tap", "tap_go", "tap_back", "tap_off", "fanfare"]
+			"tap", "tap_go", "tap_back", "tap_off", "fanfare", "climax", "praise", "leak"]
 	var unexpected: Array = []
 	for k in kinds_a.keys():
 		if not allowed.has(String(k)):
 			unexpected.append(k)
-	_check("⑦ 어휘는 열둘뿐", unexpected.is_empty(), "예상 밖: %s" % str(unexpected))
+	_check("⑦ 어휘는 열다섯뿐", unexpected.is_empty(), "예상 밖: %s" % str(unexpected))
 
 	# ── 패스 D: 어휘 직접 타격(fanfare 1회 상한·판 경계 리셋)
 	var log_d: Array = _pass_vocab()
@@ -421,6 +523,17 @@ func _run() -> void:
 	_check("⑬ 잠긴 버튼 = tap_off(무음도 경고음도 아님)", int(ui.get("tap_off", 0)) == 1,
 			"%d발" % int(ui.get("tap_off", 0)))
 	_check("⑭ UI 탭이 화면 전환과 일치", nav_ok, "어긋남: %s" % str(nav_bad))
+
+	# ── 패스 F: 블라스트 창 beat 배선(R14)
+	var fx: Dictionary = _pass_fx()
+	print("── 창 beat: %s" % str(fx))
+	_check("⑮ 전멸 배선(_fire_climax → climax)", int(fx.get("climax", 0)) == 1, "%d발" % int(fx.get("climax", 0)))
+	_check("⑮ 전멸 = 3층(광택 2발이 뒤따름)", int(fx.get("clear2", 0)) >= 3,
+			"clear2 %d발(삭제 1 + 전멸 2)" % int(fx.get("clear2", 0)))
+	_check("⑯ 칭찬 팝인 배선(praise_delay 만료 → praise)", int(fx.get("praise", 0)) == 1,
+			"%d발" % int(fx.get("praise", 0)))
+	_check("⑰ 비행기 픽업 배선(_apply_hit → chain)", int(fx.get("plane", 0)) == 1, "%d발" % int(fx.get("plane", 0)))
+	_check("⑱ 누수 = 3열 동시라도 한 발", int(fx.get("leak", 0)) == 1, "%d발" % int(fx.get("leak", 0)))
 
 	print("=== %s (실패 %d) ===" % ["PASS" if fails == 0 else "FAIL", fails])
 	quit(1 if fails > 0 else 0)

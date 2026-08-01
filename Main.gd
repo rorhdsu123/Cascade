@@ -905,6 +905,21 @@ const SFX_WORDS: Dictionary = {
 	"tap_back": {"gap": 0.05, "db": -9.5, "det": 0.012, "base": -5},# 뒤로·닫기(진입보다 낮고 조용히)
 	# 잠김은 폰 손실(−3.0dB)을 레벨로 절반쯤 되갚아 둔다 — 안 그러면 폰에서만 이 한 단어가 사라진다.
 	"tap_off": {"gap": 0.05, "db": -10.5, "det": 0.012, "base": -8},# 잠김·무반응
+	# ── 블라스트 창 채우기(R14) ────────────────────────────────────────────────
+	# §17③ 실측: 삭제 연출 창이 0.85~1.70초인데 양 끝이 비어 있었다(한 창은 1.18초 침묵).
+	#   "소리를 늘려라"가 아니라 **이미 있는 beat에 안 붙어 있던 것**을 붙인다.
+	# ⚠**전멸(climax)을 음정으로 키우지 않았다.** chip_low는 내릴수록 폰에서 죽는다(−5반음 =
+	#   폰 −9.2dB). 레퍼런스도 볼륨이 아니라 **층수·제스처**로 크기를 말한다(§10) → climax는
+	#   clear와 같은 음정에 **3층**(타격 + 45ms 광택 + 135ms 상승 광택)으로 커진다.
+	"climax": {"gap": 0.00, "db": -1.5, "det": 0.004},   # 판 최대 사건 — clear(−3.6)보다 위, 리미터가 받는다
+	# 칭찬 단어 팝인 — clear(0ms) → clear2(40ms) → praise(90ms)로 창 앞머리에 3박이 선다.
+	#   ⚠sparkle을 −5반음 내려 쓴다: chip_high 원음(5147Hz)은 R9에서 "거슬린다"로 기각된 대역에
+	#   가깝고, 내리면 폰 통과도 −2.4 → −1.6dB로 좋아진다(위로 올리면 +12에서 −6.8dB로 무너진다).
+	"praise": {"gap": 0.10, "db": -13.0, "det": 0.010, "base": -5},
+	# 누수(거점 −1) — **"손실엔 무음"을 유저 결정으로 뒤집은 두 번째 자리**(첫째는 fail, §11).
+	#   fail(판을 닫는 소리)과 같은 파형이되 **더 높고(덜 최종적) 더 조용하게** = 벌이 아니라 알림.
+	#   ⚠한 스텝에 여러 열이 새도 **한 발만** 운다(호출부가 루프 밖에 있다) — 열마다 울리면 진흙이다.
+	"leak": {"gap": 0.10, "db": -13.0, "det": 0.010, "base": 3},
 	# clear의 둘째 층 전용. FB_MAP엔 없다(호출부가 부르는 사건이 아니라 clear의 일부).
 	#   ⚠`chain` 이름으로 발화시켰더니 사다리 분석이 이걸 계단으로 세어 역행으로 읽었다(프로브가 잡음).
 	"clear2": {"gap": 0.00, "db": -11.0, "det": 0.004},
@@ -940,6 +955,12 @@ const FB_MAP: Dictionary = {
 	#   그대로 무진동이다 — 실패에 진동까지 얹으면 벌주는 느낌이 되어 코지 톤과 싸운다.
 	"fail": {"hap": "", "sfx": "fail"},
 	"tap": {"hap": "", "sfx": "tap"},         # UI 탭은 진동 없음(OS 터치 피드백과 이중 진동)
+	# 전멸은 소리만 — 이 창엔 이미 clear의 pop 진동이 나가 있고, 0.2초 뒤 한 발을 더 얹으면
+	#   두 박이 뭉쳐 '고장난 진동'으로 읽힌다(햅틱은 승자독식이라 겹침을 못 견딘다, §3).
+	"climax": {"hap": "", "sfx": "climax"},
+	"praise": {"hap": "", "sfx": "praise"},
+	# 누수도 **소리만**. 손실에 진동을 얹으면 벌주는 느낌이 된다(fail과 같은 결정, §11).
+	"leak": {"hap": "", "sfx": "leak"},
 	"tap_go": {"hap": "", "sfx": "tap_go"},
 	"tap_back": {"hap": "", "sfx": "tap_back"},
 	"tap_off": {"hap": "", "sfx": "tap_off"},
@@ -1002,6 +1023,9 @@ func _sfx_build_bank() -> void:
 	_sfx_bank["grab"] = hi
 	_sfx_bank["score"] = hi
 	_sfx_bank["tap"] = hi
+	_sfx_bank["climax"] = bu      # 전멸 타격 = 삭제와 같은 칩(같은 사건의 '더 큰 판'이라 같은 음색)
+	_sfx_bank["praise"] = sk      # 칭찬 팝인 = 광택층과 같은 파형(작게, −5반음)
+	_sfx_bank["leak"] = lo        # 누수 = fail과 같은 파형(더 높고 더 조용하게)
 	# UI 탭 셋은 같은 파형이다 — 음정(base)만 다르다. 새 파일을 안 늘리는 게 요점(R13).
 	_sfx_bank["tap_go"] = hi
 	_sfx_bank["tap_back"] = hi
@@ -1082,6 +1106,13 @@ func _sfx(kind: String, intensity: float = 0.0) -> void:
 		#   ⚠+9반음을 안 준다 — 둘째 층 파형(1758Hz)이 **이미** 첫 층(1464Hz)보다 높다.
 		#   R9까지는 같은 파형을 썼기에 음정으로 올렸지만, 이제 올리면 2462Hz로 다시 날카로워진다.
 		_sfx_queue.append({"at": _sfx_t + 0.040, "kind": "clear2", "semi": semi})
+	elif kind == "climax":
+		# 전멸 = clear의 '더 큰 판'. 음정이 아니라 **층수**로 커진다(§10 레퍼런스: 레벨 위계가 거의
+		#   없고 음색·제스처·층수로 차별화). 45ms 광택 + 135ms 상승 광택 = 꼬리가 한 번 더 올라간다.
+		#   ⚠둘째 광택을 +12로 올리면 안 된다 — chip_high가 10.3kHz로 가서 폰 통과가 −6.8dB로 무너지고
+		#   R9에서 기각된 '거슬리는' 대역으로 되돌아간다. +5까지가 안전선이다.
+		_sfx_queue.append({"at": _sfx_t + 0.045, "kind": "clear2", "semi": 0})
+		_sfx_queue.append({"at": _sfx_t + 0.135, "kind": "clear2", "semi": 5})
 	elif kind == "chain":
 		semi = _sfx_semi(_sfx_chain_step)
 		_sfx_chain_step += 1
@@ -2401,6 +2432,7 @@ func _burst_lines() -> void:
 # 전멸(화면 전체 청소) 클라이맥스 — 보드 중앙에서 퍼지는 큰 충격파 + 히트스톱(셰이크·전체화면 섬광 없음)
 func _fire_climax() -> void:
 	var ctr: Vector2 = Vector2(BOARD_X + COLS * CELL * 0.5, board_y + ROWS * CELL * 0.5)
+	_fb("climax")                   # 게임에서 제일 큰 순간 — R13까지 여기 `_fb` 호출이 0개였다
 	hitstop = maxf(hitstop, 0.14)   # 멈칫→릴리스가 '팍'의 절반. 살짝 강화.
 	# '한 방' 펀치(C90 D 튜닝) — 잔잔한 확장 링(파동)을 없애고, 순간 밝은 플래시 + 전부 동시 폭발 + 빠르게 사그라듦.
 	#   전역 randf = 연출 스트림(game_rng 무관 → 회귀 무영향).
@@ -2461,6 +2493,7 @@ func _apply_hit(h: Dictionary) -> void:
 		plane_flights.append({"from": ep, "to": _plane_slot_rect().get_center(), "t": 0.0, "dur": PLANE_GRAB_DUR})
 		kill_pulse = 0.35
 		hitstop = maxf(hitstop, 0.05)
+		_fb("chain")            # 보석 낚아채기와 **같은 문법인데 여기만 무음이었다**(R13 곁다리 발견)
 		enemies.remove_at(found)
 		return
 	e["hp"] -= h["dmg"]
@@ -2608,6 +2641,8 @@ func _reveal_leaks() -> void:
 		_add_floater(Vector2(BOARD_X + int(col) * CELL + CELL * 0.5, board_y + ROWS * CELL + 16.0),
 				"-1", Color(1.0, 0.25, 0.25), 0.9, 40)
 	if pending_leaks.size() > 0:
+		# ⚠**루프 밖 = 스텝당 한 발.** 열마다 울리면 3열 동시 누수에 세 발이 겹쳐 진흙이 된다.
+		_fb("leak")
 		red_flash = RED_FLASH_DUR
 		shake_timer = maxf(shake_timer, SHAKE_DUR * 1.6)
 		# 박자3(손해 학습): 튜토리얼 중 첫 누수 — 붉은 플래시·-1·흔들림이 이미 눈을 아래로 끈다.
@@ -4402,6 +4437,9 @@ func _process(delta: float) -> void:
 			praise_t = PRAISE_DUR
 			praise_combo = praise_pending_combo
 			praise_pending_combo = 0
+			# 단어가 뜨는 바로 그 프레임에 작은 반짝임 — 여기까지가 창 앞머리의 3박이다
+			#   (clear 0ms → clear2 40ms → praise 90ms). 시각 계단시차에 소리를 맞춰 얹은 것.
+			_fb("praise")
 	# 점수 롤업(C90): 표시 점수가 실제로 또르르. 표시가 최고를 '넘는 순간' PB 판전체 폭발 1회 발화(차오름→돌파).
 	if endless_score_shown < float(endless_score):
 		var _sdiff: float = float(endless_score) - endless_score_shown
