@@ -1152,6 +1152,14 @@ func _load_campaign() -> void:
 				cleared[i] = true
 	f.close()
 
+# 플테 도구(진행도 초기화 버튼)를 노출할 빌드인가.
+#   디버그 빌드 + 사이드로드 플테 빌드에서만 참이다. 후자는 export preset "Android"의
+#   custom_features="playtest"로 켜지고, Play 업로드용 "Android Release"(AAB)에는 그 태그가 없다 —
+#   즉 외부 테스터에게 뿌리는 APK에만 열리고 스토어 빌드에는 닫힌 채로 남는다.
+#   ⚠점수·보드를 조작하는 치트키(8·9·0)는 여기 얹지 않는다. 그건 디버그 전용으로 남긴다.
+func _playtest_tools_on() -> bool:
+	return OS.is_debug_build() or OS.has_feature("playtest")
+
 # ⚠플테 전용: 캠페인 진행도 초기화. 파일 삭제가 아니라 '메모리를 비우고 저장'이 정답이다 —
 #   _save_campaign()은 메모리의 cleared를 통째로 마스크로 덮어쓰므로, 파일만 지우면 다음 클리어 때
 #   옛 진행도가 통째로 되살아난다(실제로 겪은 사고). 무한 최고점·애널리틱스는 별개 파일이라 안 건드린다.
@@ -4038,7 +4046,7 @@ func _input(event: InputEvent) -> void:
 			var mp: Vector2 = mm.position - sdy
 			_play_hover = PLAY_BTN.has_point(mp) and not _all_cleared()
 			_back_hover = BACK_BTN.has_point(mp)
-			_dev_reset_hover = OS.is_debug_build() and DEV_RESET_BTN.has_point(mp)
+			_dev_reset_hover = _playtest_tools_on() and DEV_RESET_BTN.has_point(mp)
 			# 드래그 스크롤 — 버튼(마우스/터치)이 눌린 채 그리드 위를 끌면 스크롤. 터치=에뮬 마우스로 재사용.
 			if _sel_drag_y >= 0.0 and (mm.button_mask & MOUSE_BUTTON_MASK_LEFT) != 0:
 				_sel_scroll_by(_sel_drag_y - mp.y)
@@ -4054,7 +4062,7 @@ func _input(event: InputEvent) -> void:
 				_sel_scroll_by(64.0)
 			elif sm.button_index == MOUSE_BUTTON_LEFT:
 				if sm.pressed:
-					if OS.is_debug_build() and DEV_RESET_BTN.has_point(smp):
+					if _playtest_tools_on() and DEV_RESET_BTN.has_point(smp):
 						if _dev_reset_arm > 0.0:
 							_dev_wipe_progress()            # 두 번째 탭 = 실행
 						else:
@@ -6093,9 +6101,9 @@ func _draw_back_button(fnt: Font) -> void:
 	]), Color.WHITE)
 	_draw_text_outlined(fnt, Vector2(r.position.x + 46.0, ay + 7.0), _t("home"), 20, Color.WHITE)
 
-# ⚠플테 전용 초기화 버튼. 릴리즈 빌드에선 그리지도, 눌리지도 않는다.
+# ⚠플테 전용 초기화 버튼. 스토어 빌드에선 그리지도, 눌리지도 않는다([[_playtest_tools_on]]).
 func _draw_dev_reset(fnt: Font) -> void:
-	if not OS.is_debug_build():
+	if not _playtest_tools_on():
 		return
 	var r: Rect2 = DEV_RESET_BTN
 	var armed: bool = _dev_reset_arm > 0.0
@@ -6103,7 +6111,8 @@ func _draw_dev_reset(fnt: Font) -> void:
 	var base: Color = Color(0.42, 0.14, 0.16) if armed else Color(0.20, 0.16, 0.16)
 	draw_rect(r, base.lightened(0.10) if _dev_reset_hover else base)
 	draw_rect(r, Color(0.85, 0.35, 0.30) if armed else Color(0.50, 0.40, 0.40), false, 2.0)
-	var label: String = "SURE?" if armed else "DEV WIPE"      # 개발용이라 미번역(i18n 딕셔너리 안 늘림)
+	# 외부 테스터도 보는 버튼이라 'DEV WIPE'(내부 은어)에서 'RESET'으로 바꿨다.
+	var label: String = "SURE?" if armed else "RESET"        # 플테 전용이라 미번역(i18n 딕셔너리 안 늘림)
 	var lw: float = fnt.get_string_size(label, HORIZONTAL_ALIGNMENT_LEFT, -1, 18).x
 	_draw_text_outlined(fnt, Vector2(r.position.x + r.size.x * 0.5 - lw * 0.5, r.position.y + 34.0), label, 18,
 			Color(1.0, 0.8, 0.75) if armed else Color(0.80, 0.70, 0.70))
