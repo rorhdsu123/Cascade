@@ -96,9 +96,20 @@ const STAGES: Array = [
 	},
 	{
 		# desync로 무리 절반이 base_step−1로 더 빨리 전진 → 행·열로 흩어져 한 줄론 못 쓸어냄
+		# core_hp 3→4(C115): 초반 계단 완화. 이 판만 허용 누수가 뒤집혀 있었다 —
+		#   core_hp가 st1=7 / st2=3 / st3=4 / st4=5라 **두 번째 판이 세·네 번째보다 빡빡**했다.
+		#   패배 사유도 거점사 지배(63%, 막힘 17%)라 레버가 정확히 core_hp였다(기준 ⑤).
+		#   실측(plane_verify AB=1, 독립 시드베이스 3개 × N=100 = 판당 300):
+		#     비행기 ON 74.3% → 80.3% · OFF 59.3% → 70.0%.
+		#   ⚠campaign_probe의 봇은 비행기를 안 쏜다 = 그 숫자는 항상 OFF 값이다. 체감치는 ON 쪽.
+		#   ⚠기각한 대안 ① pool RICH→ONBOARD: OFF는 75.7%로 제일 좋지만 ON은 78.0%로 A보다 낮고,
+		#     st1의 온보딩 배합을 두 판 연속 쓰면 조각 아크(ONBOARD→RICH→STD→LEAN)가 뭉개진다.
+		#   ⚠기각한 대안 ② 둘 다(core_hp 4 + ONBOARD): ON 76.0%로 오히려 A보다 낮다. 판이 쉬워질수록
+		#     비행기 Δ가 +15pt→0으로 접혀서(천장 효과) ON 승률이 ~80%에서 포화한다 = 겹쳐 쌓을 값이 없다.
+		#   ⚠기각한 대안 ③ total 30→26: ON +1pt(75.0%). 길이만 줄고 누수 압력은 그대로라 무효.
 		"name": "st2_name", "tag": "st2_tag",
 		"plane_cd": 3,
-		"total": 30, "core_hp": 3, "base_hp": 32, "hp_ramp": 0.4, "tank_mult": 2.5,
+		"total": 30, "core_hp": 4, "base_hp": 32, "hp_ramp": 0.4, "tank_mult": 2.5,
 		"spawn_every": 2, "step_every": 3, "onboard": 4, "floor": 5, "surge_at": 0.82,
 		"weights": {"basic": 40, "fast": 0, "tank": 0, "swarm": 60, "split": 0}, "pool": POOL_RICH,
 	},
