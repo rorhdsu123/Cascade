@@ -4,8 +4,11 @@ extends SceneTree
 #   ② 세상에 한 대 불변식: 보드 위 픽업 + 보유 + 획득비행 중 ≤ 1  (매 배치 검사)
 #   ③ 웨이브 회계: spawned == killed + leaked + 온보드 위협수  (픽업·보석은 카운터 밖)
 #   ④ 판당 사용 횟수가 plane_cd 배정과 맞는지(설계 목표: 초반 ~2회 → 후반 ~1회)
+#   ⑤ AB=1: 판마다 같은 시드로 대조군(비행기 없음)을 함께 돌려 스테이지별 Δ 곡선을 낸다.
+#      ⚠평균 Δ보다 곡선이 중요하다 — 확정 처치의 값어치는 판이 어려울수록 커져 후반만 부푼다.
 #   봇 정책 = 들자마자 즉시 발사(= 사용 횟수 상한. 아껴 쓰면 이보다 적다).
 #   실행: PROBE_SEED=20260731 TRIALS=20 godot --headless --path . --script tools/plane_verify.gd
+#         AB=1 PROBE_SEED=20260731 TRIALS=60 godot --headless --path . --script tools/plane_verify.gd
 
 var fails: Array = []
 
@@ -16,22 +19,47 @@ func _init() -> void:
 	root.add_child(g)
 	var sd: String = OS.get_environment("PROBE_SEED")
 	var base_seed: int = int(sd) if sd != "" else 20260731
-	print("(seed=%s TRIALS=%d)" % [sd if sd != "" else "none", TRIALS])
+	# AB=1이면 판마다 같은 시드로 '비행기 없음(대조군)'을 한 번 더 돌려 Δ 곡선을 낸다.
+	#   대조군은 plane_cd_left를 사실상 무한대로 눌러 만든다(스폰 경로만 막고 나머지는 그대로)
+	#   — STAGES는 const라 런타임 오버라이드가 불가하고, 이 방식이 코드 경로를 안 건드린다.
+	var AB: bool = OS.get_environment("AB") != ""
+	print("(seed=%s TRIALS=%d%s)" % [sd if sd != "" else "none", TRIALS, "  AB=on" if AB else ""])
 	g.cleared[0] = true   # 튜토리얼 비활성 (stage 0의 '튜토리얼 아닌' 재플레이를 본다)
 
-	print("idx | cd | 등장  | 획득  | 발사  | 누락  | 사용/판 | 승률   | 이름키")
-	print("----+----+-------+-------+-------+-------+---------+--------+-------")
+	if AB:
+		print("idx | cd | 사용/판 | 무비행기 | 비행기 |   Δ    | 이름키")
+		print("----+----+---------+----------+--------+--------+-------")
+	else:
+		print("idx | cd | 등장  | 획득  | 발사  | 누락  | 사용/판 | 승률   | 이름키")
+		print("----+----+-------+-------+-------+-------+---------+--------+-------")
+	# STAGE_IDX="1,5,12"면 그 배열 위치만 (campaign_probe와 같은 규약) — 특정 판을 큰 N으로 좁힐 때.
+	var only: Array = []
+	var only_env: String = OS.get_environment("STAGE_IDX")
+	if only_env != "":
+		for tok in only_env.split(","):
+			only.append(int(tok))
+	var sum_off: float = 0.0
+	var sum_on: float = 0.0
+	var n_ab: int = 0
 	for si in range(g.STAGES.size()):
+		if not only.is_empty() and not only.has(si):
+			continue
 		var st: Dictionary = g.STAGES[si]
 		var sp: float = 0.0
 		var gr: float = 0.0
 		var fi: float = 0.0
 		var lk: float = 0.0
 		var wins: float = 0.0
+		var wins_off: float = 0.0
 		for t in range(TRIALS):
 			# ⚠판·시행마다 독립 시드 — 한 번만 시드하면 비행기가 소비한 randi 수만큼 하류 스테이지의
 			#   난수 스트림이 통째로 밀려, 비행기가 안 나오는 판(수집)까지 승률이 흔들린다(A/B 오염).
 			var sseed: int = base_seed + si * 100003 + t
+			if AB:
+				seed(sseed)
+				g.seed_game(sseed)
+				if bool(_play(g, si, true)["win"]):
+					wins_off += 1.0
 			seed(sseed)
 			g.seed_game(sseed)
 			var r: Dictionary = _play(g, si)
@@ -43,15 +71,25 @@ func _init() -> void:
 				wins += 1.0
 		var n: float = float(TRIALS)
 		var cd: String = str(int(st["plane_cd"])) if st.has("plane_cd") else "—"
-		print(" %2d | %2s | %5.2f | %5.2f | %5.2f | %5.2f |  %5.2f  | %5.1f%% | %s" % [
-			si + 1, cd, sp / n, gr / n, fi / n, lk / n, fi / n, 100.0 * wins / n, String(st["name"])])
+		if AB:
+			var w_off: float = 100.0 * wins_off / n
+			var w_on: float = 100.0 * wins / n
+			sum_off += w_off
+			sum_on += w_on
+			n_ab += 1
+			print(" %2d | %2s |  %5.2f  |  %5.1f%%  | %5.1f%% | %+6.1f | %s" % [
+				si + 1, cd, fi / n, w_off, w_on, w_on - w_off, String(st["name"])])
+		else:
+			print(" %2d | %2s | %5.2f | %5.2f | %5.2f | %5.2f |  %5.2f  | %5.1f%% | %s" % [
+				si + 1, cd, sp / n, gr / n, fi / n, lk / n, fi / n, 100.0 * wins / n, String(st["name"])])
 		# ① 게이트: 수집 판엔 절대 안 나온다
 		if bool(st.get("collect", false)) and sp > 0.0:
 			fails.append("스테이지 %d(수집)에 비행기가 %d회 등장" % [si + 1, int(sp)])
 
 	# 튜토리얼 게이트는 따로 — cleared[0]을 지워 진짜 튜토리얼 상태로 stage 0을 돌린다
+	#   (STAGE_IDX로 구간을 좁혀 돌 땐 건너뛴다 — 밸런스 반복에서 매번 낼 필요가 없다)
 	var tut_spawn: int = 0
-	for t2 in range(TRIALS):
+	for t2 in range(0 if not only.is_empty() else TRIALS):
 		seed(base_seed + 999983 + t2)
 		g.seed_game(base_seed + 999983 + t2)
 		g.cleared.erase(0)   # ⚠매 판 지운다 — 한 판 이기면 cleared[0]이 켜져 그 뒤론 튜토리얼이 아니다
@@ -62,6 +100,11 @@ func _init() -> void:
 	if tut_spawn > 0:
 		fails.append("튜토리얼 판에 비행기가 %d회 등장" % tut_spawn)
 
+	if n_ab > 0:
+		print("")
+		print("── 평균(전 %d판) 무비행기 %.1f%% → 비행기 %.1f%%  (Δ %+.1fpt) ──" % [
+			n_ab, sum_off / float(n_ab), sum_on / float(n_ab), (sum_on - sum_off) / float(n_ab)])
+
 	print("")
 	if fails.is_empty():
 		print("✅ 전부 통과 — 게이트·불변식·회계 이상 없음")
@@ -71,9 +114,17 @@ func _init() -> void:
 			print("   - " + String(f))
 	quit()
 
-func _play(g: Node, si: int) -> Dictionary:
+func _play(g: Node, si: int, plane_off: bool = false) -> Dictionary:
 	g.dda_enabled = false
 	g._start_stage(si)
+	if plane_off:
+		g.plane_cd_left = 1 << 30   # 대조군: 쿨다운이 안 끝나 픽업이 영영 안 떨어진다
+	# CORE_HP=n이면 그 값으로 덮어써서 감도(누수 여유 1칸 = 승률 몇 pt인가)를 잰다.
+	#   STAGES는 const라 런타임 수정이 막혀 있어 시작값을 직접 넣는다 — randi를 안 건드리니 스트림 보존.
+	var chp: String = OS.get_environment("CORE_HP")
+	if chp != "":
+		g.core_hp = int(chp)
+		g.core_hp_vis = float(int(chp))
 	var guard: int = 0
 	var seen: Dictionary = {}      # 등장한 픽업 id
 	var n_grab: int = 0
