@@ -1,14 +1,26 @@
 extends SceneTree
 
-# 조각 분포 계측 (일회성) — 그리디 봇으로 실제 플레이하며 '실제로 손에 들어온 조각'을 집계.
-# Block Blast 실측치와 비교하기 위함.
-
-const TRIALS: int = 60
+# 조각 분포 계측 — 그리디 봇으로 실제 플레이하며 '실제로 손에 들어온 조각'을 집계.
+# ⚠가중치 표를 손으로 읽어 비율을 짐작하지 말 것: _pool_piece의 fit-guard가 '지금 안 들어가는 조각'을
+#   후보에서 빼므로 실제 배급은 가중치 비율과 다르다(R33처럼 큰 조각일수록 크게 벌어진다).
+#   그리고 봇 지표(승률·동시삭제)는 단조로움을 못 잡는다 — 사람은 같은 조각이 반복되면 질린다.
+#   실행: PROBE_SEED=20260801 TRIALS=60 STAGE_IDX=0 godot --headless --path . --script tools/piecestat.gd
 
 func _init() -> void:
+	var TRIALS: int = int(OS.get_environment("TRIALS")) if OS.get_environment("TRIALS") != "" else 60
 	var S: GDScript = load("res://Main.gd")
 	var g: Node = S.new()
 	root.add_child(g)
+	var sd: String = OS.get_environment("PROBE_SEED")
+	if sd != "":
+		seed(int(sd))
+		g.seed_game(int(sd))
+	g.cleared[0] = true   # 튜토리얼 비활성 — 스크립트 트레이가 통계에 섞이면 안 된다
+	var only: Array = []
+	var only_env: String = OS.get_environment("STAGE_IDX")
+	if only_env != "":
+		for tok in only_env.split(","):
+			only.append(int(tok))
 
 	var count: Dictionary = {}
 	var cells_sum: float = 0.0
@@ -16,7 +28,11 @@ func _init() -> void:
 	var f_hist: Array = [0, 0, 0, 0, 0]   # f<0.3, <0.45, <0.6, <0.75, >=0.75
 	var tier: Dictionary = {"SMALL": 0, "MID": 0, "BIG": 0}
 
+	var n_stage: int = 0
 	for si in range(g.STAGES.size()):
+		if not only.is_empty() and not only.has(si):
+			continue
+		n_stage += 1
 		for t in range(TRIALS):
 			g._start_stage(si)
 			var guard: int = 0
@@ -58,7 +74,7 @@ func _init() -> void:
 				g.hover_row = mv["row"]
 				g._place_piece()
 
-	print("\n===== 실제 플레이 중 조각 분포 (%d판, 조각 %d개) =====" % [TRIALS * g.STAGES.size(), int(n)])
+	print("\n===== 실제 플레이 중 조각 분포 (%d판, 조각 %d개) =====" % [TRIALS * n_stage, int(n)])
 	var keys: Array = count.keys()
 	keys.sort_custom(func(a, b): return int(count[a]) > int(count[b]))
 	for k in keys:
