@@ -1,6 +1,7 @@
 extends SceneTree
 # 유도 종이비행기 발사 수 진단 — 가로 N줄 클리어 × 콤보별 실제 seeker 수.
 # 헤드리스 OK(발사 계획은 순수 로직, 렌더 안 함).
+# ⚠Main.SEEKER_ENABLED=false면 전부 0이 정상 — 고장이 아니라 기능이 꺼져 있는 것.
 # 실행: godot --headless --script tools/seeker_probe.gd
 
 var main: Node

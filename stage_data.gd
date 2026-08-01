@@ -25,6 +25,23 @@ extends RefCounted
 #   한 레인 청소에 더 많이 쓸려나가기 때문. '더 빨리 온다'가 '더 어렵다'가 아니다.
 # 기준 ⑥ 퍼즐 축 손잡이 = pool(조각 분포, C51 축·기전 / C54 아크 authoring). line-maker(I5) 비율이 주 dial이고,
 #   core_hp가 그 위에 단조로 겹쳐 얹힌다(2D 난이도면). 디펜스 축이 소진된 자리를 여기서 채운다.
+# 기준 ⑦ plane_cd = 비행기 픽업이 다 쓰인 뒤 다음 것이 나오기까지의 배치 수(희소 손잡이).
+#   한 사이클 = 보드 체류(≈7배치, 이 중 ~82%가 획득) + plane_cd → 판당 사용 ≈ P/(7+cd)×0.82.
+#   ⚠체류가 짧은 이유: 픽업은 '우연히 지나가는 줄에 걸리는' 게 아니라 플레이어가 노려서 딴다.
+#   클리어 분포가 픽업과 무관하다고 가정하면 체류를 13.7배치로 과대평가하게 된다(첫 산정의 오류).
+#   ⇒ 산정은 반드시 실측으로: tools/plane_rate_probe.gd(클리어 빈도) + tools/plane_verify.gd(실사용).
+#   현 배정 목표(사용/판): 초반 ~2회 → 후반 ~1회.
+#   ⚠C106의 "평균 +8.9pt·후반 편중(st13 +22.5, st11 +22.5, st7 +17.5)"은 N=40 노이즈였다.
+#   재측정(2026-08-01, AB=1 · 독립 시드베이스 2개 × N=200 = 판당 400): 평균 Δ **+4.3pt**
+#   (두 시드 +4.27·+4.30으로 일치), 같은 판들이 +6.3 · +0.5 · +3.3으로 내려앉는다.
+#   그리고 편중은 후반이 아니라 **초반**이다 — 재생순 1~4 +7.4 / 중반 +3.8 / 후반 +3.8.
+#   Δ는 판 난이도가 아니라 **사용/판**을 따라간다(상위 Δ 3판 = 사용량 상위 3판) = plane_cd가
+#   이미 곡선을 잡고 있다. 초반이 큰 건 의도대로다: st2(+14.8)는 비행기 소개판이고, 비행기 이전
+#   st2(59.8%)가 st3(62.0%)보다 어려운 뒤집힌 구간이었던 걸 편다(90.5→74.5→68.3→65.0 단조).
+#   ⇒ **후반 core_hp/total 재조정은 기각.** 감도 실측(st13 core_hp 7→6)이 −8.5~−11.5pt라
+#   +6pt 리프트를 지우려다 −4pt 적자로 넘어간다 — 레버 눈금이 리프트보다 굵다. 남는 평균 +4.3pt는
+#   전 판에 고르게 얹힌 완화라 난이도 순서를 안 바꾼다(off↔on 순위 거의 보존).
+#   수집·튜토리얼 판엔 아예 안 나온다(Main._plane_allowed) → 그 판들엔 plane_cd 자체가 없다.
 
 # 조각 풀 프리셋 — {조각키: 가중치}. 공통 '변주 base'(테트로미노·직사각 = 손맛)에 I5만 다르게.
 # sim(pool_probe, basic-only) 실측: I5 0%→50%면 승률 5%→84% 단조 상승. 공정성은 _pool_piece
@@ -50,12 +67,14 @@ const STAGES: Array = [
 	{
 		# desync로 무리 절반이 base_step−1로 더 빨리 전진 → 행·열로 흩어져 한 줄론 못 쓸어냄
 		"name": "st2_name", "tag": "st2_tag",
+		"plane_cd": 3,
 		"total": 30, "core_hp": 3, "base_hp": 32, "hp_ramp": 0.4, "tank_mult": 2.5,
 		"spawn_every": 2, "step_every": 3, "onboard": 4, "floor": 5, "surge_at": 0.82,
 		"weights": {"basic": 40, "fast": 0, "tank": 0, "swarm": 60, "split": 0}, "pool": POOL_RICH,
 	},
 	{
 		"name": "st3_name", "tag": "st3_tag",
+		"plane_cd": 8,
 		"total": 34, "core_hp": 4, "base_hp": 34, "hp_ramp": 0.5, "tank_mult": 2.5,
 		"spawn_every": 2, "step_every": 3, "onboard": 3, "floor": 5, "surge_at": 0.80,
 		"weights": {"basic": 40, "fast": 50, "tank": 0, "swarm": 10, "split": 0}, "pool": POOL_STD,
@@ -66,6 +85,7 @@ const STAGES: Array = [
 		# core_hp 5(C96): 온보딩 절벽 완화 — hp3=41% 거점사벽이라 누수 여유만 키움(막힘=퍼즐압은 불변).
 		#   비대칭(st3=4, st4=5): st4가 pool-lean로 구조상 더 어려워 더 큰 보정. sim 41→67.5%.
 		"name": "st4_name", "tag": "st4_tag",
+		"plane_cd": 7,
 		"total": 36, "core_hp": 5, "base_hp": 36, "hp_ramp": 0.4, "tank_mult": 2.5,
 		"spawn_every": 2, "step_every": 3, "onboard": 3, "floor": 5, "surge_at": 0.80,
 		"weights": {"basic": 55, "fast": 0, "tank": 0, "swarm": 45, "split": 0}, "pool": POOL_LEAN,
@@ -87,6 +107,7 @@ const STAGES: Array = [
 	# 격리 도입(basic↔bomb만) = 난이도가 전적으로 새 기전에서(split 도입판 S7과 동형). core_hp 4 = 한두 번 실수 여유.
 	{
 		"name": "st11_name", "tag": "st11_tag", "bomb_fuse": 8, "bomb_dmg": 2,
+		"plane_cd": 20,
 		"total": 26, "core_hp": 6, "base_hp": 30, "hp_ramp": 0.2, "tank_mult": 2.5,
 		"spawn_every": 3, "step_every": 3, "onboard": 3, "floor": 2, "surge_at": 0.80,
 		"weights": {"basic": 85, "bomb": 15}, "pool": POOL_STD,
@@ -94,6 +115,7 @@ const STAGES: Array = [
 	{
 		# tank HP를 콤보3(240) 구간에 앉힌다: base 44~50 × 4.5 = 198~227 → 콤보2(180)로는 안 뚫림.
 		"name": "st5_name", "tag": "st5_tag",
+		"plane_cd": 21,
 		"total": 44, "core_hp": 2, "base_hp": 44, "hp_ramp": 0.3, "tank_mult": 4.5,
 		"spawn_every": 2, "step_every": 3, "onboard": 3, "floor": 5, "surge_at": 0.80,
 		"weights": {"basic": 40, "fast": 0, "tank": 55, "swarm": 5, "split": 0}, "pool": POOL_STD,
@@ -103,6 +125,7 @@ const STAGES: Array = [
 		#   클라이맥스 잠식·비단조 톱니 제거. sim 무릎: hp2→3 +15pt, 3→4 0(패배가 누수사→막힘으로 이동, core_hp 무효).
 		#   복습판은 클라이맥스보다 확실히 위여야 깔때기가 산다. tank_mult/혼합은 성격이라 불변, 누수 여유만.
 		"name": "st6_name", "tag": "st6_tag",
+		"plane_cd": 16,
 		"total": 48, "core_hp": 3, "base_hp": 46, "hp_ramp": 0.4, "tank_mult": 4.2,
 		"spawn_every": 2, "step_every": 3, "onboard": 2, "floor": 6, "surge_at": 0.78,
 		"weights": {"basic": 20, "fast": 35, "tank": 25, "swarm": 20, "split": 0}, "pool": POOL_STD,
@@ -116,6 +139,7 @@ const STAGES: Array = [
 		# ⚠도입은 climax보다 물러야 한다: total·base_hp를 S5/S6 최댓값에서 내리고 split 40%로 격리 —
 		#   split 55%+total52+hp48은 sim서 도입이 climax만큼 가혹(23→10 절벽). 새 기전만 변수로 세운다.
 		"name": "st7_name", "tag": "st7_tag",
+		"plane_cd": 24,
 		"total": 48, "core_hp": 3, "base_hp": 44, "hp_ramp": 0.35, "tank_mult": 4.2,
 		"spawn_every": 2, "step_every": 3, "onboard": 3, "floor": 6, "surge_at": 0.80,
 		"weights": {"basic": 60, "fast": 0, "tank": 0, "swarm": 0, "split": 40}, "pool": POOL_STD,
@@ -125,6 +149,7 @@ const STAGES: Array = [
 		# 분열은 방어축 레버(거점사 지배)라 청소 처리량을 굶기는 tank/fast/swarm 위에 겹쳐 얹힌다.
 		# split 25%(수확 시작점) — 100%가 아니라, 다른 위협과 섞여야 '전부 온다'가 성립.
 		"name": "st8_name", "tag": "st8_tag",
+		"plane_cd": 19,
 		"total": 56, "core_hp": 2, "base_hp": 50, "hp_ramp": 0.4, "tank_mult": 4.2,
 		"spawn_every": 2, "step_every": 3, "onboard": 2, "floor": 6, "surge_at": 0.78,
 		"weights": {"basic": 15, "fast": 25, "tank": 20, "swarm": 15, "split": 25}, "pool": POOL_STD,
@@ -149,6 +174,7 @@ const STAGES: Array = [
 	#   격리(R1)보다 fuse 조이고(7) spawn_every 2로 동시성↑. 2번째 rung이라 목표 승률 R1(71%)보다 낮게(~55%).
 	{
 		"name": "st12_name", "tag": "st12_tag", "bomb_fuse": 8, "bomb_dmg": 2,
+		"plane_cd": 24,
 		"total": 32, "core_hp": 6, "base_hp": 30, "hp_ramp": 0.25, "tank_mult": 2.5,
 		"spawn_every": 2, "step_every": 3, "onboard": 3, "floor": 3, "surge_at": 0.80,
 		"weights": {"basic": 47, "fast": 20, "swarm": 15, "bomb": 18}, "pool": POOL_STD,
@@ -158,24 +184,45 @@ const STAGES: Array = [
 	#   폭탄 밀도↑(뭉쳐서 연쇄 성립)·spawn_every 2로 인접 유도. 연쇄가 -HP를 곱하니 core_hp 여유(연쇄 못 끊으면 급사).
 	{
 		"name": "st13_name", "tag": "st13_tag", "bomb_fuse": 8, "bomb_dmg": 2, "bomb_chain": true,
+		"plane_cd": 23,
 		"total": 32, "core_hp": 7, "base_hp": 30, "hp_ramp": 0.2, "tank_mult": 2.5,
 		"spawn_every": 2, "step_every": 3, "onboard": 3, "floor": 3, "surge_at": 0.80,
 		"weights": {"basic": 62, "bomb": 38}, "pool": POOL_STD,
 	},
-	# ── Protect R1 도입: 도둑(thief) 동사 = 상실(loss aversion). 거점 도달 시 거점을 안 때리고 금고서 훔쳐 되돌아 위로 도망. ──
-	#   3결과: 뺏기 전 처치=완전 저지 · 물고 도망칠 때 처치=회수(금고로 되돌림) · 위로 탈출=영구 손실.
-	#   승리 = 웨이브 소탕(탈출=leaked로 회계 보존) + 금고>0. 패 = 거점사 or 금고 전소(상실축, 거점사와 별개).
-	# ⚠설계 발견(thief_probe): Defuse식 '무압력 격리 R1'은 Protect엔 불가 — 막기(block)가 일반 클리어와 겹쳐 공짜라
-	#   좋은 봇이 도둑을 거의 다 걷어내 금고가 안 준다(동사가 죽은 리스킨화). 손실이 실제로 나려면 '두 전선 경쟁'이 필수:
-	#   thief_step 1(도둑 blitz하강=대개 막기 불가→낚아채기가 기본)로 낮은 전선을 뚫리게 하고, carry_step 1(빠른 도주)로
-	#   회수 창을 좁혀 도망을 위험케 → 게임이 '거점방어(아래) vs 회수추격(위)'의 공간적 기회비용이 된다. step_every 2(빠른 밀물)가
-	#   그 경쟁 압력. 격리 로스터(basic↔thief)는 유지. thief_hp 저(0.35×)=포지셔닝 위협이지 HP벽 아님(HP↑면 넉백이 하강을 늦춰 오히려 쉬워짐).
-	#   실측(thief_probe N80): 승률 71%·거점사6·금고전소7·막힘10, 금고 4→2.9(판당 −1.1 체감), 낚/회/탈 3.6/2.5/0.8(회수=생존 스킬, load-bearing).
-	{
-		"name": "st14_name", "tag": "st14_tag", "protect": true, "vault_start": 4, "steal": 1,
-		"thief_step": 1, "thief_carry_step": 1, "thief_hp_mult": 0.35,
-		"total": 32, "core_hp": 5, "base_hp": 30, "hp_ramp": 0.2, "tank_mult": 2.5,
-		"spawn_every": 2, "step_every": 2, "onboard": 3, "floor": 2, "surge_at": 0.80,
-		"weights": {"basic": 52, "thief": 48}, "pool": POOL_STD,
-	},
 ]
+
+
+# ===== 파킹: 캠페인 밖으로 뺀 판 =====
+# Protect(도둑) R1 — 2026-07-31 유저 판정으로 **캠페인에서 제외**했다.
+#   사유: 실플레이서 "도둑이 뭐하는지 전혀 인지가 안 된다". 원본 프레임 확인 결과 근거 있음 —
+#   몸이 웃는 얼굴로 읽히고, 훔친 상태(후광·자루·쉐브론)가 전부 미약하며, 무엇보다 **상단 금고 카드와
+#   바닥의 도둑이 아무 인과로도 안 이어진다**(훔친 순간 카드에서 다이아만 조용히 꺼짐).
+#   규칙이 안 읽히는 판이 캠페인 마지막(무한 깔때기 직전)에 있으면 안 되므로 뺐다.
+#   ⚠재설계 전엔 여기에 밸런스 투자 금지. 데이터는 재설계 착수 시 출발점으로 남긴다.
+#   ⚠campaign.save의 cleared 비트는 인덱스 기반이고 이 판이 배열 끝이었으므로, 빼도 기존 진행도는 안 밀린다.
+#   프로브(tools/thief_probe.gd)는 STAGES가 아니라 이 상수를 직접 열어서 돈다.
+# ── Protect R1 도입: 도둑(thief) 동사 = 상실(loss aversion). 거점 도달 시 거점을 안 때리고 금고서 훔쳐 되돌아 위로 도망. ──
+#   3결과: 뺏기 전 처치=완전 저지 · 물고 도망칠 때 처치=회수(금고로 되돌림) · 위로 탈출=영구 손실.
+#   승리 = 웨이브 소탕(탈출=leaked로 회계 보존) + 금고>0. 패 = 거점사 or 금고 전소(상실축, 거점사와 별개).
+# ⚠설계 발견(thief_probe): Defuse식 '무압력 격리 R1'은 Protect엔 불가 — 막기(block)가 일반 클리어와 겹쳐 공짜라
+#   좋은 봇이 도둑을 거의 다 걷어내 금고가 안 준다(동사가 죽은 리스킨화). 손실이 실제로 나려면 '두 전선 경쟁'이 필수:
+#   thief_step 1(도둑 blitz하강=대개 막기 불가→낚아채기가 기본)로 낮은 전선을 뚫리게 하고, carry_step 1(빠른 도주)로
+#   회수 창을 좁혀 도망을 위험케 → 게임이 '거점방어(아래) vs 회수추격(위)'의 공간적 기회비용이 된다. step_every 2(빠른 밀물)가
+#   그 경쟁 압력. 격리 로스터(basic↔thief)는 유지.
+# ⚠C104 thief_hp_mult 0.35 → 5.0: R1은 '저HP=포지셔닝 위협'이었지만 C102 줄서기(한 칸에 하나) 이후
+#   도망 도둑이 위쪽 아군에 막혀 서고, 서 있는 놈은 공짜로 회수돼 **상실축이 패배를 안 만들었다**
+#   (탈출 0.63→0.38회/판, 금고전소 17→2/200). carry_step은 이미 1(최속)이라 남은 레버가 HP였다.
+#   ⚠HP는 최소 일격(120)을 넘겨야 비로소 레버가 된다 — 0.35×(hp 11)은 물론 1.3×(39)도 한방컷이라
+#   스윕에서 '아무 차이 없음'으로 나온다([[cascade-damage-mult-is-meaningless]]). 5.0×에서 한 줄은
+#   버티고 2줄·콤보엔 죽는 구간에 앉는다 = 회수하려면 좋은 수를 써야 함 → 회수 창이 좁아진다.
+#   부수효과(의도): 도망 중 넉백은 위로 밀어 탈출을 돕는다 — 어설픈 한 대가 오히려 놓치는 값.
+#   실측(thief_probe 시드고정 N=200, C101 이전 기준선 → 5.0): 승률 73.0→71.0%, 금고전소 17→22,
+#   평균금고 3.10→3.05, 탈출 0.63→0.53 = 상실축 복원.
+#   실측(thief_probe N80): 승률 71%·거점사6·금고전소7·막힘10, 금고 4→2.9(판당 −1.1 체감), 낚/회/탈 3.6/2.5/0.8(회수=생존 스킬, load-bearing).
+const PARKED_PROTECT: Dictionary = {
+	"name": "st14_name", "tag": "st14_tag", "protect": true, "vault_start": 4, "steal": 1,
+	"thief_step": 1, "thief_carry_step": 1, "thief_hp_mult": 5.0,
+	"total": 32, "core_hp": 5, "base_hp": 30, "hp_ramp": 0.2, "tank_mult": 2.5,
+	"spawn_every": 2, "step_every": 2, "onboard": 3, "floor": 2, "surge_at": 0.80,
+	"weights": {"basic": 52, "thief": 48}, "pool": POOL_STD,
+}
