@@ -62,6 +62,13 @@ func _run() -> void:
 		var rc: Array = fill[i]
 		board[int(rc[0])][int(rc[1])] = pal[i % pal.size()]
 	g.set("board", board)
+	# 종이비행기 — 두 쓰임을 한 화면에: ① 보드 위 픽업 ② 좌하단 보유 슬롯.
+	#   기본 상태로는 둘 다 안 뜨는데, 디자이너가 다시 그려야 할 물건이라 보여야 한다.
+	var es: Array = g.get("enemies")
+	es.append({"col": 3, "row": 2, "vis_row": 2.0, "hp": 1, "maxhp": 1,
+			"etype": "plane", "id": 9001, "step_every": 3})
+	g.set("enemies", es)
+	g.set("plane_held", true)
 	await _shot("04_play")
 
 	# ── 2. 설정 모달 — ⚠플레이 중에만 그려진다(Main.gd:4061이 menu 분기 뒤에 있다). 허브엔 기어가 없다.
@@ -97,6 +104,13 @@ func _run() -> void:
 	crop.resize(360 * 3, 270 * 3, Image.INTERPOLATE_NEAREST)
 	crop.save_png(out_dir + "07_block_zoom.png")
 	print("shot 07_block_zoom")
+
+	# ── 8. 비행기 슬롯 확대 — 90×90이라 등배로는 형태가 안 읽힌다.
+	#   트레이 첫 슬롯까지 함께 잘라 '손에 든 것들 줄'로 나란히 앉은 게 보이게.
+	var slot_crop: Image = play_img.get_region(Rect2i(30, 970, 590, 145))
+	slot_crop.resize(590 * 2, 145 * 2, Image.INTERPOLATE_NEAREST)
+	slot_crop.save_png(out_dir + "08_plane_slot.png")
+	print("shot 08_plane_slot")
 
 	print("DONE")
 	quit()
