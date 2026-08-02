@@ -56,6 +56,13 @@ func _init() -> void:
 	# 헤드리스 = 회귀/시뮬/프로브 하네스. 여기선 계측이 노이즈이자 느림이라 스스로 꺼진다(불변식 ②).
 	if DisplayServer.get_name() == "headless":
 		enabled = false
+	# ⚠창 모드 하네스도 꺼야 한다. 픽셀 검증 프로브(design_shots·art_frames)는 렌더 텍스처 때문에
+	#   헤드리스로 못 돌려서 위 조건에 안 걸린다 → 캡처를 뽑을 때마다 가짜 세션이 실측에 섞였다.
+	#   `--script`로 뜬 프로세스는 tools/ 하네스뿐이다(출고 빌드엔 이 인자가 없다).
+	#   ⚠_init에서 걸러야 한다 — 아래 _load_meta()가 session_count를 올리므로, 노드를 받은 쪽에서
+	#     enabled=false를 나중에 꽂아봐야 카운터는 이미 올라가 있다(실제로 그랬다).
+	if OS.get_cmdline_args().has("--script"):
+		enabled = false
 	_load_meta()
 
 # --- 세션 ---
