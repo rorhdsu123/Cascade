@@ -579,6 +579,21 @@ const BLOCK_TEX_MIN_PX: float = 24.0   # 이보다 작게 그릴 땐 텍스처 �
 var block_tex: Texture2D = null
 var _glow: BlockGlowLayer = null       # 가산 덧칠 전용 자식(백열). 아래 클래스 정의 참조
 
+# ── 빈 셀 배경(UI_ART_PLAN §4 P0) ──
+# 블록과 **짝으로 봐야 판단이 되는** 부품이라 같은 180×180 규격이다. 블록이 칸을 얼마나 채우는지는
+#   블록 그림이 정하고(bpad는 코드가 아니라 그림의 여백), 그 밑에 깔리는 판이 이것이다.
+# ⚠블록과 달리 **틴트하지 않는다** — 보드 셀은 존 색 전환에서도 원색을 유지하는 '다크 아일랜드'다
+#   (넘음 전환은 주변 바·여백만 물들인다). 색을 그림이 갖는다.
+const CELL_TEX_PATH: String = "res://art/cell.png"
+var cell_tex: Texture2D = null
+
+# ── 종이비행기(UI_ART_PLAN §4 P1) ──
+# 한 장이 세 곳을 덮는다: 보드 픽업(CELL*0.60) · 좌하단 보유 슬롯(90×90의 0.56) · 발사 연출.
+#   크기 차가 크므로 진짜 아트가 오면 세 곳 다 눈으로 볼 것(트레이 LOD와 같은 성격).
+# ⚠**틴트하지 않는다** — 접힘 명암(두 날개의 밝기 차)이 이 물건의 정체라 2색 이상이다. 해골과 같은 예외.
+const PLANE_TEX_PATH: String = "res://art/plane.png"
+var plane_tex: Texture2D = null
+
 # ── 상시 아이콘 8종(UI_ART_PLAN §4 P1) ──
 # art/icons/<이름>.png가 있으면 해당 아이콘만 텍스처로 갈아탄다. 8개를 한꺼번에 받을 필요가
 #   없다는 뜻이다 — 하나씩 도착하는 대로 그 아이콘만 바뀌고 나머지는 기존 도형 렌더로 남는다.
@@ -612,8 +627,34 @@ const UI_9S: Dictionary = {
 	#   부차 버튼이 주CTA만큼 무거워져 위계가 무너진다. 라운드가 붙은 이웃 사이에서 이것만
 	#   각진 사각형으로 남는 걸 막으려고 슬롯을 미리 판다.
 	"btn_ghost":     [32, 32, 32, 32],
+	# ── P1 (8/6 납품) ── 아래는 전부 같은 계약이다. 파일이 오는 순서대로 그것만 갈아탄다.
+	"card":          [40, 40, 40, 40],   # 상단 목표 카드 본체(기준 310×104). 패널과 같이 **다크 톤을 그림이 갖는다**
+	# ⚠테두리가 **색 채널**인 부품은 본체와 나눠 받는다(panel_bar와 같은 이유이자 세 번째 사례다).
+	#   목표 카드의 테는 동사마다 색이 다르고(수집=젬색·방어=보라·보스=자주), 그게 "이번 판이 무슨 판인지"를
+	#   말하는 신호다. 각진 테를 라운드 카드 위에 코드가 얹으면 모서리 밖으로 삐져나온다 —
+	#   **카드와 같은 캔버스·같은 마진**에 테만 그린 회색조 레이어로 받는다.
+	"card_edge":     [40, 40, 40, 40],
+	"hp_track":      [20, 24, 20, 24],   # 거점 HP 바 빈 트랙(보드 바로 아래, 폭 720×높이 32)
+	# 채움은 **회색조**로 받는다 — 빨강↔초록 그라데이션이 잔량 신호라 색은 코드가 계속 쥔다.
+	#   ⚠HP가 줄면 목적지 폭이 모서리 합보다 좁아진다. 그때는 이음새가 모서리를 비율대로 줄인다.
+	"hp_fill":       [20, 24, 20, 24],
+	# 트레이 슬롯(240×200 = 120×100의 2배). 비행기 보유 슬롯(90×90)도 **같은 부품**을 쓴다 —
+	#   둘 다 '물건이 앉는 자리'라 같은 물건으로 읽혀야 한다. 상태(빈/참·보유/조준)는 코드가 틴트한다.
+	"slot":          [36, 36, 36, 36],
+	"board_frame":   [48, 48, 48, 48],   # 8×8 보드 외곽. ⚠**가운데는 투명**이어야 한다(보드를 덮으면 안 된다)
+	# 스테이지 타일 3종. 버튼과 같은 규약(상태별 파일 + 코드 틴트)이라 색 조정이 아트를 다시 안 받는다.
+	"tile":          [36, 36, 36, 36],   # 클리어·열림
+	"tile_front":    [36, 36, 36, 36],   # 현재 위치(프런티어) — 금색 위계
+	"tile_off":      [36, 36, 36, 36],   # 잠김
+	# 튜토리얼 말풍선(알약형, 높이 36 기준). ⚠**반드시 불투명** — 뒤에 보드가 비치면 글자가 안 읽힌다.
+	#   테는 지시(노랑)/손해(붉은색) 2색이라 카드와 같이 레이어로 나눈다.
+	"tut_bubble":    [36, 24, 36, 24],
+	"tut_bubble_edge": [36, 24, 36, 24],
 }
 var ui_9s: Dictionary = {}             # 이름 → {tex, m} (파일 있는 것만 채워진다)
+# 보드 프레임을 보드 사각형 **바깥으로** 얼마나 키워 그리는가. 프레임의 안쪽 구멍이 이 여백 안에서
+#   어디에 오는지는 그림이 정한다(적·블록과 같은 "여백은 그림 몫" 규약).
+const BOARD_FRAME_PAD: float = 12.0
 
 # ── 적 스프라이트(UI_ART_PLAN §4 — basic=P0 · swarm·fast=P1) ──
 # 정적 도형인 3종만 이음새를 탄다. bomb·split은 효과가 파라메트릭이고(도화선·맥동·벌어짐),
@@ -642,6 +683,10 @@ const BTN_OFF: int = 2
 func _init_block_art() -> void:
 	if ResourceLoader.exists(BLOCK_TEX_PATH):
 		block_tex = load(BLOCK_TEX_PATH) as Texture2D
+	if ResourceLoader.exists(CELL_TEX_PATH):
+		cell_tex = load(CELL_TEX_PATH) as Texture2D
+	if ResourceLoader.exists(PLANE_TEX_PATH):
+		plane_tex = load(PLANE_TEX_PATH) as Texture2D
 	_glow = BlockGlowLayer.new()
 	_glow.name = "BlockGlow"
 	_glow.tex = block_tex
@@ -6247,13 +6292,24 @@ func _draw_select(fnt: Font) -> void:
 			fill = Color(0.24, 0.20, 0.10)
 		elif open:
 			fill = Color(0.13, 0.14, 0.20)
-		draw_rect(r, fill)
 		var border: Color = Color(0.28, 0.29, 0.36)
 		if is_front:
 			border = C_GOLD
 		elif open:
 			border = Color(0.30, 0.33, 0.42)
-		draw_rect(r, border, false, 4.0 if is_front else 2.0)
+		var bw: float = 4.0 if is_front else 2.0
+		# 상태 3종은 파일이 갈리되, **색은 코드가 계속 쥔다** — 금색 테=현재 위치가 이 화면의 유일한
+		#   위계 신호라 그림이 색을 가지면 진행 리드아웃이 죽는다([[stage-select-is-progress-readout]]).
+		#   3장 중 안 온 것은 `tile`로 떨어진다 = 한 장만 받아도 화면 전체가 갈아탄다.
+		var tnm: String = "tile_front" if is_front else ("tile" if open else "tile_off")
+		if not ui_9s.has(tnm):
+			tnm = "tile"
+		if ui_9s.has(tnm):
+			_blit_9s(tnm, r.grow(bw), border)   # 테는 뒤에 깔아 라운드를 따라 돌게
+			_blit_9s(tnm, r, fill)
+		else:
+			draw_rect(r, fill)
+			draw_rect(r, border, false, bw)
 
 		var cx: float = r.position.x + r.size.x * 0.5
 		var cy: float = r.position.y + r.size.y * 0.5
@@ -6395,7 +6451,13 @@ const HUD_CARD_H: float = 104.0
 func _hud_card_y() -> float:
 	return safe_top + maxf(0.0, (float(board_y) - safe_top - HUD_CARD_H) * 0.5)
 
+# 상단 목표 카드 한 장 = 다크 본체 + accent 테두리. 동사 넷(처치·수집·방어·보스)이 **같은 부품**을 쓰고
+#   accent만 갈린다 — 패널/강조바와 같은 구조라 나누는 선도 같은 자리에 긋는다.
 func _draw_card(r: Rect2, accent: Color) -> void:
+	if ui_9s.has("card"):
+		_blit_9s("card", r)              # 본체는 틴트 안 함(다크 톤을 그림이 갖는다)
+		_blit_9s("card_edge", r, accent) # 테만 그린 같은 캔버스 레이어 → 라운드가 정의상 일치
+		return
 	draw_rect(r, Color(0.14, 0.14, 0.21))
 	draw_rect(r, accent, false, 3.0)
 
@@ -6660,6 +6722,11 @@ func _draw_gem_icon(center: Vector2, s: float, gtype: int = 0) -> void:
 
 # 종이비행기 아이콘 — 위를 향한 접힌 삼각형(중앙 접힘선 + 아래 꼬리 노치). 보드 픽업·슬롯이 공유한다.
 func _draw_plane_icon(center: Vector2, s: float) -> void:
+	if plane_tex != null:
+		# 도형 시절의 실제 폭이 s와 거의 같다(날개끝 ±0.52s) → 한 변 s의 정사각에 그린다.
+		#   여백을 얼마나 둘지는 180×180 안에서 그림이 정한다(블록·적과 같은 규약).
+		draw_texture_rect(plane_tex, Rect2(center - Vector2(s, s) * 0.5, Vector2(s, s)), false)
+		return
 	var h: float = s * 0.5
 	var nose: Vector2 = center + Vector2(0.0, -h)                  # 코(위)
 	var lw: Vector2 = center + Vector2(-h * 1.04, h * 0.66)         # 왼 날개끝
@@ -6747,8 +6814,14 @@ func _draw_tut_msg(fnt: Font) -> void:
 	if pbot - ph < card_bot:
 		pbot = card_bot + ph    # 갭이 모자라면 카드를 피해 아래로(보드 상단을 조금 덮더라도 판이 불투명)
 	var plate: Rect2 = Rect2(400.0 - w * 0.5 - 14.0, pbot - ph, w + 28.0, ph)
-	draw_rect(plate, Color(0.09, 0.09, 0.14, 0.92 * col.a))
-	draw_rect(plate, Color(col.r, col.g, col.b, 0.55 * col.a), false, 2.0)
+	if ui_9s.has("tut_bubble"):
+		# 판은 틴트 안 함(불투명 다크를 그림이 갖는다) + 알파만 사건 감쇠에 태운다.
+		# 테는 지시(노랑)/손해(붉은색) 2색 신호라 같은 캔버스 레이어로 나눠 받는다(목표 카드와 같은 구조).
+		_blit_9s("tut_bubble", plate, Color(1.0, 1.0, 1.0, col.a))
+		_blit_9s("tut_bubble_edge", plate, Color(col.r, col.g, col.b, 0.55 * col.a))
+	else:
+		draw_rect(plate, Color(0.09, 0.09, 0.14, 0.92 * col.a))
+		draw_rect(plate, Color(col.r, col.g, col.b, 0.55 * col.a), false, 2.0)
 	_draw_text_outlined(fnt, Vector2(400.0 - w * 0.5, pbot - 10.0), msg, sz, col)
 
 # ── 가산 블렌드 오버레이 ─────────────────────────────────────────────────────
@@ -6892,6 +6965,20 @@ func _draw_btn_box(r: Rect2, body: Color, shadow: Color, edge: Color,
 	if bw > 0.0:
 		draw_rect(r, edge, false, bw)
 
+# 물건이 앉는 자리 = 판 + 테두리. **트레이 3칸과 비행기 보유 슬롯이 같은 부품**을 쓴다 —
+#   둘 다 "여기 뭔가 놓인다"는 같은 말을 하므로 다른 물건으로 보이면 안 된다.
+#   테두리는 상태 신호다(비행기 조준=굵고 밝게, 트레이=늘 같게) → 색·두께를 코드가 계속 쥔다.
+# 텍스처 경로에선 테를 **조금 키워 뒤에 깐다** — 각진 스트로크를 라운드 판 위에 두르면 귀퉁이가 튄다.
+func _draw_slot_box(r: Rect2, body: Color, edge: Color, edge_w: float) -> void:
+	if ui_9s.has("slot"):
+		if edge_w > 0.0:
+			_blit_9s("slot", r.grow(edge_w), edge)
+		_blit_9s("slot", r, body)
+		return
+	draw_rect(r, body)
+	if edge_w > 0.0:
+		draw_rect(r, edge, false, edge_w)
+
 # ── 적 렌더 이음새 ───────────────────────────────────────────────────────────
 # 텍스처가 있으면 그리고 true, 없으면 false를 돌려 호출부가 기존 도형 렌더로 잇는다(_blit_icon과 같은 계약).
 func _blit_enemy(name: String, center: Vector2, tint: Color = Color.WHITE) -> bool:
@@ -6909,6 +6996,16 @@ func _hp_tint(base: Color, shaded: Color) -> Color:
 	return Color(shaded.r / maxf(0.001, base.r),
 			shaded.g / maxf(0.001, base.g),
 			shaded.b / maxf(0.001, base.b))
+
+# 빈 셀 한 칸 = 판 + 격자선. 블록이 없는 자리는 전부 여기를 지난다(보드 64칸의 배경).
+#   ⚠텍스처가 오면 격자선을 **코드가 안 그린다** — 칸 사이 선은 그림의 여백이 만든다(블록과 같은 규약).
+#     둘 다 그리면 그림의 라운드 밖으로 각진 선이 겹쳐 지저분해진다(강조바에서 배운 것과 같은 종류).
+func _blit_cell(r: Rect2) -> void:
+	if cell_tex == null:
+		draw_rect(r, C_CELL)   # 8×8 보드 셀은 원색 유지 — 넘음 전환은 주변(바·여백)만, 보드는 다크 아일랜드
+		draw_rect(r, C_GRID, false)
+		return
+	draw_texture_rect(cell_tex, r, false)
 
 const RIM_PX: float = 3.0   # 블록 뒤로 삐져나오는 테 두께. 셀 간격(bpad=5)보다 좁게 = 옆 칸 안 침범
 func _blit_block(r: Rect2, col: Color, white: float = 0.0, rim: float = 0.0) -> void:
@@ -6950,7 +7047,17 @@ func _draw_tut_target() -> void:
 func _draw_board(fnt: Font) -> void:
 	# 보드 외곽 프레임. 기록 영역(endless_beat_best)에선 골드 유지(C90) — PB 폭발이 '찰나'로 끝나 그 뒤가 밋밋했다.
 	#   "지금부터 최고 갱신 중"을 판 전체가 계속 신호(색으로, [[hud-signal-by-color-not-text]]). 폭발의 밝은 플래시가 이 지속 골드로 정착.
-	if endless_beat_best:
+	# 프레임도 9-slice 이음새를 탄다. 회색조 마스터를 코드가 틴트하므로 위의 골드 신호가 그대로 살아남는다
+	#   — 그림이 색을 가지면 "지금 기록 갱신 중"이 안 켜진다.
+	if ui_9s.has("board_frame"):
+		var fr: Rect2 = Rect2(BOARD_X, board_y, COLS * CELL, ROWS * CELL).grow(BOARD_FRAME_PAD)
+		if endless_beat_best:
+			var gp2: float = 0.5 + 0.5 * sin(anim_t * 2.2)
+			var gc2: Color = Color(0.92, 0.70, 0.20).lerp(Color(1.0, 0.90, 0.5), gp2)
+			_blit_9s("board_frame", fr, Color(gc2.r, gc2.g, gc2.b, 0.92))
+		else:
+			_blit_9s("board_frame", fr, C_BORD)
+	elif endless_beat_best:
 		var gp: float = 0.5 + 0.5 * sin(anim_t * 2.2)   # 은은한 맥동(살아있게, 느림)
 		var gcol: Color = Color(0.92, 0.70, 0.20).lerp(Color(1.0, 0.90, 0.5), gp)
 		draw_rect(Rect2(BOARD_X - 3, board_y - 3, COLS * CELL + 6, ROWS * CELL + 6), Color(gcol.r, gcol.g, gcol.b, 0.92), false, 3.0)
@@ -6968,8 +7075,7 @@ func _draw_board(fnt: Font) -> void:
 		for c in range(COLS):
 			var rx: float = BOARD_X + c * CELL
 			var ry: float = board_y + r * CELL
-			draw_rect(Rect2(rx, ry, CELL, CELL), C_CELL)   # 8×8 보드 셀은 원색 유지 — 넘음 전환은 주변(바·여백)만, 보드는 다크 아일랜드
-			draw_rect(Rect2(rx, ry, CELL, CELL), C_GRID, false)
+			_blit_cell(Rect2(rx, ry, CELL, CELL))
 			if board[r][c] == "" or charging.has(Vector2i(c, r)):
 				continue
 			# 거점 파괴로 떨어지기 시작한 블록은 여기서 안 그린다 — 하단 패널에 가리지 않게
@@ -7549,17 +7655,28 @@ func _draw_core(fnt: Font) -> void:
 	var vis: float = clampf(core_hp_vis, 0.0, float(core_max))
 	var ratio: float = clampf(vis / float(core_max), 0.0, 1.0)
 	# HP바: 빈 트랙(어두움) + 체력 그라데이션(빨강↔초록) + 밝은 테두리
-	draw_rect(Rect2(sx, sy, sw, strip_h), Color(0.08, 0.03, 0.04))
+	# 텍스처 경로에선 하이라이트·테두리를 **안 그린다**(버튼과 같은 규약 — 그림이 이미 갖고 있다).
+	var bar_tex: bool = ui_9s.has("hp_track") and ui_9s.has("hp_fill")
+	var track_r: Rect2 = Rect2(sx, sy, sw, strip_h)
 	var fill_col: Color = Color(0.86, 0.24, 0.20).lerp(Color(0.28, 0.82, 0.45), ratio)
-	draw_rect(Rect2(sx, sy, sw * ratio, strip_h), fill_col)
+	if bar_tex:
+		_blit_9s("hp_track", track_r)
+		_blit_9s("hp_fill", Rect2(sx, sy, sw * ratio, strip_h), fill_col)
+	else:
+		draw_rect(track_r, Color(0.08, 0.03, 0.04))
+		draw_rect(Rect2(sx, sy, sw * ratio, strip_h), fill_col)
 	# 곧-깎일 구간(토큰 비행 중): [논리 core_hp .. 표시 core_hp_vis]를 붉게 펄스 = "여기가 곧 부서진다" 예고.
+	#   채움과 오른쪽 끝을 공유하므로 **채움과 같은 부품**으로 그린다 — 각진 사각을 얹으면 둥근 끝 밖으로 삐져나온다.
 	if dmg_flights.size() > 0:
 		var warn_lo: float = clampf(float(core_hp) / float(core_max), 0.0, 1.0)
 		var wp: float = 0.35 + 0.35 * sin(anim_t * 9.0)
-		draw_rect(Rect2(sx + sw * warn_lo, sy, sw * (ratio - warn_lo), strip_h), Color(1.0, 0.4, 0.3, wp))
-	# 상단 하이라이트(입체감)
-	draw_rect(Rect2(sx, sy, sw * ratio, strip_h * 0.4), Color(1.0, 1.0, 1.0, 0.18))
-	draw_rect(Rect2(sx, sy, sw, strip_h), Color(1.0, 1.0, 1.0, 0.55), false, 2.0)
+		var warn_r: Rect2 = Rect2(sx + sw * warn_lo, sy, sw * (ratio - warn_lo), strip_h)
+		if not (bar_tex and _blit_9s("hp_fill", warn_r, Color(1.0, 0.4, 0.3, wp))):
+			draw_rect(warn_r, Color(1.0, 0.4, 0.3, wp))
+	if not bar_tex:
+		# 상단 하이라이트(입체감)
+		draw_rect(Rect2(sx, sy, sw * ratio, strip_h * 0.4), Color(1.0, 1.0, 1.0, 0.18))
+		draw_rect(track_r, Color(1.0, 1.0, 1.0, 0.55), false, 2.0)
 	# 라벨: 외곽선 흰 글자(트랙/체력 어느 색 위에서도 읽힘). 검정은 어두운 빈 구간서 안 보여 회피.
 	var lbl: String = _t("core_hp") % [roundi(vis), core_max]
 	var lw: float = fnt.get_string_size(lbl, HORIZONTAL_ALIGNMENT_LEFT, -1, 19).x
@@ -7568,8 +7685,14 @@ func _draw_core(fnt: Font) -> void:
 	# 폭탄 폭발 순간: 바 전체가 붉게 펄스한다 = "HP가 방금 깎였다"를 바 자체로 못 박음(충격파가 여기로 착지).
 	if core_flash_t > 0.0:
 		var cf: float = clampf(core_flash_t / 0.5, 0.0, 1.0)
-		draw_rect(Rect2(sx, sy, sw, strip_h), Color(1.0, 0.3, 0.25, 0.55 * cf))
-		draw_rect(Rect2(sx, sy, sw, strip_h), Color(1.0, 0.9, 0.85, 0.85 * cf), false, 3.5)
+		if bar_tex:
+			# 밝은 테두리는 바를 조금 키워 **뒤에** 까는 것으로 대신한다 — 각진 스트로크를 둥근 바 위에
+			#   두르면 네 귀퉁이가 튀어나온다([[sprite-swap-keeps-signal-channel]]의 rim과 같은 해법).
+			_blit_9s("hp_track", track_r.grow(3.0), Color(1.0, 0.9, 0.85, 0.85 * cf))
+			_blit_9s("hp_track", track_r, Color(1.0, 0.3, 0.25, 0.55 * cf))
+		else:
+			draw_rect(track_r, Color(1.0, 0.3, 0.25, 0.55 * cf))
+			draw_rect(track_r, Color(1.0, 0.9, 0.85, 0.85 * cf), false, 3.5)
 
 	# 폭탄 토큰 착지: 깎여나간 바 구간이 부서지는 밝은 플래시(그 자리서 −HP를 못 박음 = 토큰이 여기에 꽂혔다).
 	for shat in core_shatter:
@@ -7716,12 +7839,13 @@ func _draw_bottom(fnt: Font) -> void:
 			#   보유 = 은은한 맥동("쓸 수 있다") / 조준 = 밝게 차오른 판 + 굵은 테두리 + 바깥 후광("한 번 더 누르면 나간다").
 			var hp2: float = 0.5 + 0.5 * sin(anim_t * (6.0 if plane_armed else 3.2))
 			if plane_armed:
-				draw_rect(pr.grow(6.0), Color(C_PLANE_GLOW.r, C_PLANE_GLOW.g, C_PLANE_GLOW.b, 0.16 + 0.14 * hp2))
-				draw_rect(pr, Color(0.22, 0.38, 0.46))
-				draw_rect(pr, Color(1.0, 1.0, 1.0, 0.75 + 0.25 * hp2), false, 4.0)
+				var glow: Color = Color(C_PLANE_GLOW.r, C_PLANE_GLOW.g, C_PLANE_GLOW.b, 0.16 + 0.14 * hp2)
+				if not (ui_9s.has("slot") and _blit_9s("slot", pr.grow(6.0), glow)):
+					draw_rect(pr.grow(6.0), glow)
+				_draw_slot_box(pr, Color(0.22, 0.38, 0.46), Color(1.0, 1.0, 1.0, 0.75 + 0.25 * hp2), 4.0)
 			else:
-				draw_rect(pr, Color(0.16, 0.24, 0.30))
-				draw_rect(pr, Color(C_PLANE_GLOW.r, C_PLANE_GLOW.g, C_PLANE_GLOW.b, 0.55 + 0.40 * hp2), false, 2.5)
+				_draw_slot_box(pr, Color(0.16, 0.24, 0.30),
+						Color(C_PLANE_GLOW.r, C_PLANE_GLOW.g, C_PLANE_GLOW.b, 0.55 + 0.40 * hp2), 2.5)
 			var pop: float = 1.0 + 0.35 * (plane_pop / 0.42)   # 도착 순간 톡 튐
 			if plane_armed:
 				pop *= 1.0 + 0.06 * hp2                        # 조준 중엔 아이콘도 같이 숨쉰다
@@ -7729,8 +7853,7 @@ func _draw_bottom(fnt: Font) -> void:
 		else:
 			# 빈 슬롯: 자리만 조용히 남긴다. 쿨다운 숫자는 안 띄운다 — 다음 픽업은 보드에 나타나는 것으로
 			#   충분히 예고되고, 여기 숫자를 붙이면 안 읽히는 지표가 하나 더 는다.
-			draw_rect(pr, Color(0.10, 0.10, 0.16))
-			draw_rect(pr, Color(0.30, 0.34, 0.42, 0.5), false, 1.5)
+			_draw_slot_box(pr, Color(0.10, 0.10, 0.16), Color(0.30, 0.34, 0.42, 0.5), 1.5)
 
 	# 3슬롯 트레이
 	for i in range(3):
@@ -7738,10 +7861,9 @@ func _draw_bottom(fnt: Font) -> void:
 		var slot: Dictionary = tray[i]
 		# 슬롯 배경
 		var bg_col: Color = Color(0.18, 0.18, 0.28) if not slot.is_empty() else Color(0.10, 0.10, 0.16)
-		draw_rect(sr, bg_col)
 		# 드래그앤드롭이라 '선택된 슬롯'은 더 이상 플레이어가 다루는 개념이 아니다(sel은 내부 장부용).
 		# 슬롯 강조를 남겨두면 집지도 않은 조각이 골라진 것처럼 보인다 → 테두리는 전부 동일하게.
-		draw_rect(sr, Color(0.35, 0.35, 0.5, 0.6), false, 1.5)
+		_draw_slot_box(sr, bg_col, Color(0.35, 0.35, 0.5, 0.6), 1.5)
 
 		# 손에 들려 있거나 트레이로 되돌아가는 중인 조각은 슬롯에 그리지 않는다 (_draw_held가 그린다)
 		var in_hand: bool = (dragging and i == drag_slot) or (
