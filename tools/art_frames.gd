@@ -158,6 +158,27 @@ func _run() -> void:
 	await _shot("k_blastpreview")
 	g.set("dragging", false)
 
+	# ── 3.5 적 3종(basic·swarm·fast) — 스프라이트 이음새를 타는 유일한 타입들.
+	#    실플레이로는 st1에 basic만 나와서 한 프레임에 셋을 못 모은다 → 직접 심는다.
+	#    피격 플래시(flinch)도 한 마리에 걸어 둔다: 스프라이트 경로에선 원 덧칠이 아니라
+	#    같은 그림을 가산으로 겹치는 길로 갈라지므로, 그 갈림을 픽셀로 봐야 한다.
+	# ⚠원래 적 배열을 반드시 되돌린다 — 비워두면 뒤에 오는 프레임(붕괴·튜토)이 같이 바뀐다(실제로 한 번 그랬다).
+	# ⚠flinch 떨림은 **전역(코스메틱) RNG**라 seed_game으로 안 잡힌다 — 안 고정하면 이 프레임만
+	#   매 실행 달라져 바이트 비교가 깨진다(j_stuck과 같은 함정).
+	seed(135791113)
+	var prev_enemies: Array = g.get("enemies")
+	var em: Array = []
+	var etypes: Array = ["basic", "swarm", "fast"]
+	for k in range(3):
+		em.append({
+			"col": 1 + k * 3, "row": 2, "vis_row": 2.0, "hp": 3, "maxhp": 4,
+			"etype": etypes[k], "id": 9000 + k, "step_every": 3,
+			"flinch": 0.22 if k == 0 else 0.0,
+		})
+	g.set("enemies", em)
+	await _shot("m_enemies")
+	g.set("enemies", prev_enemies)
+
 	# ── 4. 거점 붕괴 — 열마다 시차를 두고 쏟아지는 블록(보드와 다른 렌더 자리)
 	g.set("core_t", 0.55)
 	await _shot("d_collapse")

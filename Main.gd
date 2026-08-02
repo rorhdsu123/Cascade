@@ -615,6 +615,21 @@ const UI_9S: Dictionary = {
 }
 var ui_9s: Dictionary = {}             # 이름 → {tex, m} (파일 있는 것만 채워진다)
 
+# ── 적 스프라이트(UI_ART_PLAN §4 — basic=P0 · swarm·fast=P1) ──
+# 정적 도형인 3종만 이음새를 탄다. bomb·split은 효과가 파라메트릭이고(도화선·맥동·벌어짐),
+#   tank·thief는 등장이 늦어 이번 범위 밖이다(P2).
+# ⚠**밝은 기준 상태 1장씩만** 받는다 — HP가 닳는 명암과 전진 직후 밝은 링은 **코드가 유지**한다.
+#   그래야 상태별로 그림을 여러 장 안 받아도 되고, 밸런스가 바뀌어도 아트를 다시 안 받는다.
+const ENEMY_DIR: String = "res://art/enemies/"
+const ENEMY_NAMES: Array = ["basic", "swarm", "fast"]
+var enemy_tex: Dictionary = {}         # 이름 → Texture2D (파일 있는 것만)
+# 납품 규격이 180×180 = 한 칸이므로 화면에도 한 칸으로 그린다. 적이 칸을 꽉 채울지 여백을 둘지는
+#   그림이 정한다(블록과 같은 규약).
+const ENEMY_TEX_SIDE: float = float(CELL)
+# 신호(전진 링·조준 링)가 감쌀 반지름. 도형 시절엔 타입마다 달랐지만 스프라이트는 한 칸 기준이라
+#   하나로 묶는다. ⚠진짜 아트를 받으면 눈으로 보고 조정할 것(트레이 LOD 하한과 같은 성격).
+const ENEMY_TEX_RAD: float = float(CELL) * 0.40
+
 # 버튼 상태 3종 — 텍스처 파일이 갈리는 축. 폴백 렌더는 이 값을 안 본다(호출부 색이 이미 상태를 담고 있다).
 # ⚠모바일엔 hover가 없다 — 터치는 마우스로 번역되므로(emulate_mouse_from_touch) hover==손가락이 닿음
 #   = '눌림'이다. 그래서 호출부는 hover 불리언을 그대로 BTN_PRESS로 넘긴다.
@@ -638,6 +653,10 @@ func _init_block_art() -> void:
 		var ip: String = ICON_DIR + String(n) + ".png"
 		if ResourceLoader.exists(ip):
 			icon_tex[n] = load(ip) as Texture2D
+	for en in ENEMY_NAMES:
+		var ep2: String = ENEMY_DIR + String(en) + ".png"
+		if ResourceLoader.exists(ep2):
+			enemy_tex[en] = load(ep2) as Texture2D
 	# 9-slice 부품 — 도착한 것만 등록된다(하나씩 받아도 그것만 갈아탄다).
 	for k in UI_9S.keys():
 		var up: String = UI_TEX_DIR + String(k) + ".png"
@@ -4704,6 +4723,10 @@ func _draw() -> void:
 		var mag: float = SHAKE_AMP * (shake_timer / SHAKE_DUR)
 		draw_ofs = Vector2(randf_range(-mag, mag), randf_range(-mag, mag))
 		draw_set_transform(draw_ofs)
+	# 가산 레이어는 **자식**이라 부모의 흔들림 변환을 안 받는다 — 같은 오프셋을 노드 위치로 걸어 준다.
+	#   안 걸면 화면이 흔들리는 동안 백열·피격 플래시만 제자리에 남아 실루엣이 어긋난다.
+	if _glow != null:
+		_glow.position = draw_ofs
 
 	# 넘음 배경(여백) — 개인기록 넘으면 warm 플럼으로 solid 전환(pb_bg_mix 이징, 판 끝까지). 상·하단 바·셀도 같은
 	#   방식으로 함께 전환(아래) → 화면 전체가 한 색으로 통일 + 반투명 veil 없어 haze 0. 어둠 유지로 대비 보존.
@@ -6739,9 +6762,12 @@ func _draw_tut_msg(fnt: Font) -> void:
 # ⚠순서 주의 — 자식이라 부모의 '모든' 내용 위에 얹힌다. 지금은 백열이 충전 중에만 켜지고
 #   그때는 손에 든 조각이 안 그려져서(_draw_held가 resolving이면 즉시 return) 겹칠 게 없다.
 #   가산 큐를 다른 연출로 넓힐 땐 이 전제를 다시 확인할 것.
+# quads 항목이 텍스처를 직접 들고 다닌다 — 블록만 쓰던 걸 적 피격 플래시까지 넓혔다.
+#   실루엣이 다른 것들이 같은 레이어를 공유하므로, '무엇을 덧칠할지'를 호출부가 정해야 한다.
+#   3번째 칸이 비면(null) 블록 텍스처로 떨어진다(기존 호출부 무수정).
 class BlockGlowLayer extends Node2D:
 	var tex: Texture2D = null
-	var quads: Array = []      # [[Rect2, float]] — (덧칠할 자리, 세기 0~1)
+	var quads: Array = []      # [[Rect2, float, Texture2D|null]] — (덧칠할 자리, 세기 0~1, 실루엣)
 
 	func _draw() -> void:
 		for q in quads:
@@ -6749,10 +6775,13 @@ class BlockGlowLayer extends Node2D:
 			if a <= 0.0:
 				continue
 			var r: Rect2 = q[0] as Rect2
-			if tex == null:
+			var t: Texture2D = (q[2] as Texture2D) if q.size() > 2 else null
+			if t == null:
+				t = tex
+			if t == null:
 				draw_rect(r, Color(1.0, 1.0, 1.0, a))
 			else:
-				draw_texture_rect(tex, r, false, Color(1.0, 1.0, 1.0, a))
+				draw_texture_rect(t, r, false, Color(1.0, 1.0, 1.0, a))
 
 # ── 블록 렌더 이음새 ─────────────────────────────────────────────────────────
 # 플레이어 블록 쿼드는 전부 이 함수를 지난다 — 보드 셀·충전 중인 셀·폭발 프리뷰·착지 고스트·
@@ -6862,6 +6891,24 @@ func _draw_btn_box(r: Rect2, body: Color, shadow: Color, edge: Color,
 		draw_rect(Rect2(r.position.x, r.position.y, r.size.x, r.size.y * 0.32), Color(1.0, 1.0, 1.0, hi))
 	if bw > 0.0:
 		draw_rect(r, edge, false, bw)
+
+# ── 적 렌더 이음새 ───────────────────────────────────────────────────────────
+# 텍스처가 있으면 그리고 true, 없으면 false를 돌려 호출부가 기존 도형 렌더로 잇는다(_blit_icon과 같은 계약).
+func _blit_enemy(name: String, center: Vector2, tint: Color = Color.WHITE) -> bool:
+	var t: Texture2D = enemy_tex.get(name, null) as Texture2D
+	if t == null:
+		return false
+	var half: Vector2 = Vector2(ENEMY_TEX_SIDE, ENEMY_TEX_SIDE) * 0.5
+	draw_texture_rect(t, Rect2(center - half, half * 2.0), false, tint)
+	return true
+
+# HP가 닳아 어두워지는 '정도'를 곱할 값으로 환산한다.
+#   도형 시절엔 색을 직접 lerp했지만, 스프라이트엔 곱셈(modulate)밖에 못 건다. 기준색 대비 비율을
+#   넘기면 **지금과 같은 명암 곡선**이 그림 위에 그대로 실린다 — 그림이 무슨 색이든.
+func _hp_tint(base: Color, shaded: Color) -> Color:
+	return Color(shaded.r / maxf(0.001, base.r),
+			shaded.g / maxf(0.001, base.g),
+			shaded.b / maxf(0.001, base.b))
 
 const RIM_PX: float = 3.0   # 블록 뒤로 삐져나오는 테 두께. 셀 간격(bpad=5)보다 좁게 = 옆 칸 안 침범
 func _blit_block(r: Rect2, col: Color, white: float = 0.0, rim: float = 0.0) -> void:
@@ -7261,18 +7308,21 @@ func _draw_board(fnt: Font) -> void:
 		var bar_h: float = 14.0
 		match etype:
 			"fast":
-				# 시안 화살촉(아래 향함) = 속도감
+				# 시안 화살촉(아래 향함) = 속도감. "!" 긴급 마커는 맥동이라 스프라이트가 와도 코드가 유지한다.
 				var s: float = CELL * 0.26
-				var pts: PackedVector2Array = PackedVector2Array([
-					Vector2(cx, cy + s),
-					Vector2(cx - s, cy - s * 0.7),
-					Vector2(cx + s, cy - s * 0.7),
-				])
-				draw_colored_polygon(pts, C_E_FAST)
-				var closed: PackedVector2Array = pts.duplicate()
-				closed.append(pts[0])
-				draw_polyline(closed, C_E_RIM, C_E_RIM_W)
-				rad = s
+				if _blit_enemy("fast", Vector2(cx, cy)):
+					rad = ENEMY_TEX_RAD
+				else:
+					var pts: PackedVector2Array = PackedVector2Array([
+						Vector2(cx, cy + s),
+						Vector2(cx - s, cy - s * 0.7),
+						Vector2(cx + s, cy - s * 0.7),
+					])
+					draw_colored_polygon(pts, C_E_FAST)
+					var closed: PackedVector2Array = pts.duplicate()
+					closed.append(pts[0])
+					draw_polyline(closed, C_E_RIM, C_E_RIM_W)
+					rad = s
 				# 깜빡이는 "!" 긴급 마커 (머리 위)
 				var blink: float = 0.5 + 0.5 * sin(anim_t * 10.0)
 				_draw_text_outlined(fnt, Vector2(cx - 4.0, cy - s - 14.0), "!", 26,
@@ -7301,14 +7351,17 @@ func _draw_board(fnt: Font) -> void:
 				bar_w = CELL * 0.70   # 탱크는 게이지도 크다 = "버티는 게 보임"(C14)
 				bar_h = 16.0
 			"swarm":
-				# 라임 작은 원 여럿 (군집)
-				var offs: Array = [Vector2(-0.16, -0.12), Vector2(0.16, -0.10), Vector2(-0.02, 0.16)]
-				for off in offs:
-					var ov: Vector2 = off as Vector2
-					var sp: Vector2 = Vector2(cx + ov.x * CELL, cy + ov.y * CELL)
-					draw_circle(sp, CELL * 0.14, C_E_SWARM)
-					draw_circle(sp, CELL * 0.14, C_E_RIM, false, C_E_RIM_W - 0.5)
-				rad = CELL * 0.24
+				# 라임 작은 원 여럿 (군집) — 스프라이트는 셋을 한 장으로 받는다(군집 자체가 이 적의 form).
+				if _blit_enemy("swarm", Vector2(cx, cy)):
+					rad = ENEMY_TEX_RAD
+				else:
+					var offs: Array = [Vector2(-0.16, -0.12), Vector2(0.16, -0.10), Vector2(-0.02, 0.16)]
+					for off in offs:
+						var ov: Vector2 = off as Vector2
+						var sp: Vector2 = Vector2(cx + ov.x * CELL, cy + ov.y * CELL)
+						draw_circle(sp, CELL * 0.14, C_E_SWARM)
+						draw_circle(sp, CELL * 0.14, C_E_RIM, false, C_E_RIM_W - 0.5)
+					rad = CELL * 0.24
 			"split":
 				# 분열 전(gen0·!split_done): 좌우 쌍둥이 blob + 세로 균열. 분열선(SPLIT_ROW)에 가까울수록
 				#   금이 벌어지고 부르르 떤다 = "곧 둘이 된다"를 몸이 말한다(글자 tell 없이).
@@ -7413,15 +7466,28 @@ func _draw_board(fnt: Font) -> void:
 			_:
 				# basic: 바이올렛 원 (hp 비율로 살짝 명암 — 어두워져도 빨강엔 안 닿는다)
 				var bcol: Color = C_E_BASIC.lerp(Color(0.30, 0.10, 0.48), 1.0 - ratio)
-				draw_circle(Vector2(cx, cy), rad, bcol)
-				draw_circle(Vector2(cx, cy), rad, C_E_RIM, false, C_E_RIM_W)
+				# 스프라이트에도 **같은 명암 곡선**을 곱해 얹는다 — 밝은 기준 1장만 받는 근거(§4 P0 비고).
+				if _blit_enemy("basic", Vector2(cx, cy), _hp_tint(C_E_BASIC, bcol)):
+					rad = ENEMY_TEX_RAD
+				else:
+					draw_circle(Vector2(cx, cy), rad, bcol)
+					draw_circle(Vector2(cx, cy), rad, C_E_RIM, false, C_E_RIM_W)
 		# 스텝 박자: 방금 함께 전진한 적들이 짧게 밝은 링으로 "동시에 행진했다"를 못 박는다.
 		if step_beat > 0.0 and bool(e.get("stepped", false)):
 			var ba: float = step_beat / STEP_BEAT_DUR
 			draw_circle(Vector2(cx, cy), rad + 3.0, Color(1.0, 0.92, 0.7, 0.85 * ba), false, 3.0)
 		# 피격 흰 플래시 오버레이 (맞은 순간 강조)
+		#   ⚠스프라이트가 붙으면 원 덧칠은 실루엣이 안 맞고 색까지 덮는다(강조는 면을 덮지 말 것).
+		#   그쪽에선 **같은 그림을 가산으로 겹쳐** 밝히기만 한다 — 블록 백열과 같은 처리다.
 		if flinch > 0.0:
-			draw_circle(Vector2(cx, cy), rad, Color(1.0, 1.0, 1.0, 0.7 * clampf(flinch / 0.22, 0.0, 1.0)))
+			var fa: float = 0.7 * clampf(flinch / 0.22, 0.0, 1.0)
+			var ftex: Texture2D = enemy_tex.get(etype, null) as Texture2D
+			if ftex != null and _glow != null:
+				# ⚠겹침 펼치기(draw_set_transform)도 자식 레이어엔 안 걸린다 — 조준 링과 같은 방식으로 손으로 적용.
+				var fh: Vector2 = Vector2(ENEMY_TEX_SIDE, ENEMY_TEX_SIDE) * 0.5 * st_sc
+				_glow.quads.append([Rect2(Vector2(cx + st_dx, cy) - fh, fh * 2.0), fa, ftex])
+			else:
+				draw_circle(Vector2(cx, cy), rad, Color(1.0, 1.0, 1.0, fa))
 		# 조준 프리뷰: 이 적은 지금 놓으면 죽는다. 링은 여기서 안 그리고 위치만 적재 —
 		# 실제 렌더는 _draw_aim_overlay(들고 있는 조각 위)가 맡아 커서에 안 가려진다.
 		#   ⚠오버레이는 이 루프 밖(변환 없는 곳)에서 그린다 → 겹침 펼치기를 손으로 적용해 넘긴다.
