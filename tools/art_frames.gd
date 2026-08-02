@@ -96,6 +96,13 @@ func _run() -> void:
 	g.set("resolving", true)
 	g.set("resolve_timer", float(g.get("charge_dur")) * 0.95)   # 거의 다 달아오른 순간
 	await _shot("b_charge")
+	# 대조군 — 가산 레이어만 끈 같은 프레임. b와 바이트 동일하면 가산 패스가 죽은 것이다
+	# (자식 노드가 부모와 같은 프레임에 다시 안 그려지는 경우를 잡는 탐침).
+	var glow: Node = g.get("_glow")
+	if glow != null:
+		glow.visible = false
+		await _shot("b2_charge_noglow")
+		glow.visible = true
 	g.set("resolving", false)
 	g.set("clear_done", true)
 	g.set("clear_cells", [])

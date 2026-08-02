@@ -569,6 +569,29 @@ func _t(key: String) -> String:
 var game_rng: RandomNumberGenerator = RandomNumberGenerator.new()
 var game_seed: int = 0   # 현재 게임 시드(featured 트랙 index-addressed rng의 기반)
 
+# ── 블록 아트(UI_ART_PLAN §4 P0 '블록 마스터') ──
+# 파일이 없으면 block_tex가 null이고, 이음새(_blit_block)가 예전 사각형 렌더로 그대로 떨어진다.
+#   = 아트가 늦어도 게임은 오늘과 똑같이 돈다. 파일을 놓는 순간 전 화면이 갈아탄다.
+# ⚠임포트는 무손실로 고정할 것 — project.godot의 import_etc2_astc는 안드로이드 export 전제라
+#   끌 수 없고, 채도 높은 평면 색은 손실 압축에서 밴딩이 잘 보인다(§8).
+const BLOCK_TEX_PATH: String = "res://art/block.png"
+const BLOCK_TEX_MIN_PX: float = 24.0   # 이보다 작게 그릴 땐 텍스처 대신 사각형(트레이 프리뷰 17px)
+var block_tex: Texture2D = null
+var _glow: BlockGlowLayer = null       # 가산 덧칠 전용 자식(백열). 아래 클래스 정의 참조
+
+# 블록 텍스처 + 가산 레이어 준비. 텍스처가 없어도 레이어는 만든다 — 큐가 비면 아무것도 안 그리고,
+#   나중에 파일만 놓으면 배선을 다시 안 건드려도 되게.
+func _init_block_art() -> void:
+	if ResourceLoader.exists(BLOCK_TEX_PATH):
+		block_tex = load(BLOCK_TEX_PATH) as Texture2D
+	_glow = BlockGlowLayer.new()
+	_glow.name = "BlockGlow"
+	_glow.tex = block_tex
+	var gmat := CanvasItemMaterial.new()
+	gmat.blend_mode = CanvasItemMaterial.BLEND_MODE_ADD
+	_glow.material = gmat
+	add_child(_glow)   # 자식 = 부모가 다 그린 뒤 위에 얹힌다
+
 # 게임 스트림 시드 고정(데일리 시드/회귀/sim). 코스메틱 전역 RNG는 건드리지 않는다.
 func seed_game(s: int) -> void:
 	game_seed = s
@@ -606,6 +629,7 @@ func _ready() -> void:
 	# 오디오는 플랫폼 게이트가 없다 — 헤드리스는 더미 드라이버라 알아서 조용하고, 데스크톱·모바일은
 	#   동작이 같다. 파형은 여기서 한 번만 굽는다(~27KB, 이후 비용 0).
 	_sfx_init()
+	_init_block_art()
 	_load_campaign()
 	_analytics.session_begin()           # 계측 세션 시작(app_opened) — 판·화면보다 먼저여야 첫 판이 이 세션에 묶인다
 	endless_best = _leaderboard.best()   # 로컬 베스트는 LeaderboardService가 소유·로드 — 여기선 캐시로 미러(C64 이음새)
@@ -4589,6 +4613,11 @@ func _process(delta: float) -> void:
 # ===== 그리기 =====
 func _draw() -> void:
 	var fnt: Font = _font if _font != null else ThemeDB.fallback_font
+	# 가산 큐는 매 프레임 새로 쌓는다. 자식은 부모 뒤에 그려지므로, 여기서 dirty만 찍어두면
+	#   아래에서 채워진 큐를 같은 프레임에 소비한다(아래 화면 분기들이 일찍 return해도 안전).
+	if _glow != null:
+		_glow.quads.clear()
+		_glow.queue_redraw()
 
 	if mode == "menu":
 		# 배경은 전체를 덮고, 콘텐츠만 세로 중앙으로 내린다(입력도 같은 오프셋으로 되돌림).
@@ -6640,6 +6669,32 @@ func _draw_tut_msg(fnt: Font) -> void:
 	draw_rect(plate, Color(col.r, col.g, col.b, 0.55 * col.a), false, 2.0)
 	_draw_text_outlined(fnt, Vector2(400.0 - w * 0.5, pbot - 10.0), msg, sz, col)
 
+# ── 가산 블렌드 오버레이 ─────────────────────────────────────────────────────
+# Godot의 _draw()는 **그리는 도중 블렌드 모드를 못 바꾼다** — 블렌드는 CanvasItem 단위 머티리얼
+#   속성이라 draw_* 호출별로 지정할 수가 없다. 그래서 '가산으로 덧칠할 것'만 이 자식 노드에
+#   몰아 그린다. 자식은 부모가 다 그린 뒤 그 위에 얹힌다.
+# 필요한 이유 = 백열. 블록에 텍스처가 붙으면 modulate(곱셈)로는 텍스처보다 밝게 못 만든다
+#   — 흰색을 곱해봐야 텍스처 원색이다. 가산이라야 실제로 밝아진다(UI_ART_PLAN §8).
+# 텍스처가 없는 동안엔 큐가 늘 비어 있다(= 렌더 무변화). 블록 마스터가 들어오는 순간 살아난다.
+#
+# ⚠순서 주의 — 자식이라 부모의 '모든' 내용 위에 얹힌다. 지금은 백열이 충전 중에만 켜지고
+#   그때는 손에 든 조각이 안 그려져서(_draw_held가 resolving이면 즉시 return) 겹칠 게 없다.
+#   가산 큐를 다른 연출로 넓힐 땐 이 전제를 다시 확인할 것.
+class BlockGlowLayer extends Node2D:
+	var tex: Texture2D = null
+	var quads: Array = []      # [[Rect2, float]] — (덧칠할 자리, 세기 0~1)
+
+	func _draw() -> void:
+		for q in quads:
+			var a: float = clampf(float(q[1]), 0.0, 1.0)
+			if a <= 0.0:
+				continue
+			var r: Rect2 = q[0] as Rect2
+			if tex == null:
+				draw_rect(r, Color(1.0, 1.0, 1.0, a))
+			else:
+				draw_texture_rect(tex, r, false, Color(1.0, 1.0, 1.0, a))
+
 # ── 블록 렌더 이음새 ─────────────────────────────────────────────────────────
 # 플레이어 블록 쿼드는 전부 이 함수를 지난다 — 보드 셀·충전 중인 셀·폭발 프리뷰·착지 고스트·
 #   손에 든 조각(+그림자)·트레이 프리뷰·붕괴 낙하·튜토리얼 타깃. 총 9곳.
@@ -6654,7 +6709,13 @@ func _draw_tut_msg(fnt: Font) -> void:
 # ⚠블록 마스터가 안 덮는 것은 일부러 안 보냈다: 감시자 머리(H)·뿌리(#)는 자기 시각 언어가
 #   따로 있고(얼굴·잠김 표식) 아트 의뢰 범위(§4)에도 없다. 적·비행기도 각자 이음새를 쓴다.
 func _blit_block(r: Rect2, col: Color, white: float = 0.0) -> void:
-	draw_rect(r, col.lerp(Color(1.0, 1.0, 1.0), white))
+	# LOD — 트레이 프리뷰는 셀 17px(5.3배 축소)라 텍스처를 넣으면 뭉갠다. 여기선 사각형이 낫다(§8).
+	if block_tex == null or r.size.x < BLOCK_TEX_MIN_PX:
+		draw_rect(r, col.lerp(Color(1.0, 1.0, 1.0), white))
+		return
+	draw_texture_rect(block_tex, r, false, col)
+	if white > 0.0 and _glow != null:
+		_glow.quads.append([r, white])   # 백열은 곱셈으로 못 하니 가산 레이어로 넘긴다
 
 func _draw_tut_target() -> void:
 	if not tut_lock or tut_cells.is_empty():
