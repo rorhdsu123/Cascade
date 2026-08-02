@@ -579,6 +579,13 @@ const BLOCK_TEX_MIN_PX: float = 24.0   # 이보다 작게 그릴 땐 텍스처 �
 var block_tex: Texture2D = null
 var _glow: BlockGlowLayer = null       # 가산 덧칠 전용 자식(백열). 아래 클래스 정의 참조
 
+# ── 상시 아이콘 8종(UI_ART_PLAN §4 P1) ──
+# art/icons/<이름>.png가 있으면 해당 아이콘만 텍스처로 갈아탄다. 8개를 한꺼번에 받을 필요가
+#   없다는 뜻이다 — 하나씩 도착하는 대로 그 아이콘만 바뀌고 나머지는 기존 도형 렌더로 남는다.
+const ICON_DIR: String = "res://art/icons/"
+const ICON_NAMES: Array = ["gear", "skull", "check", "lock", "flag", "infinity", "play", "retry"]
+var icon_tex: Dictionary = {}          # 이름 → Texture2D (파일 있는 것만 채워진다)
+
 # 블록 텍스처 + 가산 레이어 준비. 텍스처가 없어도 레이어는 만든다 — 큐가 비면 아무것도 안 그리고,
 #   나중에 파일만 놓으면 배선을 다시 안 건드려도 되게.
 func _init_block_art() -> void:
@@ -591,6 +598,10 @@ func _init_block_art() -> void:
 	gmat.blend_mode = CanvasItemMaterial.BLEND_MODE_ADD
 	_glow.material = gmat
 	add_child(_glow)   # 자식 = 부모가 다 그린 뒤 위에 얹힌다
+	for n in ICON_NAMES:
+		var ip: String = ICON_DIR + String(n) + ".png"
+		if ResourceLoader.exists(ip):
+			icon_tex[n] = load(ip) as Texture2D
 
 # 게임 스트림 시드 고정(데일리 시드/회귀/sim). 코스메틱 전역 RNG는 건드리지 않는다.
 func seed_game(s: int) -> void:
@@ -5293,6 +5304,8 @@ func _draw_mini_button(fnt: Font, r: Rect2, label: String, hot: bool, accent: Co
 
 # 기어 아이콘 — 이(teeth) 8개 + 링 + 중심점. 작은 크기라 형태로만 '설정'을 말한다.
 func _draw_gear_icon(c: Vector2, rad: float, col: Color) -> void:
+	if _blit_icon("gear", c, rad * 2.05, col):   # 톱니 끝이 rad*1.02까지 나간다
+		return
 	for i in range(8):
 		var a: float = TAU * float(i) / 8.0
 		var d: Vector2 = Vector2(cos(a), sin(a))
@@ -5348,6 +5361,8 @@ func _draw_settings(fnt: Font) -> void:
 
 # 재생 삼각형(▶) — '광고 영상을 본다'는 뜻. 오른쪽을 향한 정삼각형.
 func _draw_play_icon(c: Vector2, r: float, col: Color) -> void:
+	if _blit_icon("play", c, r * 1.7, col):
+		return
 	draw_colored_polygon(PackedVector2Array([
 		Vector2(c.x - r * 0.6, c.y - r * 0.85),
 		Vector2(c.x - r * 0.6, c.y + r * 0.85),
@@ -5356,6 +5371,8 @@ func _draw_play_icon(c: Vector2, r: float, col: Color) -> void:
 
 # 시계방향 회전 화살표(재도전) — 링 + 끝단 삼각촉
 func _draw_retry_icon(c: Vector2, r: float, col: Color) -> void:
+	if _blit_icon("retry", c, r * 2.4, col):   # 호(r) + 화살촉이 더 나간다
+		return
 	draw_arc(c, r, -PI * 0.35, PI * 1.15, 24, col, 5.0)
 	var tip: Vector2 = c + Vector2(cos(-PI * 0.35), sin(-PI * 0.35)) * r
 	var t2: Vector2 = tip + Vector2(0.0, -r * 0.55)
@@ -5950,11 +5967,15 @@ func _draw_menu_button(fnt: Font, r: Rect2, hot: bool, base: Color, base_dim: Co
 
 # ∞ 심볼(두 원 윤곽) — 무한 모드 표식
 func _draw_infinity(c: Vector2, s: float, col: Color) -> void:
+	if _blit_icon("infinity", c, s * 1.7, col):   # 두 원 바깥 끝이 c.x±0.84s
+		return
 	draw_arc(Vector2(c.x - s * 0.44, c.y), s * 0.40, 0.0, TAU, 20, col, 4.0)
 	draw_arc(Vector2(c.x + s * 0.44, c.y), s * 0.40, 0.0, TAU, 20, col, 4.0)
 
 # 깃발 심볼(폴 + 삼각기) — 스테이지(모험) 표식
 func _draw_flag(c: Vector2, s: float, col: Color) -> void:
+	if _blit_icon("flag", c, s * 1.0, col):
+		return
 	draw_line(Vector2(c.x - s * 0.34, c.y - s * 0.5), Vector2(c.x - s * 0.34, c.y + s * 0.5), col, 4.0)
 	draw_colored_polygon(PackedVector2Array([
 		Vector2(c.x - s * 0.34, c.y - s * 0.5),
@@ -6294,6 +6315,8 @@ func _draw_play_button(fnt: Font, cur: int) -> void:
 
 # 체크 표식(절차적) — 깬 스테이지 우상단. 언어 중립(도감/글자 대신 기호)
 func _draw_check(c: Vector2, s: float, col: Color, w: float = 3.0) -> void:
+	if _blit_icon("check", c, s * 2.0, col):   # 체크는 c.x±s로 벌어진다
+		return
 	var pts: PackedVector2Array = PackedVector2Array([
 		Vector2(c.x - s, c.y),
 		Vector2(c.x - s * 0.3, c.y + s * 0.7),
@@ -6303,6 +6326,8 @@ func _draw_check(c: Vector2, s: float, col: Color, w: float = 3.0) -> void:
 
 # 자물쇠 아이콘(절차적) — 잠긴 스테이지 표시
 func _draw_lock(c: Vector2, s: float, col: Color) -> void:
+	if _blit_icon("lock", c, s * 1.0, col):
+		return
 	draw_arc(Vector2(c.x, c.y - s * 0.18), s * 0.30, PI, TAU, 12, col, 3.0)
 	draw_rect(Rect2(c.x - s * 0.40, c.y - s * 0.10, s * 0.80, s * 0.62), col)
 
@@ -6321,6 +6346,8 @@ func _draw_card(r: Rect2, accent: Color) -> void:
 
 # 간단한 적 토큰 아이콘 — 붉은 사각 + 눈 2개(아트 전 임시)
 func _draw_enemy_icon(center: Vector2, s: float) -> void:
+	if _blit_icon("skull", center, s * 1.0):   # ⚠틴트 없음(흰색) — 해골은 뼈색+어두운 눈이라 2색이다. 단색으로 받으면 색은 이미지가 갖는다
+		return
 	# 목표=밀려오는 적 전부 처치(타입 무관, 못 없애면 거점 hp↓). 특정 타입 대신
 	# 타입 중립 "처치 대상" 기호=해골로 그린다. 뼈색+어두운 눈·코·이빨.
 	var bone: Color = Color(0.93, 0.9, 0.82)
@@ -6708,6 +6735,16 @@ class BlockGlowLayer extends Node2D:
 #
 # ⚠블록 마스터가 안 덮는 것은 일부러 안 보냈다: 감시자 머리(H)·뿌리(#)는 자기 시각 언어가
 #   따로 있고(얼굴·잠김 표식) 아트 의뢰 범위(§4)에도 없다. 적·비행기도 각자 이음새를 쓴다.
+# 아이콘 이음새. 텍스처가 있으면 그리고 true, 없으면 false를 돌려 호출부가 기존 도형 렌더로 잇는다.
+#   side = 정사각 변 길이. 지금 도형이 실제로 차지하는 폭에 맞춰 호출부마다 배수를 박아 뒀다
+#   (납품 아이콘이 96×96 정사각이라, 글자 크기가 아니라 '차지하는 자리'를 맞춰야 안 튄다).
+func _blit_icon(icon: String, center: Vector2, side: float, col: Color = Color.WHITE) -> bool:
+	var t: Texture2D = icon_tex.get(icon, null) as Texture2D
+	if t == null:
+		return false
+	draw_texture_rect(t, Rect2(center - Vector2(side, side) * 0.5, Vector2(side, side)), false, col)
+	return true
+
 func _blit_block(r: Rect2, col: Color, white: float = 0.0) -> void:
 	# LOD — 트레이 프리뷰는 셀 17px(5.3배 축소)라 텍스처를 넣으면 뭉갠다. 여기선 사각형이 낫다(§8).
 	if block_tex == null or r.size.x < BLOCK_TEX_MIN_PX:

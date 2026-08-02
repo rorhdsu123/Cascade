@@ -78,9 +78,24 @@ func _run() -> void:
 	g.set("dev_unlock_all", false)
 	g.set("show_input_toggle", false)
 
+	# ── 0. 아이콘이 사는 화면들. 블록과 달리 아이콘은 인게임 밖에 흩어져 있다
+	#    (허브=깃발·무한, 스테이지=체크·자물쇠, 설정=기어, 결과=재생·재시도, HUD=기어·해골).
+	g.set("mode", "menu")
+	g.set("cleared", {0: true, 1: true, 2: true})
+	g.set("endless_best", 12480)
+	await _shot("f_hub")
+
+	g.set("mode", "select")
+	g.call("_sel_enter")
+	await _shot("g_select")
+
 	# ── 1. 정지 보드 — 보드 블록 + 트레이 프리뷰(축소 렌더)
 	await _enter_play()
 	await _shot("a_board")
+
+	g.set("settings_open", true)
+	await _shot("h_settings")
+	g.set("settings_open", false)
 
 	# ── 2. 충전(백열 직전) — 스프라이트 전환에서 제일 깨지기 쉬운 자리.
 	#    modulate는 곱셈이라 텍스처를 흰색보다 밝게 못 만든다 → 가산 패스가 필요한 지점.
@@ -131,6 +146,15 @@ func _run() -> void:
 	await _shot("e_tut")
 	g.set("tut_lock", false)
 	g.set("tut_cells", [])
+
+	# ── 6. 결과(실패) — 재생(광고 이어하기)·재시도 아이콘이 사는 유일한 화면
+	g.set("killed", 6)
+	g.set("leaked", 3)
+	g.set("stuck", false)
+	g.set("revive_used", false)
+	g.set("game_over", true)
+	g.set("result_t", 1.0)
+	await _shot("i_result")
 
 	print("DONE")
 	quit()
