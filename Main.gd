@@ -4699,7 +4699,7 @@ func _draw() -> void:
 		var pcol2: Color = ppop["color"]
 		var ppos2: Vector2 = ppop["pos"]
 		var prect2: Rect2 = Rect2(ppos2 - Vector2(psz2, psz2) * 0.5, Vector2(psz2, psz2))
-		draw_rect(prect2, Color(pcol2.r, pcol2.g, pcol2.b, qp * 0.30))
+		_blit_block(prect2, Color(pcol2.r, pcol2.g, pcol2.b, qp * 0.30))   # 블록 모양 연출 — 라운드가 붙으면 팝도 같이 라운드여야 한다(§8 연출 재배선)
 		draw_rect(prect2, Color(1.0, 1.0, 1.0, qp * 0.85), false, 3.0)
 
 	# 블록 소멸 팝 — 사각형이 부풀며 페이드(적 사망의 원형 팝과 형태로 구분: 네모=블록, 원=적)
@@ -4710,7 +4710,7 @@ func _draw() -> void:
 		var pc: Color = cpop["color"]
 		var ppos: Vector2 = cpop["pos"]
 		var prect: Rect2 = Rect2(ppos - Vector2(psz, psz) * 0.5, Vector2(psz, psz))
-		draw_rect(prect, Color(pc.r, pc.g, pc.b, pp * 0.55))
+		_blit_block(prect, Color(pc.r, pc.g, pc.b, pp * 0.55))   # 위와 같은 이유(소멸 팝)
 		draw_rect(prect, Color(1.0, 1.0, 1.0, pp * pp * 0.85), false, 3.0)
 
 	# 사망 스케일 팝 (타입 색 디스크가 부풀며 페이드) + 밝은 흰 코어
@@ -6640,6 +6640,22 @@ func _draw_tut_msg(fnt: Font) -> void:
 	draw_rect(plate, Color(col.r, col.g, col.b, 0.55 * col.a), false, 2.0)
 	_draw_text_outlined(fnt, Vector2(400.0 - w * 0.5, pbot - 10.0), msg, sz, col)
 
+# ── 블록 렌더 이음새 ─────────────────────────────────────────────────────────
+# 플레이어 블록 쿼드는 전부 이 함수를 지난다 — 보드 셀·충전 중인 셀·폭발 프리뷰·착지 고스트·
+#   손에 든 조각(+그림자)·트레이 프리뷰·붕괴 낙하·튜토리얼 타깃. 총 9곳.
+# 지금 내용은 draw_rect 한 줄이라 렌더가 예전과 바이트 동일하다. UI 아트의 '블록 마스터
+#   180×180'이 들어오면 **이 함수만** 텍스처 blit으로 바뀐다 — 납품일에 호출부 9곳을 동시에
+#   고치지 않으려고 미리 판 자리다(docs/UI_ART_PLAN.md §4 P0).
+#
+# white = 백열 정도(0~1). ⚠색을 미리 흰색으로 lerp해서 넘기지 말 것.
+#   텍스처 경로에서 modulate는 곱셈이라 흰색을 곱해도 텍스처보다 밝아지지 않는다. 그래서
+#   '얼마나 달아올랐나'를 값으로 받아, 텍스처가 생기면 가산 패스로 번역한다(§8 백열 연출).
+#
+# ⚠블록 마스터가 안 덮는 것은 일부러 안 보냈다: 감시자 머리(H)·뿌리(#)는 자기 시각 언어가
+#   따로 있고(얼굴·잠김 표식) 아트 의뢰 범위(§4)에도 없다. 적·비행기도 각자 이음새를 쓴다.
+func _blit_block(r: Rect2, col: Color, white: float = 0.0) -> void:
+	draw_rect(r, col.lerp(Color(1.0, 1.0, 1.0), white))
+
 func _draw_tut_target() -> void:
 	if not tut_lock or tut_cells.is_empty():
 		return
@@ -6654,7 +6670,7 @@ func _draw_tut_target() -> void:
 		var cx: float = float(BOARD_X + cv.x * CELL)
 		var cy: float = float(board_y + cv.y * CELL)
 		var rc: Rect2 = Rect2(cx + bpad, cy + bpad, CELL - bpad * 2.0, CELL - bpad * 2.0)
-		draw_rect(rc, Color(ghost.r, ghost.g, ghost.b, 0.55))
+		_blit_block(rc, Color(ghost.r, ghost.g, ghost.b, 0.55))
 		draw_rect(rc, Color(1.0, 1.0, 1.0, 0.4), false, 2.0)
 		minx = minf(minx, cx); miny = minf(miny, cy); maxx = maxf(maxx, cx + CELL); maxy = maxf(maxy, cy + CELL)
 	# 맥동 외곽 링 — 목표 칸 전체를 감싼다(시선 유도, 잠금 중에만, 놓으면 사라짐)
@@ -6716,7 +6732,7 @@ func _draw_board(fnt: Font) -> void:
 				var ins: float = bpad + 6.0
 				draw_rect(Rect2(rx + ins, ry + ins, CELL - ins * 2.0, CELL - ins * 2.0), C_DEBRIS.darkened(0.45), false, 3.0)
 				continue
-			draw_rect(Rect2(rx + bpad, ry + bpad, CELL - bpad * 2.0, CELL - bpad * 2.0),
+			_blit_block(Rect2(rx + bpad, ry + bpad, CELL - bpad * 2.0, CELL - bpad * 2.0),
 					_color_of(board[r][c]))
 
 	# 튜토리얼 박자1: 중앙 홈에 '여기 놓아라' 타깃(조각색 고스트+맥동 테두리) — 잠금 중에만. 없으면 못 놓는 게 버그처럼 느껴짐.
@@ -6752,13 +6768,14 @@ func _draw_board(fnt: Font) -> void:
 		var bcol: Color = _color_of(board[cc.y][cc.x]).lerp(_combo_heat(heat_t), clampf(chg / CHARGE_TINT, 0.0, 1.0))
 		var hot: float = clampf((chg - CHARGE_TINT) / (1.0 - CHARGE_TINT), 0.0, 1.0)
 		var white_amt: float = 0.5 + 0.4 * float(mini(combo, 8)) / 8.0   # 콤보↑ = 더 하얗게 달아오름
-		bcol = bcol.lerp(Color(1.0, 1.0, 1.0), hot * white_amt)
 		var bsz: float = (CELL - bpad * 2.0) * (1.0 + 0.22 * chg)
 		var boff: float = (CELL - bsz) * 0.5
-		draw_rect(Rect2(cx0 + boff, cy0 + boff, bsz, bsz), bcol)
+		var brect: Rect2 = Rect2(cx0 + boff, cy0 + boff, bsz, bsz)
+		# 백열은 여기서 lerp하지 않고 이음새에 '정도'로 넘긴다 — 텍스처가 붙으면 가산 패스로 번역돼야 해서
+		_blit_block(brect, bcol, hot * white_amt)
 		# 달아오를수록 흰 테두리가 살아난다(터지기 직전이 가장 밝음)
 		if hot > 0.0:
-			draw_rect(Rect2(cx0 + boff, cy0 + boff, bsz, bsz), Color(1.0, 1.0, 1.0, hot * 0.9), false, 2.0)
+			draw_rect(brect, Color(1.0, 1.0, 1.0, hot * 0.9), false, 2.0)
 
 	# ④ 소멸 잔상: 블록이 사라진 바로 그 줄 자리에 색 테두리만 한순간 남는다(BB 실측: 1프레임).
 	#    "여기 있던 줄이 방금 증발했다"를 아주 짧게 못 박는 장치.
@@ -6883,7 +6900,7 @@ func _draw_board(fnt: Font) -> void:
 				# 실제 폭발의 색 통일 종착점과 같은 색이라, 프리뷰가 그대로 예고편이 된다.
 				var tint: Color = pcol.lerp(Color.WHITE, 0.10 + 0.22 * pulse)
 				var prect: Rect2 = Rect2(prx + bpad, pry + bpad, CELL - bpad * 2.0, CELL - bpad * 2.0)
-				draw_rect(prect, tint)
+				_blit_block(prect, tint)
 				draw_rect(prect, Color(1.0, 1.0, 1.0, 0.30 + 0.40 * pulse), false, 2.0)
 
 		# ② 착지 미리보기: 놓일 칸에 '조각색을 흐리게' 깔아둔다 (회색 아님 — 조각색 그대로 옅게).
@@ -6896,7 +6913,7 @@ func _draw_board(fnt: Font) -> void:
 				var rx: float = BOARD_X + gc.x * CELL
 				var ry: float = board_y + gc.y * CELL
 				var grect: Rect2 = Rect2(rx + bpad, ry + bpad, CELL - bpad * 2.0, CELL - bpad * 2.0)
-				draw_rect(grect, shcol)
+				_blit_block(grect, shcol)
 				# 줄이 터질 자리면 프리뷰 줄과 같은 세기로 맥동 = "이 한 수가 줄을 완성한다"
 				if will_clear:
 					draw_rect(grect, Color(1.0, 1.0, 1.0, 0.20 + 0.30 * pulse), false, 2.0)
@@ -7299,14 +7316,14 @@ func _draw_piece_cells(tl: Vector2, cs: float, col: Color, offsets: Array) -> vo
 		var ov: Vector2i = o as Vector2i
 		var sx: float = tl.x + float(ov.x) * cs + 5.0
 		var sy: float = tl.y + float(ov.y) * cs + 7.0
-		draw_rect(Rect2(sx + pad, sy + pad, cs - pad * 2.0, cs - pad * 2.0), Color(0.0, 0.0, 0.0, 0.33))
+		_blit_block(Rect2(sx + pad, sy + pad, cs - pad * 2.0, cs - pad * 2.0), Color(0.0, 0.0, 0.0, 0.33))   # 그림자도 블록 실루엣이어야 한다(라운드 블록 밑의 각진 그림자는 티가 난다)
 	for o2 in offsets:
 		var ov2: Vector2i = o2 as Vector2i
 		var r: Rect2 = Rect2(
 			tl.x + float(ov2.x) * cs + pad,
 			tl.y + float(ov2.y) * cs + pad,
 			cs - pad * 2.0, cs - pad * 2.0)
-		draw_rect(r, col)
+		_blit_block(r, col)
 		draw_rect(r, Color(1.0, 1.0, 1.0, 0.5), false, maxf(1.5, cs * 0.03))
 
 # 손에 들린 조각 — 모든 것 위에 뜬다. 그리드에 스냅하지 않고 포인터를 그대로 따라다닌다.
@@ -7396,7 +7413,7 @@ func _draw_collapse() -> void:
 			var fall: float = _core_fall_offset(c)
 			if fall <= 0.0 or fall > vh:
 				continue
-			draw_rect(Rect2(
+			_blit_block(Rect2(
 					BOARD_X + c * CELL + bpad, board_y + r * CELL + bpad + fall,
 					CELL - bpad * 2.0, CELL - bpad * 2.0), _color_of(board[r][c]))
 
@@ -7470,7 +7487,7 @@ func _draw_bottom(fnt: Font) -> void:
 				var ov: Vector2i = o as Vector2i
 				var px: float = ox + float(ov.x - min_x) * float(ps)
 				var py: float = oy + float(ov.y - min_y) * float(ps)
-				draw_rect(Rect2(px, py, float(ps) - 2.0, float(ps) - 2.0), pcol)
+				_blit_block(Rect2(px, py, float(ps) - 2.0, float(ps) - 2.0), pcol)   # 17px — 이음새의 LOD 하한에 걸려 텍스처가 아닌 사각형으로 떨어진다(§8)
 		elif slot.is_empty():
 			# 빈 슬롯 표시 (손에 들려 있을 뿐인 슬롯은 배경만 두고 비워 둔다)
 			var dash: String = "—"
