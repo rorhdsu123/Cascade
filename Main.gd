@@ -569,6 +569,103 @@ func _t(key: String) -> String:
 var game_rng: RandomNumberGenerator = RandomNumberGenerator.new()
 var game_seed: int = 0   # 현재 게임 시드(featured 트랙 index-addressed rng의 기반)
 
+# ── 블록 아트(UI_ART_PLAN §4 P0 '블록 마스터') ──
+# 파일이 없으면 block_tex가 null이고, 이음새(_blit_block)가 예전 사각형 렌더로 그대로 떨어진다.
+#   = 아트가 늦어도 게임은 오늘과 똑같이 돈다. 파일을 놓는 순간 전 화면이 갈아탄다.
+# ⚠임포트는 무손실로 고정할 것 — project.godot의 import_etc2_astc는 안드로이드 export 전제라
+#   끌 수 없고, 채도 높은 평면 색은 손실 압축에서 밴딩이 잘 보인다(§8).
+const BLOCK_TEX_PATH: String = "res://art/block.png"
+const BLOCK_TEX_MIN_PX: float = 24.0   # 이보다 작게 그릴 땐 텍스처 대신 사각형(트레이 프리뷰 17px)
+var block_tex: Texture2D = null
+var _glow: BlockGlowLayer = null       # 가산 덧칠 전용 자식(백열). 아래 클래스 정의 참조
+
+# ── 상시 아이콘 8종(UI_ART_PLAN §4 P1) ──
+# art/icons/<이름>.png가 있으면 해당 아이콘만 텍스처로 갈아탄다. 8개를 한꺼번에 받을 필요가
+#   없다는 뜻이다 — 하나씩 도착하는 대로 그 아이콘만 바뀌고 나머지는 기존 도형 렌더로 남는다.
+const ICON_DIR: String = "res://art/icons/"
+const ICON_NAMES: Array = ["gear", "skull", "check", "lock", "flag", "infinity", "play", "retry"]
+var icon_tex: Dictionary = {}          # 이름 → Texture2D (파일 있는 것만 채워진다)
+
+# ── 패널·버튼 9-slice(UI_ART_PLAN §4 P0) ──
+# 블록·아이콘과 같은 규약: art/ui/<이름>.png가 있으면 그것만 갈아타고, 없으면 기존 드로잉으로 떨어진다.
+#   → 부품이 하나씩 도착해도 되고, 아무것도 안 와도 게임은 오늘과 똑같이 돈다.
+# ⚠StyleBoxTexture(draw_style_box)를 쓰면 안 된다 — 모서리를 **텍스처 픽셀 크기 그대로** 그려서
+#   2배 납품본(§5)의 라운드가 화면에서 두 배로 부푼다. 스케일 인자가 없다. 그래서 직접 9분할한다.
+# 마진은 **디자이너가 준 px = 텍스처 픽셀**로 적는다(§5). 납품일엔 이 표만 고치면 된다 —
+#   아래 값은 그때까지의 가정치다(자리지킴이 생성기 tools/make_ui_placeholder.py와 짝).
+const UI_TEX_DIR: String = "res://art/ui/"
+const UI_TEX_SCALE: float = 2.0   # 납품 배율(§5). 텍스처 px ÷ 이 값 = 화면 px
+const UI_9S: Dictionary = {
+	# 이름          : [좌, 상, 우, 하] — 텍스처 픽셀
+	"panel":         [56, 56, 56, 56],   # 결과 팝업 = 설정 모달 공용 본체(다크 톤, 틴트 안 함)
+	# 상단 강조바 — 흰/회색조로 받아 코드가 accent를 입힌다.
+	# ⚠**패널과 같은 캔버스·같은 마진**의 레이어 한 장이다(8px 띠 한 조각이 아니다). 띠로 받으면
+	#   각진 양끝이 패널 라운드 밖으로 삐져나온다 — 자리지킴이로 실제로 그랬다. 같은 캔버스면
+	#   모서리가 정의상 일치하고, 바 높이·라운드를 그림이 쥔다.
+	"panel_bar":     [56, 56, 56, 56],
+	"btn_lg":        [48, 48, 48, 56],   # 큰 버튼 기본
+	"btn_lg_press":  [48, 48, 48, 56],   # 눌림
+	"btn_lg_off":    [48, 48, 48, 56],   # 비활성
+	"btn_sm":        [32, 32, 32, 36],   # 작은 버튼(설정 모달 행 버튼·뒤로가기)
+	"btn_sm_press":  [32, 32, 32, 36],
+	# 고스트(Home 등 보조) — ⚠**속이 빈 테두리만** 있는 마스터다. 위 버튼들처럼 면을 채워 오면
+	#   부차 버튼이 주CTA만큼 무거워져 위계가 무너진다. 라운드가 붙은 이웃 사이에서 이것만
+	#   각진 사각형으로 남는 걸 막으려고 슬롯을 미리 판다.
+	"btn_ghost":     [32, 32, 32, 32],
+}
+var ui_9s: Dictionary = {}             # 이름 → {tex, m} (파일 있는 것만 채워진다)
+
+# ── 적 스프라이트(UI_ART_PLAN §4 — basic=P0 · swarm·fast=P1) ──
+# 정적 도형인 3종만 이음새를 탄다. bomb·split은 효과가 파라메트릭이고(도화선·맥동·벌어짐),
+#   tank·thief는 등장이 늦어 이번 범위 밖이다(P2).
+# ⚠**밝은 기준 상태 1장씩만** 받는다 — HP가 닳는 명암과 전진 직후 밝은 링은 **코드가 유지**한다.
+#   그래야 상태별로 그림을 여러 장 안 받아도 되고, 밸런스가 바뀌어도 아트를 다시 안 받는다.
+const ENEMY_DIR: String = "res://art/enemies/"
+const ENEMY_NAMES: Array = ["basic", "swarm", "fast"]
+var enemy_tex: Dictionary = {}         # 이름 → Texture2D (파일 있는 것만)
+# 납품 규격이 180×180 = 한 칸이므로 화면에도 한 칸으로 그린다. 적이 칸을 꽉 채울지 여백을 둘지는
+#   그림이 정한다(블록과 같은 규약).
+const ENEMY_TEX_SIDE: float = float(CELL)
+# 신호(전진 링·조준 링)가 감쌀 반지름. 도형 시절엔 타입마다 달랐지만 스프라이트는 한 칸 기준이라
+#   하나로 묶는다. ⚠진짜 아트를 받으면 눈으로 보고 조정할 것(트레이 LOD 하한과 같은 성격).
+const ENEMY_TEX_RAD: float = float(CELL) * 0.40
+
+# 버튼 상태 3종 — 텍스처 파일이 갈리는 축. 폴백 렌더는 이 값을 안 본다(호출부 색이 이미 상태를 담고 있다).
+# ⚠모바일엔 hover가 없다 — 터치는 마우스로 번역되므로(emulate_mouse_from_touch) hover==손가락이 닿음
+#   = '눌림'이다. 그래서 호출부는 hover 불리언을 그대로 BTN_PRESS로 넘긴다.
+const BTN_NORMAL: int = 0
+const BTN_PRESS: int = 1
+const BTN_OFF: int = 2
+
+# 블록 텍스처 + 가산 레이어 준비. 텍스처가 없어도 레이어는 만든다 — 큐가 비면 아무것도 안 그리고,
+#   나중에 파일만 놓으면 배선을 다시 안 건드려도 되게.
+func _init_block_art() -> void:
+	if ResourceLoader.exists(BLOCK_TEX_PATH):
+		block_tex = load(BLOCK_TEX_PATH) as Texture2D
+	_glow = BlockGlowLayer.new()
+	_glow.name = "BlockGlow"
+	_glow.tex = block_tex
+	var gmat := CanvasItemMaterial.new()
+	gmat.blend_mode = CanvasItemMaterial.BLEND_MODE_ADD
+	_glow.material = gmat
+	add_child(_glow)   # 자식 = 부모가 다 그린 뒤 위에 얹힌다
+	for n in ICON_NAMES:
+		var ip: String = ICON_DIR + String(n) + ".png"
+		if ResourceLoader.exists(ip):
+			icon_tex[n] = load(ip) as Texture2D
+	for en in ENEMY_NAMES:
+		var ep2: String = ENEMY_DIR + String(en) + ".png"
+		if ResourceLoader.exists(ep2):
+			enemy_tex[en] = load(ep2) as Texture2D
+	# 9-slice 부품 — 도착한 것만 등록된다(하나씩 받아도 그것만 갈아탄다).
+	for k in UI_9S.keys():
+		var up: String = UI_TEX_DIR + String(k) + ".png"
+		if not ResourceLoader.exists(up):
+			continue
+		var ut: Texture2D = load(up) as Texture2D
+		if ut != null:
+			ui_9s[k] = {"tex": ut, "m": UI_9S[k]}
+
 # 게임 스트림 시드 고정(데일리 시드/회귀/sim). 코스메틱 전역 RNG는 건드리지 않는다.
 func seed_game(s: int) -> void:
 	game_seed = s
@@ -606,6 +703,7 @@ func _ready() -> void:
 	# 오디오는 플랫폼 게이트가 없다 — 헤드리스는 더미 드라이버라 알아서 조용하고, 데스크톱·모바일은
 	#   동작이 같다. 파형은 여기서 한 번만 굽는다(~27KB, 이후 비용 0).
 	_sfx_init()
+	_init_block_art()
 	_load_campaign()
 	_analytics.session_begin()           # 계측 세션 시작(app_opened) — 판·화면보다 먼저여야 첫 판이 이 세션에 묶인다
 	endless_best = _leaderboard.best()   # 로컬 베스트는 LeaderboardService가 소유·로드 — 여기선 캐시로 미러(C64 이음새)
@@ -4687,6 +4785,11 @@ func _process(delta: float) -> void:
 # ===== 그리기 =====
 func _draw() -> void:
 	var fnt: Font = _font if _font != null else ThemeDB.fallback_font
+	# 가산 큐는 매 프레임 새로 쌓는다. 자식은 부모 뒤에 그려지므로, 여기서 dirty만 찍어두면
+	#   아래에서 채워진 큐를 같은 프레임에 소비한다(아래 화면 분기들이 일찍 return해도 안전).
+	if _glow != null:
+		_glow.quads.clear()
+		_glow.queue_redraw()
 
 	if mode == "menu":
 		# 배경은 전체를 덮고, 콘텐츠만 세로 중앙으로 내린다(입력도 같은 오프셋으로 되돌림).
@@ -4718,6 +4821,10 @@ func _draw() -> void:
 		var mag: float = SHAKE_AMP * (shake_timer / SHAKE_DUR)
 		draw_ofs = Vector2(randf_range(-mag, mag), randf_range(-mag, mag))
 		draw_set_transform(draw_ofs)
+	# 가산 레이어는 **자식**이라 부모의 흔들림 변환을 안 받는다 — 같은 오프셋을 노드 위치로 걸어 준다.
+	#   안 걸면 화면이 흔들리는 동안 백열·피격 플래시만 제자리에 남아 실루엣이 어긋난다.
+	if _glow != null:
+		_glow.position = draw_ofs
 
 	# 넘음 배경(여백) — 개인기록 넘으면 warm 플럼으로 solid 전환(pb_bg_mix 이징, 판 끝까지). 상·하단 바·셀도 같은
 	#   방식으로 함께 전환(아래) → 화면 전체가 한 색으로 통일 + 반투명 veil 없어 haze 0. 어둠 유지로 대비 보존.
@@ -4797,7 +4904,7 @@ func _draw() -> void:
 		var pcol2: Color = ppop["color"]
 		var ppos2: Vector2 = ppop["pos"]
 		var prect2: Rect2 = Rect2(ppos2 - Vector2(psz2, psz2) * 0.5, Vector2(psz2, psz2))
-		draw_rect(prect2, Color(pcol2.r, pcol2.g, pcol2.b, qp * 0.30))
+		_blit_block(prect2, Color(pcol2.r, pcol2.g, pcol2.b, qp * 0.30))   # 블록 모양 연출 — 라운드가 붙으면 팝도 같이 라운드여야 한다(§8 연출 재배선)
 		draw_rect(prect2, Color(1.0, 1.0, 1.0, qp * 0.85), false, 3.0)
 
 	# 블록 소멸 팝 — 사각형이 부풀며 페이드(적 사망의 원형 팝과 형태로 구분: 네모=블록, 원=적)
@@ -4808,7 +4915,7 @@ func _draw() -> void:
 		var pc: Color = cpop["color"]
 		var ppos: Vector2 = cpop["pos"]
 		var prect: Rect2 = Rect2(ppos - Vector2(psz, psz) * 0.5, Vector2(psz, psz))
-		draw_rect(prect, Color(pc.r, pc.g, pc.b, pp * 0.55))
+		_blit_block(prect, Color(pc.r, pc.g, pc.b, pp * 0.55))   # 위와 같은 이유(소멸 팝)
 		draw_rect(prect, Color(1.0, 1.0, 1.0, pp * pp * 0.85), false, 3.0)
 
 	# 사망 스케일 팝 (타입 색 디스크가 부풀며 페이드) + 밝은 흰 코어
@@ -5363,16 +5470,16 @@ func _draw_toggle(r: Rect2, on: bool, hot: bool) -> void:
 
 # 모달 안 작은 액션 버튼(홈=회색빛 유틸 / 다시하기=초록 '진행'). 결과팝업 버튼 언어 계승.
 func _draw_mini_button(fnt: Font, r: Rect2, label: String, hot: bool, accent: Color, ink: Color) -> void:
-	draw_rect(Rect2(r.position.x, r.position.y + 5.0, r.size.x, r.size.y), accent.darkened(0.5))
 	var base: Color = accent.lightened(0.12) if hot else accent
-	draw_rect(r, base)
-	draw_rect(Rect2(r.position.x, r.position.y, r.size.x, r.size.y * 0.32), Color(1.0, 1.0, 1.0, 0.14))
-	draw_rect(r, accent.darkened(0.35), false, 3.0)
+	_draw_btn_box(r, base, accent.darkened(0.5), accent.darkened(0.35), 5.0, 0.14, 3.0,
+			BTN_PRESS if hot else BTN_NORMAL, true)
 	var lw: float = fnt.get_string_size(label, HORIZONTAL_ALIGNMENT_LEFT, -1, 24).x
 	_draw_text_outlined(fnt, Vector2(r.position.x + r.size.x * 0.5 - lw * 0.5, r.position.y + r.size.y * 0.5 + 9.0), label, 24, ink)
 
 # 기어 아이콘 — 이(teeth) 8개 + 링 + 중심점. 작은 크기라 형태로만 '설정'을 말한다.
 func _draw_gear_icon(c: Vector2, rad: float, col: Color) -> void:
+	if _blit_icon("gear", c, rad * 2.05, col):   # 톱니 끝이 rad*1.02까지 나간다
+		return
 	for i in range(8):
 		var a: float = TAU * float(i) / 8.0
 		var d: Vector2 = Vector2(cos(a), sin(a))
@@ -5385,12 +5492,9 @@ func _draw_settings(fnt: Font) -> void:
 	var p: Rect2 = lay["panel"]
 	# 스크림 — 뒤 판을 눌러 모달임을 알린다(결과팝업과 동일 톤)
 	draw_rect(Rect2(-20, -20, VW_BASE + 40.0, vh + 40.0), Color(0.0, 0.0, 0.0, 0.68))
-	# 패널(다크) — 그림자 + 본체 + 상단 강조바 + 테두리
+	# 패널(다크) — 그림자 + 본체 + 상단 강조바 + 테두리. 결과 팝업과 같은 부품(_draw_panel_box)이다.
 	var accent: Color = Color(0.55, 0.58, 0.72)
-	draw_rect(Rect2(p.position.x + 6.0, p.position.y + 10.0, p.size.x, p.size.y), Color(0.0, 0.0, 0.0, 0.45))
-	draw_rect(p, Color(0.11, 0.11, 0.18))
-	draw_rect(Rect2(p.position.x, p.position.y, p.size.x, 8.0), accent)
-	draw_rect(p, accent, false, 3.0)
+	_draw_panel_box(p, Color(0.11, 0.11, 0.18), accent)
 	var cx: float = p.position.x + p.size.x * 0.5
 	var lx: float = lay["label_x"]
 
@@ -5428,6 +5532,8 @@ func _draw_settings(fnt: Font) -> void:
 
 # 재생 삼각형(▶) — '광고 영상을 본다'는 뜻. 오른쪽을 향한 정삼각형.
 func _draw_play_icon(c: Vector2, r: float, col: Color) -> void:
+	if _blit_icon("play", c, r * 1.7, col):
+		return
 	draw_colored_polygon(PackedVector2Array([
 		Vector2(c.x - r * 0.6, c.y - r * 0.85),
 		Vector2(c.x - r * 0.6, c.y + r * 0.85),
@@ -5436,6 +5542,8 @@ func _draw_play_icon(c: Vector2, r: float, col: Color) -> void:
 
 # 시계방향 회전 화살표(재도전) — 링 + 끝단 삼각촉
 func _draw_retry_icon(c: Vector2, r: float, col: Color) -> void:
+	if _blit_icon("retry", c, r * 2.4, col):   # 호(r) + 화살촉이 더 나간다
+		return
 	draw_arc(c, r, -PI * 0.35, PI * 1.15, 24, col, 5.0)
 	var tip: Vector2 = c + Vector2(cos(-PI * 0.35), sin(-PI * 0.35)) * r
 	var t2: Vector2 = tip + Vector2(0.0, -r * 0.55)
@@ -5638,10 +5746,7 @@ func _draw_result(fnt: Font) -> void:
 	#   그대로 쓰므로 버튼 히트테스트·개봉 순서는 전혀 안 바뀐다.
 	var boxless: bool = game_clear and not director.scores() and not RESULT_CLEAR_CARD
 	if not boxless:
-		draw_rect(Rect2(p.position.x + 6.0, p.position.y + 10.0, p.size.x, p.size.y), Color(0.0, 0.0, 0.0, 0.45))
-		draw_rect(p, Color(0.13, 0.13, 0.2))
-		draw_rect(Rect2(p.position.x, p.position.y, p.size.x, 8.0), accent)   # 상단 강조 바
-		draw_rect(p, accent, false, 3.0)
+		_draw_panel_box(p, Color(0.13, 0.13, 0.2), accent)   # 설정 모달과 같은 부품 — 상단 강조바 색만 갈린다
 
 	if rt < RESULT_CONTENT_IN:
 		draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
@@ -5770,14 +5875,12 @@ func _draw_result(fnt: Font) -> void:
 	var revivable: bool = lay["revivable"]
 	if revivable:
 		var cb: Rect2 = lay["cont"]
-		draw_rect(Rect2(cb.position.x, cb.position.y + 7.0, cb.size.x, cb.size.y), Color(0.4, 0.28, 0.05))
 		# 광고 대기 중 = 눌린 상태가 아니라 '지금은 못 누름'. 금색을 톤 다운해 비활성임을 색으로 먼저
 		#   알리고(hud-signal-by-color-not-text), 라벨만 바꾼다 — 버튼 자리·크기는 그대로라 안 튄다.
 		var cbase: Color = Color(0.62, 0.52, 0.20) if _ad_pending \
 				else (Color(1.0, 0.86, 0.35) if _cont_hover else Color(0.95, 0.78, 0.25))
-		draw_rect(cb, cbase)
-		draw_rect(Rect2(cb.position.x, cb.position.y, cb.size.x, cb.size.y * 0.32), Color(1.0, 1.0, 1.0, 0.22))
-		draw_rect(cb, Color(0.5, 0.38, 0.1), false, 4.0)
+		var cstate: int = BTN_OFF if _ad_pending else (BTN_PRESS if _cont_hover else BTN_NORMAL)
+		_draw_btn_box(cb, cbase, Color(0.4, 0.28, 0.05), Color(0.5, 0.38, 0.1), 7.0, 0.22, 4.0, cstate)
 		var cmid_y: float = cb.position.y + cb.size.y * 0.5
 		if _ad_pending:
 			# 로드 중 — ▶를 지운다(누르면 바로 간다는 약속을 잠깐 거둔다). 실광고(R2) 전엔 즉시 해소돼 안 보인다.
@@ -5813,17 +5916,14 @@ func _draw_result(fnt: Font) -> void:
 	var lfs: int = 26 if revivable else 42   # 주 CTA가 440×112로 커졌다(공통 자리) → 글자도 한 단
 	var icon_r: float = 13.0 if revivable else 17.0
 	var mid_y: float = r.position.y + r.size.y * 0.5
+	var rstate: int = BTN_PRESS if _retry_hover else BTN_NORMAL
 	if revivable:
 		# 부차: 어두운 초록 필(그림자·하이라이트 없음) — 광고(금색 주)와 홈(회색 고스트) 사이 위계
 		var sbase: Color = Color(0.30, 0.5, 0.28) if _retry_hover else Color(0.22, 0.4, 0.22)
-		draw_rect(r, sbase)
-		draw_rect(r, Color(0.16, 0.34, 0.16), false, 2.0)
+		_draw_btn_box(r, sbase, Color.TRANSPARENT, Color(0.16, 0.34, 0.16), 0.0, 0.0, 2.0, rstate, true)
 	else:
-		draw_rect(Rect2(r.position.x, r.position.y + 7.0, r.size.x, r.size.y), Color(0.10, 0.28, 0.14))
 		var base: Color = Color(0.42, 0.82, 0.32) if _retry_hover else Color(0.34, 0.72, 0.26)
-		draw_rect(r, base)
-		draw_rect(Rect2(r.position.x, r.position.y, r.size.x, r.size.y * 0.32), Color(1.0, 1.0, 1.0, 0.16))
-		draw_rect(r, Color(0.16, 0.42, 0.18), false, 4.0)
+		_draw_btn_box(r, base, Color(0.10, 0.28, 0.14), Color(0.16, 0.42, 0.18), 7.0, 0.16, 4.0, rstate)
 
 	# 회전 화살표는 '다시 한다'는 뜻 — 실패(재도전)에만. 클리어는 앞으로 가는 것이라 아이콘 없이 글자만.
 	var lw: float = fnt.get_string_size(label, HORIZONTAL_ALIGNMENT_LEFT, -1, lfs).x
@@ -5839,12 +5939,16 @@ func _draw_result(fnt: Font) -> void:
 
 	# ── 홈 (부차 동작 — 고스트 버튼)
 	var h: Rect2 = lay["home"]
-	if _home_hover:
+	# 호버 바탕은 폴백 전용 — 고스트 텍스처가 오면 각진 반투명 사각형이 라운드 테 밖으로 비죽 나온다.
+	#   그쪽에선 테 자체의 밝기(아래 alpha)가 호버를 말한다.
+	if _home_hover and not ui_9s.has("btn_ghost"):
 		draw_rect(h, Color(1.0, 1.0, 1.0, 0.08))
 	# 테두리 알약은 '담긴 맥락'을 전제로 한 형태다 — 상자가 없는 클리어에서는 검은 배경에 붕 떠 보여
 	#   글자만 남긴다(고스트의 정석). 상자가 있는 실패·무한에서는 테두리가 성립하므로 그대로.
 	if not boxless:
-		draw_rect(h, Color(0.5, 0.52, 0.62, 0.9 if _home_hover else 0.5), false, 2.0)
+		var gcol: Color = Color(0.5, 0.52, 0.62, 0.9 if _home_hover else 0.5)
+		if not _blit_9s("btn_ghost", h, gcol):
+			draw_rect(h, gcol, false, 2.0)
 	var hs: String = _t("go_home")
 	var hfs: int = 20
 	var hw2: float = fnt.get_string_size(hs, HORIZONTAL_ALIGNMENT_LEFT, -1, hfs).x
@@ -5993,10 +6097,8 @@ func _draw_menu_button(fnt: Font, r: Rect2, hot: bool, base: Color, base_dim: Co
 	if locked:
 		body = Color(0.19, 0.20, 0.26)
 		edge = Color(0.12, 0.13, 0.17)
-	draw_rect(Rect2(r.position.x, r.position.y + 8.0, r.size.x, r.size.y), edge)
-	draw_rect(r, body)
-	draw_rect(Rect2(r.position.x, r.position.y, r.size.x, r.size.y * 0.32), Color(1.0, 1.0, 1.0, 0.06 if locked else 0.16))
-	draw_rect(r, edge, false, 4.0)
+	_draw_btn_box(r, body, edge, edge, 8.0, 0.06 if locked else 0.16, 4.0,
+			BTN_OFF if locked else (BTN_PRESS if hot else BTN_NORMAL))
 
 	# 좌측 아이콘 원판 + 심볼
 	var ink: Color = Color(0.52, 0.54, 0.64) if locked else Color.WHITE
@@ -6030,11 +6132,15 @@ func _draw_menu_button(fnt: Font, r: Rect2, hot: bool, base: Color, base_dim: Co
 
 # ∞ 심볼(두 원 윤곽) — 무한 모드 표식
 func _draw_infinity(c: Vector2, s: float, col: Color) -> void:
+	if _blit_icon("infinity", c, s * 1.7, col):   # 두 원 바깥 끝이 c.x±0.84s
+		return
 	draw_arc(Vector2(c.x - s * 0.44, c.y), s * 0.40, 0.0, TAU, 20, col, 4.0)
 	draw_arc(Vector2(c.x + s * 0.44, c.y), s * 0.40, 0.0, TAU, 20, col, 4.0)
 
 # 깃발 심볼(폴 + 삼각기) — 스테이지(모험) 표식
 func _draw_flag(c: Vector2, s: float, col: Color) -> void:
+	if _blit_icon("flag", c, s * 1.0, col):
+		return
 	draw_line(Vector2(c.x - s * 0.34, c.y - s * 0.5), Vector2(c.x - s * 0.34, c.y + s * 0.5), col, 4.0)
 	draw_colored_polygon(PackedVector2Array([
 		Vector2(c.x - s * 0.34, c.y - s * 0.5),
@@ -6201,8 +6307,9 @@ func _medal_color(rank: int) -> Color:
 # select → 메뉴 복귀 버튼(좌상단 화살표 + 라벨)
 func _draw_back_button(fnt: Font) -> void:
 	var r: Rect2 = BACK_BTN
-	draw_rect(r, Color(0.20, 0.21, 0.30) if _back_hover else Color(0.15, 0.16, 0.24))
-	draw_rect(r, Color(0.45, 0.47, 0.60), false, 2.0)
+	_draw_btn_box(r, Color(0.20, 0.21, 0.30) if _back_hover else Color(0.15, 0.16, 0.24),
+			Color.TRANSPARENT, Color(0.45, 0.47, 0.60), 0.0, 0.0, 2.0,
+			BTN_PRESS if _back_hover else BTN_NORMAL, true)
 	var ax: float = r.position.x + 26.0
 	var ay: float = r.position.y + r.size.y * 0.5
 	draw_colored_polygon(PackedVector2Array([
@@ -6353,12 +6460,10 @@ func _comma(n: int) -> String:
 func _draw_play_button(fnt: Font, cur: int) -> void:
 	var hot: bool = _play_hover
 	var r: Rect2 = PLAY_BTN
-	# 입체감: 아래 그림자 → 본체 → 상단 하이라이트
-	draw_rect(Rect2(r.position.x, r.position.y + 8.0, r.size.x, r.size.y), Color(0.10, 0.28, 0.14))
+	# 입체감: 아래 그림자 → 본체 → 상단 하이라이트 (결과 팝업 주CTA와 같은 초록 '진행' 문법)
 	var base: Color = Color(0.42, 0.82, 0.32) if hot else Color(0.34, 0.72, 0.26)
-	draw_rect(r, base)
-	draw_rect(Rect2(r.position.x, r.position.y, r.size.x, r.size.y * 0.32), Color(1.0, 1.0, 1.0, 0.16))
-	draw_rect(r, Color(0.16, 0.42, 0.18), false, 4.0)
+	_draw_btn_box(r, base, Color(0.10, 0.28, 0.14), Color(0.16, 0.42, 0.18), 8.0, 0.16, 4.0,
+			BTN_PRESS if hot else BTN_NORMAL)
 
 	var sd: Dictionary = STAGES[cur]
 	var big: String = _t("stage_n") % (cur + 1)
@@ -6374,6 +6479,8 @@ func _draw_play_button(fnt: Font, cur: int) -> void:
 
 # 체크 표식(절차적) — 깬 스테이지 우상단. 언어 중립(도감/글자 대신 기호)
 func _draw_check(c: Vector2, s: float, col: Color, w: float = 3.0) -> void:
+	if _blit_icon("check", c, s * 2.0, col):   # 체크는 c.x±s로 벌어진다
+		return
 	var pts: PackedVector2Array = PackedVector2Array([
 		Vector2(c.x - s, c.y),
 		Vector2(c.x - s * 0.3, c.y + s * 0.7),
@@ -6383,6 +6490,8 @@ func _draw_check(c: Vector2, s: float, col: Color, w: float = 3.0) -> void:
 
 # 자물쇠 아이콘(절차적) — 잠긴 스테이지 표시
 func _draw_lock(c: Vector2, s: float, col: Color) -> void:
+	if _blit_icon("lock", c, s * 1.0, col):
+		return
 	draw_arc(Vector2(c.x, c.y - s * 0.18), s * 0.30, PI, TAU, 12, col, 3.0)
 	draw_rect(Rect2(c.x - s * 0.40, c.y - s * 0.10, s * 0.80, s * 0.62), col)
 
@@ -6401,6 +6510,8 @@ func _draw_card(r: Rect2, accent: Color) -> void:
 
 # 간단한 적 토큰 아이콘 — 붉은 사각 + 눈 2개(아트 전 임시)
 func _draw_enemy_icon(center: Vector2, s: float) -> void:
+	if _blit_icon("skull", center, s * 1.0):   # ⚠틴트 없음(흰색) — 해골은 뼈색+어두운 눈이라 2색이다. 단색으로 받으면 색은 이미지가 갖는다
+		return
 	# 목표=밀려오는 적 전부 처치(타입 무관, 못 없애면 거점 hp↓). 특정 타입 대신
 	# 타입 중립 "처치 대상" 기호=해골로 그린다. 뼈색+어두운 눈·코·이빨.
 	var bone: Color = Color(0.93, 0.9, 0.82)
@@ -6749,6 +6860,182 @@ func _draw_tut_msg(fnt: Font) -> void:
 	draw_rect(plate, Color(col.r, col.g, col.b, 0.55 * col.a), false, 2.0)
 	_draw_text_outlined(fnt, Vector2(400.0 - w * 0.5, pbot - 10.0), msg, sz, col)
 
+# ── 가산 블렌드 오버레이 ─────────────────────────────────────────────────────
+# Godot의 _draw()는 **그리는 도중 블렌드 모드를 못 바꾼다** — 블렌드는 CanvasItem 단위 머티리얼
+#   속성이라 draw_* 호출별로 지정할 수가 없다. 그래서 '가산으로 덧칠할 것'만 이 자식 노드에
+#   몰아 그린다. 자식은 부모가 다 그린 뒤 그 위에 얹힌다.
+# 필요한 이유 = 백열. 블록에 텍스처가 붙으면 modulate(곱셈)로는 텍스처보다 밝게 못 만든다
+#   — 흰색을 곱해봐야 텍스처 원색이다. 가산이라야 실제로 밝아진다(UI_ART_PLAN §8).
+# 텍스처가 없는 동안엔 큐가 늘 비어 있다(= 렌더 무변화). 블록 마스터가 들어오는 순간 살아난다.
+#
+# ⚠순서 주의 — 자식이라 부모의 '모든' 내용 위에 얹힌다. 지금은 백열이 충전 중에만 켜지고
+#   그때는 손에 든 조각이 안 그려져서(_draw_held가 resolving이면 즉시 return) 겹칠 게 없다.
+#   가산 큐를 다른 연출로 넓힐 땐 이 전제를 다시 확인할 것.
+# quads 항목이 텍스처를 직접 들고 다닌다 — 블록만 쓰던 걸 적 피격 플래시까지 넓혔다.
+#   실루엣이 다른 것들이 같은 레이어를 공유하므로, '무엇을 덧칠할지'를 호출부가 정해야 한다.
+#   3번째 칸이 비면(null) 블록 텍스처로 떨어진다(기존 호출부 무수정).
+class BlockGlowLayer extends Node2D:
+	var tex: Texture2D = null
+	var quads: Array = []      # [[Rect2, float, Texture2D|null]] — (덧칠할 자리, 세기 0~1, 실루엣)
+
+	func _draw() -> void:
+		for q in quads:
+			var a: float = clampf(float(q[1]), 0.0, 1.0)
+			if a <= 0.0:
+				continue
+			var r: Rect2 = q[0] as Rect2
+			var t: Texture2D = (q[2] as Texture2D) if q.size() > 2 else null
+			if t == null:
+				t = tex
+			if t == null:
+				draw_rect(r, Color(1.0, 1.0, 1.0, a))
+			else:
+				draw_texture_rect(t, r, false, Color(1.0, 1.0, 1.0, a))
+
+# ── 블록 렌더 이음새 ─────────────────────────────────────────────────────────
+# 플레이어 블록 쿼드는 전부 이 함수를 지난다 — 보드 셀·충전 중인 셀·폭발 프리뷰·착지 고스트·
+#   손에 든 조각(+그림자)·트레이 프리뷰·붕괴 낙하·튜토리얼 타깃. 총 9곳.
+# 지금 내용은 draw_rect 한 줄이라 렌더가 예전과 바이트 동일하다. UI 아트의 '블록 마스터
+#   180×180'이 들어오면 **이 함수만** 텍스처 blit으로 바뀐다 — 납품일에 호출부 9곳을 동시에
+#   고치지 않으려고 미리 판 자리다(docs/UI_ART_PLAN.md §4 P0).
+#
+# white = 백열 정도(0~1). ⚠색을 미리 흰색으로 lerp해서 넘기지 말 것.
+#   텍스처 경로에서 modulate는 곱셈이라 흰색을 곱해도 텍스처보다 밝아지지 않는다. 그래서
+#   '얼마나 달아올랐나'를 값으로 받아, 텍스처가 생기면 가산 패스로 번역한다(§8 백열 연출).
+#
+# 뿌리(#)도 보낸다 — 자물쇠 표식(안쪽 어두운 테두리)은 그대로 위에 얹으니 '잠긴 블록'으로 읽히고,
+#   라운드 블록 옆에 각진 사각형만 남으면 그게 더 튄다.
+# ⚠감시자 머리(H)만 안 보낸다: 얼굴이 그려지는 '생명체'라 블록 실루엣을 입히면 안 된다.
+#   적·비행기도 각자 이음새를 쓴다.
+# 아이콘 이음새. 텍스처가 있으면 그리고 true, 없으면 false를 돌려 호출부가 기존 도형 렌더로 잇는다.
+#   side = 정사각 변 길이. 지금 도형이 실제로 차지하는 폭에 맞춰 호출부마다 배수를 박아 뒀다
+#   (납품 아이콘이 96×96 정사각이라, 글자 크기가 아니라 '차지하는 자리'를 맞춰야 안 튄다).
+func _blit_icon(icon: String, center: Vector2, side: float, col: Color = Color.WHITE) -> bool:
+	var t: Texture2D = icon_tex.get(icon, null) as Texture2D
+	if t == null:
+		return false
+	draw_texture_rect(t, Rect2(center - Vector2(side, side) * 0.5, Vector2(side, side)), false, col)
+	return true
+
+# ── 9-slice 이음새(패널·버튼) ────────────────────────────────────────────────
+# 텍스처가 있으면 늘려 그리고 true, 없으면 false를 돌려 호출부가 기존 draw_rect 렌더로 잇는다.
+#   아이콘 이음새(_blit_icon)와 같은 계약이다.
+# 9분할: 네 모서리는 원본 크기(÷배율)로 고정, 변은 한 축만, 가운데는 양축으로 늘린다.
+func _blit_9s(name: String, r: Rect2, col: Color = Color.WHITE) -> bool:
+	var e: Dictionary = ui_9s.get(name, {}) as Dictionary
+	if e.is_empty():
+		return false
+	var tex: Texture2D = e["tex"] as Texture2D
+	var ts: Vector2 = tex.get_size()
+	var m: Array = e["m"] as Array
+	# 원본(텍스처 px) 마진 → 목적지(화면 px) 마진
+	var s: PackedFloat32Array = PackedFloat32Array([float(m[0]), float(m[1]), float(m[2]), float(m[3])])
+	var dl: float = s[0] / UI_TEX_SCALE
+	var dt: float = s[1] / UI_TEX_SCALE
+	var dr: float = s[2] / UI_TEX_SCALE
+	var db: float = s[3] / UI_TEX_SCALE
+	# 목적지가 모서리 합보다 좁으면 모서리를 비율대로 줄인다 — 안 그러면 좌우가 겹쳐 그려져 뭉갠다
+	#   (작은 버튼·얇은 강조바에서 실제로 걸린다).
+	var hsc: float = minf(1.0, r.size.x / maxf(0.001, dl + dr))
+	var vsc: float = minf(1.0, r.size.y / maxf(0.001, dt + db))
+	dl *= hsc; dr *= hsc; dt *= vsc; db *= vsc
+	var sw: float = maxf(0.0, ts.x - s[0] - s[2])   # 원본 가운데 폭/높이
+	var sh: float = maxf(0.0, ts.y - s[1] - s[3])
+	var dws: PackedFloat32Array = PackedFloat32Array([dl, maxf(0.0, r.size.x - dl - dr), dr])
+	var dhs: PackedFloat32Array = PackedFloat32Array([dt, maxf(0.0, r.size.y - dt - db), db])
+	var sws: PackedFloat32Array = PackedFloat32Array([s[0], sw, s[2]])
+	var shs: PackedFloat32Array = PackedFloat32Array([s[1], sh, s[3]])
+	var dy: float = r.position.y
+	var sy: float = 0.0
+	for iy in range(3):
+		var dx: float = r.position.x
+		var sx: float = 0.0
+		for ix in range(3):
+			if dws[ix] > 0.0 and dhs[iy] > 0.0 and sws[ix] > 0.0 and shs[iy] > 0.0:
+				draw_texture_rect_region(tex, Rect2(dx, dy, dws[ix], dhs[iy]),
+						Rect2(sx, sy, sws[ix], shs[iy]), col)
+			dx += dws[ix]
+			sx += sws[ix]
+		dy += dhs[iy]
+		sy += shs[iy]
+	return true
+
+# 모달 패널 한 장 = 그림자 → 본체 → 상단 강조바 → 테두리. 결과 팝업과 설정 모달이 **같은 부품**이다.
+#   body는 폴백 전용 색이다 — 납품 패널은 다크 톤 그림 자체를 받으므로 틴트하지 않는다(§4 P0).
+#   accent만 계속 코드가 쥔다(클리어=금색 / 실패=붉은색 — '색만 바뀐다'가 기획).
+const PANEL_DROP: Vector2 = Vector2(6.0, 10.0)   # 그림자 오프셋. 텍스처 경로도 같은 값으로 실루엣을 깐다
+const PANEL_BAR_H: float = 8.0
+func _draw_panel_box(r: Rect2, body: Color, accent: Color) -> void:
+	if ui_9s.has("panel"):
+		# 그림자도 같은 9-slice로 — 라운드 패널 밑에 각진 검정이 남으면 그게 더 튄다(블록 그림자와 같은 교훈).
+		_blit_9s("panel", Rect2(r.position + PANEL_DROP, r.size), Color(0.0, 0.0, 0.0, 0.45))
+		_blit_9s("panel", r)
+		# 강조바는 패널과 **같은 사각형**에 얹는다(같은 캔버스 레이어라 모서리가 자동으로 맞는다).
+		#   안 왔으면 아무것도 안 그린다 — 각진 띠를 대신 얹으면 라운드 밖으로 삐져나온다.
+		_blit_9s("panel_bar", r, accent)
+		return
+	draw_rect(Rect2(r.position.x + PANEL_DROP.x, r.position.y + PANEL_DROP.y, r.size.x, r.size.y), Color(0.0, 0.0, 0.0, 0.45))
+	draw_rect(r, body)
+	draw_rect(Rect2(r.position.x, r.position.y, r.size.x, PANEL_BAR_H), accent)
+	draw_rect(r, accent, false, 3.0)
+
+# 버튼 한 개 = 아래 그림자 → 본체 → 상단 하이라이트 띠 → 테두리. 화면의 모든 버튼이 이 네 겹을
+#   같은 순서로 쌓고 있었다(허브·결과·설정·선택) — 값만 달랐다. 그 값을 인자로 올린 게 이 함수다.
+#   drop/hi/bw를 0으로 주면 그 겹이 빠진다(고스트·부차 버튼).
+# 텍스처 경로에선 하이라이트·테두리를 **안 그린다**: 9-slice 그림이 이미 갖고 있다(이중으로 얹으면 탁해진다).
+#   본체는 회색조 마스터를 body로 틴트한다 = 블록과 같은 규약이라 색 변형(주황·파랑·회색)이 공짜로 딸려온다.
+func _draw_btn_box(r: Rect2, body: Color, shadow: Color, edge: Color,
+		drop: float, hi: float, bw: float, state: int = BTN_NORMAL, small: bool = false) -> void:
+	var names: Array = ["btn_sm", "btn_sm_press", "btn_sm"] if small else ["btn_lg", "btn_lg_press", "btn_lg_off"]
+	var nm: String = String(names[clampi(state, 0, 2)])
+	if ui_9s.has(nm):
+		if drop > 0.0:
+			_blit_9s(nm, Rect2(r.position.x, r.position.y + drop, r.size.x, r.size.y), shadow)
+		_blit_9s(nm, r, body)
+		return
+	if drop > 0.0:
+		draw_rect(Rect2(r.position.x, r.position.y + drop, r.size.x, r.size.y), shadow)
+	draw_rect(r, body)
+	if hi > 0.0:
+		draw_rect(Rect2(r.position.x, r.position.y, r.size.x, r.size.y * 0.32), Color(1.0, 1.0, 1.0, hi))
+	if bw > 0.0:
+		draw_rect(r, edge, false, bw)
+
+# ── 적 렌더 이음새 ───────────────────────────────────────────────────────────
+# 텍스처가 있으면 그리고 true, 없으면 false를 돌려 호출부가 기존 도형 렌더로 잇는다(_blit_icon과 같은 계약).
+func _blit_enemy(name: String, center: Vector2, tint: Color = Color.WHITE) -> bool:
+	var t: Texture2D = enemy_tex.get(name, null) as Texture2D
+	if t == null:
+		return false
+	var half: Vector2 = Vector2(ENEMY_TEX_SIDE, ENEMY_TEX_SIDE) * 0.5
+	draw_texture_rect(t, Rect2(center - half, half * 2.0), false, tint)
+	return true
+
+# HP가 닳아 어두워지는 '정도'를 곱할 값으로 환산한다.
+#   도형 시절엔 색을 직접 lerp했지만, 스프라이트엔 곱셈(modulate)밖에 못 건다. 기준색 대비 비율을
+#   넘기면 **지금과 같은 명암 곡선**이 그림 위에 그대로 실린다 — 그림이 무슨 색이든.
+func _hp_tint(base: Color, shaded: Color) -> Color:
+	return Color(shaded.r / maxf(0.001, base.r),
+			shaded.g / maxf(0.001, base.g),
+			shaded.b / maxf(0.001, base.b))
+
+const RIM_PX: float = 3.0   # 블록 뒤로 삐져나오는 테 두께. 셀 간격(bpad=5)보다 좁게 = 옆 칸 안 침범
+func _blit_block(r: Rect2, col: Color, white: float = 0.0, rim: float = 0.0) -> void:
+	# LOD — 트레이 프리뷰는 셀 17px(5.3배 축소)라 텍스처를 넣으면 뭉갠다. 여기선 사각형이 낫다(§8).
+	if block_tex == null or r.size.x < BLOCK_TEX_MIN_PX:
+		draw_rect(r, col.lerp(Color(1.0, 1.0, 1.0), white))
+		if rim > 0.0:
+			draw_rect(r, Color(1.0, 1.0, 1.0, rim), false, 2.0)   # 평면 시절의 각진 테두리 그대로
+		return
+	# rim = 강조 테("이 줄이 곧 터진다" 등). 블록을 조금 키워 **뒤에** 깔면 라운드를 따라 도는 테가 된다.
+	#   면을 덮지 않으므로 **색이 안 죽는다** — 흰색을 면 전체에 덧칠했더니 색 통일 연출이 죽는다는
+	#   플테 지적을 이렇게 고쳤다. 신호의 정체는 색 변화 쪽이고 테는 거들 뿐이다.
+	if rim > 0.0:
+		draw_texture_rect(block_tex, r.grow(RIM_PX), false, Color(1.0, 1.0, 1.0, rim))
+	draw_texture_rect(block_tex, r, false, col)
+	if white > 0.0 and _glow != null:
+		_glow.quads.append([r, white])   # 백열은 곱셈으로 못 하니 가산 레이어로 넘긴다
+
 func _draw_tut_target() -> void:
 	if not tut_lock or tut_cells.is_empty():
 		return
@@ -6763,8 +7050,7 @@ func _draw_tut_target() -> void:
 		var cx: float = float(BOARD_X + cv.x * CELL)
 		var cy: float = float(board_y + cv.y * CELL)
 		var rc: Rect2 = Rect2(cx + bpad, cy + bpad, CELL - bpad * 2.0, CELL - bpad * 2.0)
-		draw_rect(rc, Color(ghost.r, ghost.g, ghost.b, 0.55))
-		draw_rect(rc, Color(1.0, 1.0, 1.0, 0.4), false, 2.0)
+		_blit_block(rc, Color(ghost.r, ghost.g, ghost.b, 0.55), 0.0, 0.4)
 		minx = minf(minx, cx); miny = minf(miny, cy); maxx = maxf(maxx, cx + CELL); maxy = maxf(maxy, cy + CELL)
 	# 맥동 외곽 링 — 목표 칸 전체를 감싼다(시선 유도, 잠금 중에만, 놓으면 사라짐)
 	draw_rect(Rect2(minx, miny, maxx - minx, maxy - miny).grow(2.0 + 3.0 * pulse),
@@ -6821,11 +7107,11 @@ func _draw_board(fnt: Font) -> void:
 			if board[r][c] == "#":
 				# 뿌리(감시자가 뻗은 잠긴 셀) — 강철회색 블록 + 안쪽 어두운 사각 테두리(잠김 표식).
 				# 조각(3원색·꽉 찬 블록)과 한눈에 구분: 무채색 + '속이 빈' 룩 = 잘라내야 할 죽은 칸.
-				draw_rect(Rect2(rx + bpad, ry + bpad, CELL - bpad * 2.0, CELL - bpad * 2.0), C_DEBRIS)
+				_blit_block(Rect2(rx + bpad, ry + bpad, CELL - bpad * 2.0, CELL - bpad * 2.0), C_DEBRIS)
 				var ins: float = bpad + 6.0
 				draw_rect(Rect2(rx + ins, ry + ins, CELL - ins * 2.0, CELL - ins * 2.0), C_DEBRIS.darkened(0.45), false, 3.0)
 				continue
-			draw_rect(Rect2(rx + bpad, ry + bpad, CELL - bpad * 2.0, CELL - bpad * 2.0),
+			_blit_block(Rect2(rx + bpad, ry + bpad, CELL - bpad * 2.0, CELL - bpad * 2.0),
 					_color_of(board[r][c]))
 
 	# 튜토리얼 박자1: 중앙 홈에 '여기 놓아라' 타깃(조각색 고스트+맥동 테두리) — 잠금 중에만. 없으면 못 놓는 게 버그처럼 느껴짐.
@@ -6861,13 +7147,12 @@ func _draw_board(fnt: Font) -> void:
 		var bcol: Color = _color_of(board[cc.y][cc.x]).lerp(_combo_heat(heat_t), clampf(chg / CHARGE_TINT, 0.0, 1.0))
 		var hot: float = clampf((chg - CHARGE_TINT) / (1.0 - CHARGE_TINT), 0.0, 1.0)
 		var white_amt: float = 0.5 + 0.4 * float(mini(combo, 8)) / 8.0   # 콤보↑ = 더 하얗게 달아오름
-		bcol = bcol.lerp(Color(1.0, 1.0, 1.0), hot * white_amt)
 		var bsz: float = (CELL - bpad * 2.0) * (1.0 + 0.22 * chg)
 		var boff: float = (CELL - bsz) * 0.5
-		draw_rect(Rect2(cx0 + boff, cy0 + boff, bsz, bsz), bcol)
-		# 달아오를수록 흰 테두리가 살아난다(터지기 직전이 가장 밝음)
-		if hot > 0.0:
-			draw_rect(Rect2(cx0 + boff, cy0 + boff, bsz, bsz), Color(1.0, 1.0, 1.0, hot * 0.9), false, 2.0)
+		var brect: Rect2 = Rect2(cx0 + boff, cy0 + boff, bsz, bsz)
+		# 백열은 여기서 lerp하지 않고 이음새에 '정도'로 넘긴다 — 텍스처가 붙으면 가산 패스로 번역돼야 해서
+		# 테(rim)도 달아오를수록 살아난다 — 터지기 직전이 가장 밝다
+		_blit_block(brect, bcol, hot * white_amt, hot * 0.9)
 
 	# ④ 소멸 잔상: 블록이 사라진 바로 그 줄 자리에 색 테두리만 한순간 남는다(BB 실측: 1프레임).
 	#    "여기 있던 줄이 방금 증발했다"를 아주 짧게 못 박는 장치.
@@ -6992,8 +7277,7 @@ func _draw_board(fnt: Font) -> void:
 				# 실제 폭발의 색 통일 종착점과 같은 색이라, 프리뷰가 그대로 예고편이 된다.
 				var tint: Color = pcol.lerp(Color.WHITE, 0.10 + 0.22 * pulse)
 				var prect: Rect2 = Rect2(prx + bpad, pry + bpad, CELL - bpad * 2.0, CELL - bpad * 2.0)
-				draw_rect(prect, tint)
-				draw_rect(prect, Color(1.0, 1.0, 1.0, 0.30 + 0.40 * pulse), false, 2.0)
+				_blit_block(prect, tint, 0.0, 0.30 + 0.40 * pulse)
 
 		# ② 착지 미리보기: 놓일 칸에 '조각색을 흐리게' 깔아둔다 (회색 아님 — 조각색 그대로 옅게).
 		#    조각은 스냅하지 않고 포인터를 따라다니므로 이 미리보기가 계속 드러나 있다.
@@ -7005,10 +7289,8 @@ func _draw_board(fnt: Font) -> void:
 				var rx: float = BOARD_X + gc.x * CELL
 				var ry: float = board_y + gc.y * CELL
 				var grect: Rect2 = Rect2(rx + bpad, ry + bpad, CELL - bpad * 2.0, CELL - bpad * 2.0)
-				draw_rect(grect, shcol)
-				# 줄이 터질 자리면 프리뷰 줄과 같은 세기로 맥동 = "이 한 수가 줄을 완성한다"
-				if will_clear:
-					draw_rect(grect, Color(1.0, 1.0, 1.0, 0.20 + 0.30 * pulse), false, 2.0)
+				# 줄이 터질 자리면 프리뷰 줄과 같은 세기로 테가 맥동 = "이 한 수가 줄을 완성한다"
+				_blit_block(grect, shcol, 0.0, (0.20 + 0.30 * pulse) if will_clear else 0.0)
 
 	# 넉백 잔상 (밀쳐진 적의 이전→현재 위치 시안 스트릭)
 	for st in push_streaks:
@@ -7135,18 +7417,21 @@ func _draw_board(fnt: Font) -> void:
 		var bar_h: float = 14.0
 		match etype:
 			"fast":
-				# 시안 화살촉(아래 향함) = 속도감
+				# 시안 화살촉(아래 향함) = 속도감. "!" 긴급 마커는 맥동이라 스프라이트가 와도 코드가 유지한다.
 				var s: float = CELL * 0.26
-				var pts: PackedVector2Array = PackedVector2Array([
-					Vector2(cx, cy + s),
-					Vector2(cx - s, cy - s * 0.7),
-					Vector2(cx + s, cy - s * 0.7),
-				])
-				draw_colored_polygon(pts, C_E_FAST)
-				var closed: PackedVector2Array = pts.duplicate()
-				closed.append(pts[0])
-				draw_polyline(closed, C_E_RIM, C_E_RIM_W)
-				rad = s
+				if _blit_enemy("fast", Vector2(cx, cy)):
+					rad = ENEMY_TEX_RAD
+				else:
+					var pts: PackedVector2Array = PackedVector2Array([
+						Vector2(cx, cy + s),
+						Vector2(cx - s, cy - s * 0.7),
+						Vector2(cx + s, cy - s * 0.7),
+					])
+					draw_colored_polygon(pts, C_E_FAST)
+					var closed: PackedVector2Array = pts.duplicate()
+					closed.append(pts[0])
+					draw_polyline(closed, C_E_RIM, C_E_RIM_W)
+					rad = s
 				# 깜빡이는 "!" 긴급 마커 (머리 위)
 				var blink: float = 0.5 + 0.5 * sin(anim_t * 10.0)
 				_draw_text_outlined(fnt, Vector2(cx - 4.0, cy - s - 14.0), "!", 26,
@@ -7175,14 +7460,17 @@ func _draw_board(fnt: Font) -> void:
 				bar_w = CELL * 0.70   # 탱크는 게이지도 크다 = "버티는 게 보임"(C14)
 				bar_h = 16.0
 			"swarm":
-				# 라임 작은 원 여럿 (군집)
-				var offs: Array = [Vector2(-0.16, -0.12), Vector2(0.16, -0.10), Vector2(-0.02, 0.16)]
-				for off in offs:
-					var ov: Vector2 = off as Vector2
-					var sp: Vector2 = Vector2(cx + ov.x * CELL, cy + ov.y * CELL)
-					draw_circle(sp, CELL * 0.14, C_E_SWARM)
-					draw_circle(sp, CELL * 0.14, C_E_RIM, false, C_E_RIM_W - 0.5)
-				rad = CELL * 0.24
+				# 라임 작은 원 여럿 (군집) — 스프라이트는 셋을 한 장으로 받는다(군집 자체가 이 적의 form).
+				if _blit_enemy("swarm", Vector2(cx, cy)):
+					rad = ENEMY_TEX_RAD
+				else:
+					var offs: Array = [Vector2(-0.16, -0.12), Vector2(0.16, -0.10), Vector2(-0.02, 0.16)]
+					for off in offs:
+						var ov: Vector2 = off as Vector2
+						var sp: Vector2 = Vector2(cx + ov.x * CELL, cy + ov.y * CELL)
+						draw_circle(sp, CELL * 0.14, C_E_SWARM)
+						draw_circle(sp, CELL * 0.14, C_E_RIM, false, C_E_RIM_W - 0.5)
+					rad = CELL * 0.24
 			"split":
 				# 분열 전(gen0·!split_done): 좌우 쌍둥이 blob + 세로 균열. 분열선(SPLIT_ROW)에 가까울수록
 				#   금이 벌어지고 부르르 떤다 = "곧 둘이 된다"를 몸이 말한다(글자 tell 없이).
@@ -7287,15 +7575,28 @@ func _draw_board(fnt: Font) -> void:
 			_:
 				# basic: 바이올렛 원 (hp 비율로 살짝 명암 — 어두워져도 빨강엔 안 닿는다)
 				var bcol: Color = C_E_BASIC.lerp(Color(0.30, 0.10, 0.48), 1.0 - ratio)
-				draw_circle(Vector2(cx, cy), rad, bcol)
-				draw_circle(Vector2(cx, cy), rad, C_E_RIM, false, C_E_RIM_W)
+				# 스프라이트에도 **같은 명암 곡선**을 곱해 얹는다 — 밝은 기준 1장만 받는 근거(§4 P0 비고).
+				if _blit_enemy("basic", Vector2(cx, cy), _hp_tint(C_E_BASIC, bcol)):
+					rad = ENEMY_TEX_RAD
+				else:
+					draw_circle(Vector2(cx, cy), rad, bcol)
+					draw_circle(Vector2(cx, cy), rad, C_E_RIM, false, C_E_RIM_W)
 		# 스텝 박자: 방금 함께 전진한 적들이 짧게 밝은 링으로 "동시에 행진했다"를 못 박는다.
 		if step_beat > 0.0 and bool(e.get("stepped", false)):
 			var ba: float = step_beat / STEP_BEAT_DUR
 			draw_circle(Vector2(cx, cy), rad + 3.0, Color(1.0, 0.92, 0.7, 0.85 * ba), false, 3.0)
 		# 피격 흰 플래시 오버레이 (맞은 순간 강조)
+		#   ⚠스프라이트가 붙으면 원 덧칠은 실루엣이 안 맞고 색까지 덮는다(강조는 면을 덮지 말 것).
+		#   그쪽에선 **같은 그림을 가산으로 겹쳐** 밝히기만 한다 — 블록 백열과 같은 처리다.
 		if flinch > 0.0:
-			draw_circle(Vector2(cx, cy), rad, Color(1.0, 1.0, 1.0, 0.7 * clampf(flinch / 0.22, 0.0, 1.0)))
+			var fa: float = 0.7 * clampf(flinch / 0.22, 0.0, 1.0)
+			var ftex: Texture2D = enemy_tex.get(etype, null) as Texture2D
+			if ftex != null and _glow != null:
+				# ⚠겹침 펼치기(draw_set_transform)도 자식 레이어엔 안 걸린다 — 조준 링과 같은 방식으로 손으로 적용.
+				var fh: Vector2 = Vector2(ENEMY_TEX_SIDE, ENEMY_TEX_SIDE) * 0.5 * st_sc
+				_glow.quads.append([Rect2(Vector2(cx + st_dx, cy) - fh, fh * 2.0), fa, ftex])
+			else:
+				draw_circle(Vector2(cx, cy), rad, Color(1.0, 1.0, 1.0, fa))
 		# 조준 프리뷰: 이 적은 지금 놓으면 죽는다. 링은 여기서 안 그리고 위치만 적재 —
 		# 실제 렌더는 _draw_aim_overlay(들고 있는 조각 위)가 맡아 커서에 안 가려진다.
 		#   ⚠오버레이는 이 루프 밖(변환 없는 곳)에서 그린다 → 겹침 펼치기를 손으로 적용해 넘긴다.
@@ -7339,7 +7640,7 @@ func _draw_board(fnt: Font) -> void:
 					BOARD_X + cell.x * CELL + bpad, board_y + cell.y * CELL + bpad,
 					CELL - bpad * 2.0, CELL - bpad * 2.0)
 			# 셀 배경에서 제 색으로 밝아진다 — 원본의 '어둡게 나타나 밝아짐' (실측 페이드 50ms)
-			draw_rect(frect, C_CELL.lerp(_color_of(stuck_fill[cell]), fa))
+			_blit_block(frect, C_CELL.lerp(_color_of(stuck_fill[cell]), fa))
 
 func _draw_core(fnt: Font) -> void:
 	if bool(st.get("boss", false)):
@@ -7408,15 +7709,19 @@ func _draw_piece_cells(tl: Vector2, cs: float, col: Color, offsets: Array) -> vo
 		var ov: Vector2i = o as Vector2i
 		var sx: float = tl.x + float(ov.x) * cs + 5.0
 		var sy: float = tl.y + float(ov.y) * cs + 7.0
-		draw_rect(Rect2(sx + pad, sy + pad, cs - pad * 2.0, cs - pad * 2.0), Color(0.0, 0.0, 0.0, 0.33))
+		_blit_block(Rect2(sx + pad, sy + pad, cs - pad * 2.0, cs - pad * 2.0), Color(0.0, 0.0, 0.0, 0.33))   # 그림자도 블록 실루엣이어야 한다(라운드 블록 밑의 각진 그림자는 티가 난다)
 	for o2 in offsets:
 		var ov2: Vector2i = o2 as Vector2i
 		var r: Rect2 = Rect2(
 			tl.x + float(ov2.x) * cs + pad,
 			tl.y + float(ov2.y) * cs + pad,
 			cs - pad * 2.0, cs - pad * 2.0)
-		draw_rect(r, col)
-		draw_rect(r, Color(1.0, 1.0, 1.0, 0.5), false, maxf(1.5, cs * 0.03))
+		_blit_block(r, col)
+		# 흰 테두리는 **평면 사각형일 때만** 그린다. 사각형 시절엔 이게 조각의 윤곽을 세워 줬는데,
+		#   블록에 라운드가 붙으면 라운드 바깥으로 각진 프레임이 튀어나와 어색해진다(플테 지적).
+		#   스프라이트가 이미 자기 윤곽을 갖고 있으니 그 역할은 끝났다.
+		if block_tex == null:
+			draw_rect(r, Color(1.0, 1.0, 1.0, 0.5), false, maxf(1.5, cs * 0.03))
 
 # 손에 들린 조각 — 모든 것 위에 뜬다. 그리드에 스냅하지 않고 포인터를 그대로 따라다닌다.
 # 놓일 자리는 조각이 아니라 아래 깔린 '흐린 미리보기'가 알려준다. 그래서 조각을 스냅시키면 안 된다
@@ -7505,7 +7810,7 @@ func _draw_collapse() -> void:
 			var fall: float = _core_fall_offset(c)
 			if fall <= 0.0 or fall > vh:
 				continue
-			draw_rect(Rect2(
+			_blit_block(Rect2(
 					BOARD_X + c * CELL + bpad, board_y + r * CELL + bpad + fall,
 					CELL - bpad * 2.0, CELL - bpad * 2.0), _color_of(board[r][c]))
 
@@ -7579,7 +7884,7 @@ func _draw_bottom(fnt: Font) -> void:
 				var ov: Vector2i = o as Vector2i
 				var px: float = ox + float(ov.x - min_x) * float(ps)
 				var py: float = oy + float(ov.y - min_y) * float(ps)
-				draw_rect(Rect2(px, py, float(ps) - 2.0, float(ps) - 2.0), pcol)
+				_blit_block(Rect2(px, py, float(ps) - 2.0, float(ps) - 2.0), pcol)   # 17px — 이음새의 LOD 하한에 걸려 텍스처가 아닌 사각형으로 떨어진다(§8)
 		elif slot.is_empty():
 			# 빈 슬롯 표시 (손에 들려 있을 뿐인 슬롯은 배경만 두고 비워 둔다)
 			var dash: String = "—"

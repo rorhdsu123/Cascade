@@ -5,6 +5,9 @@ extends SceneTree
 #   실행: PROBE_SEED=20260718 REGRESS_N=20 godot --headless --path . --script tools/regress.gd
 #   비교: 리팩터 전 출력을 골든으로 저장 → 매 단계 후 diff. 첫 diff = randi 순서 깨짐 or 동작 변화.
 #   골든: tools/regress.golden.txt (seed=20260718 N=20). 재베이스 이력:
+#     · C115 st2 core_hp 3→4 — 첫 불일치가 **옛 빌드가 누수 3회로 죽던 첫 판**(s1 u0 #09, lk3 dc1)이라
+#       인과가 그대로 보인다. 그 앞(s0 20줄 + s1 9줄)은 바이트 동일 = 다른 판 동작 불변,
+#       뒤는 단일 스트림이라 전체 시프트(정상). 판정은 plane_verify AB=1 시드베이스 3개 × N=100.
 #     · 거점사>클리어 우선 수정 반영
 #     · C101 겹침 금지(한 칸에 유닛 하나, 충돌=대각 slip) — 전 줄 시프트.
 #     · C102 slip → 줄서기(대기) 교체 — 또 전 줄 시프트. 기전 변경이라 골든 대조로는 판정 불가여서
