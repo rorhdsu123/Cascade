@@ -24,6 +24,10 @@ func _run() -> void:
 	out_dir = ProjectSettings.globalize_path(OUT_RES)
 	DirAccess.make_dir_recursive_absolute(out_dir)
 	g = load("res://Main.tscn").instantiate()
+	# ⚠add_child(=_ready) '전에' 꺼야 한다 — _ready가 곧바로 session_begin()을 찍는다.
+	#   계측은 헤드리스에서만 자동으로 꺼지는데(analytics.gd:57) 이 프로브는 창 모드가 필수라
+	#   가만 두면 캡처 세션이 실측 로그(analytics.jsonl)에 섞인다.
+	g.get("_analytics").enabled = false
 	root.add_child(g)
 	g.set("persist_enabled", false)      # ⚠실유저 진행도 보호
 	await process_frame
