@@ -188,5 +188,11 @@ func _run() -> void:
 	g.set("result_t", 1.0)
 	await _shot("i_result")
 
+	# ── 7. 결과(클리어) — 실패와 **다른 경로**다: 상자를 안 그리고(boxless) 주CTA가 초록 '다음 판'.
+	#    패널 9-slice가 여기선 아예 안 그려져야 맞다(상자 없는 클리어) → 이음새가 상태를 안 뭉갰는지 확인.
+	g.set("game_over", false)
+	g.set("game_clear", true)
+	await _shot("l_result_clear")
+
 	print("DONE")
 	quit()

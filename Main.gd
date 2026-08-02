@@ -586,6 +586,42 @@ const ICON_DIR: String = "res://art/icons/"
 const ICON_NAMES: Array = ["gear", "skull", "check", "lock", "flag", "infinity", "play", "retry"]
 var icon_tex: Dictionary = {}          # 이름 → Texture2D (파일 있는 것만 채워진다)
 
+# ── 패널·버튼 9-slice(UI_ART_PLAN §4 P0) ──
+# 블록·아이콘과 같은 규약: art/ui/<이름>.png가 있으면 그것만 갈아타고, 없으면 기존 드로잉으로 떨어진다.
+#   → 부품이 하나씩 도착해도 되고, 아무것도 안 와도 게임은 오늘과 똑같이 돈다.
+# ⚠StyleBoxTexture(draw_style_box)를 쓰면 안 된다 — 모서리를 **텍스처 픽셀 크기 그대로** 그려서
+#   2배 납품본(§5)의 라운드가 화면에서 두 배로 부푼다. 스케일 인자가 없다. 그래서 직접 9분할한다.
+# 마진은 **디자이너가 준 px = 텍스처 픽셀**로 적는다(§5). 납품일엔 이 표만 고치면 된다 —
+#   아래 값은 그때까지의 가정치다(자리지킴이 생성기 tools/make_ui_placeholder.py와 짝).
+const UI_TEX_DIR: String = "res://art/ui/"
+const UI_TEX_SCALE: float = 2.0   # 납품 배율(§5). 텍스처 px ÷ 이 값 = 화면 px
+const UI_9S: Dictionary = {
+	# 이름          : [좌, 상, 우, 하] — 텍스처 픽셀
+	"panel":         [56, 56, 56, 56],   # 결과 팝업 = 설정 모달 공용 본체(다크 톤, 틴트 안 함)
+	# 상단 강조바 — 흰/회색조로 받아 코드가 accent를 입힌다.
+	# ⚠**패널과 같은 캔버스·같은 마진**의 레이어 한 장이다(8px 띠 한 조각이 아니다). 띠로 받으면
+	#   각진 양끝이 패널 라운드 밖으로 삐져나온다 — 자리지킴이로 실제로 그랬다. 같은 캔버스면
+	#   모서리가 정의상 일치하고, 바 높이·라운드를 그림이 쥔다.
+	"panel_bar":     [56, 56, 56, 56],
+	"btn_lg":        [48, 48, 48, 56],   # 큰 버튼 기본
+	"btn_lg_press":  [48, 48, 48, 56],   # 눌림
+	"btn_lg_off":    [48, 48, 48, 56],   # 비활성
+	"btn_sm":        [32, 32, 32, 36],   # 작은 버튼(설정 모달 행 버튼·뒤로가기)
+	"btn_sm_press":  [32, 32, 32, 36],
+	# 고스트(Home 등 보조) — ⚠**속이 빈 테두리만** 있는 마스터다. 위 버튼들처럼 면을 채워 오면
+	#   부차 버튼이 주CTA만큼 무거워져 위계가 무너진다. 라운드가 붙은 이웃 사이에서 이것만
+	#   각진 사각형으로 남는 걸 막으려고 슬롯을 미리 판다.
+	"btn_ghost":     [32, 32, 32, 32],
+}
+var ui_9s: Dictionary = {}             # 이름 → {tex, m} (파일 있는 것만 채워진다)
+
+# 버튼 상태 3종 — 텍스처 파일이 갈리는 축. 폴백 렌더는 이 값을 안 본다(호출부 색이 이미 상태를 담고 있다).
+# ⚠모바일엔 hover가 없다 — 터치는 마우스로 번역되므로(emulate_mouse_from_touch) hover==손가락이 닿음
+#   = '눌림'이다. 그래서 호출부는 hover 불리언을 그대로 BTN_PRESS로 넘긴다.
+const BTN_NORMAL: int = 0
+const BTN_PRESS: int = 1
+const BTN_OFF: int = 2
+
 # 블록 텍스처 + 가산 레이어 준비. 텍스처가 없어도 레이어는 만든다 — 큐가 비면 아무것도 안 그리고,
 #   나중에 파일만 놓으면 배선을 다시 안 건드려도 되게.
 func _init_block_art() -> void:
@@ -602,6 +638,14 @@ func _init_block_art() -> void:
 		var ip: String = ICON_DIR + String(n) + ".png"
 		if ResourceLoader.exists(ip):
 			icon_tex[n] = load(ip) as Texture2D
+	# 9-slice 부품 — 도착한 것만 등록된다(하나씩 받아도 그것만 갈아탄다).
+	for k in UI_9S.keys():
+		var up: String = UI_TEX_DIR + String(k) + ".png"
+		if not ResourceLoader.exists(up):
+			continue
+		var ut: Texture2D = load(up) as Texture2D
+		if ut != null:
+			ui_9s[k] = {"tex": ut, "m": UI_9S[k]}
 
 # 게임 스트림 시드 고정(데일리 시드/회귀/sim). 코스메틱 전역 RNG는 건드리지 않는다.
 func seed_game(s: int) -> void:
@@ -5294,11 +5338,9 @@ func _draw_toggle(r: Rect2, on: bool, hot: bool) -> void:
 
 # 모달 안 작은 액션 버튼(홈=회색빛 유틸 / 다시하기=초록 '진행'). 결과팝업 버튼 언어 계승.
 func _draw_mini_button(fnt: Font, r: Rect2, label: String, hot: bool, accent: Color, ink: Color) -> void:
-	draw_rect(Rect2(r.position.x, r.position.y + 5.0, r.size.x, r.size.y), accent.darkened(0.5))
 	var base: Color = accent.lightened(0.12) if hot else accent
-	draw_rect(r, base)
-	draw_rect(Rect2(r.position.x, r.position.y, r.size.x, r.size.y * 0.32), Color(1.0, 1.0, 1.0, 0.14))
-	draw_rect(r, accent.darkened(0.35), false, 3.0)
+	_draw_btn_box(r, base, accent.darkened(0.5), accent.darkened(0.35), 5.0, 0.14, 3.0,
+			BTN_PRESS if hot else BTN_NORMAL, true)
 	var lw: float = fnt.get_string_size(label, HORIZONTAL_ALIGNMENT_LEFT, -1, 24).x
 	_draw_text_outlined(fnt, Vector2(r.position.x + r.size.x * 0.5 - lw * 0.5, r.position.y + r.size.y * 0.5 + 9.0), label, 24, ink)
 
@@ -5318,12 +5360,9 @@ func _draw_settings(fnt: Font) -> void:
 	var p: Rect2 = lay["panel"]
 	# 스크림 — 뒤 판을 눌러 모달임을 알린다(결과팝업과 동일 톤)
 	draw_rect(Rect2(-20, -20, VW_BASE + 40.0, vh + 40.0), Color(0.0, 0.0, 0.0, 0.68))
-	# 패널(다크) — 그림자 + 본체 + 상단 강조바 + 테두리
+	# 패널(다크) — 그림자 + 본체 + 상단 강조바 + 테두리. 결과 팝업과 같은 부품(_draw_panel_box)이다.
 	var accent: Color = Color(0.55, 0.58, 0.72)
-	draw_rect(Rect2(p.position.x + 6.0, p.position.y + 10.0, p.size.x, p.size.y), Color(0.0, 0.0, 0.0, 0.45))
-	draw_rect(p, Color(0.11, 0.11, 0.18))
-	draw_rect(Rect2(p.position.x, p.position.y, p.size.x, 8.0), accent)
-	draw_rect(p, accent, false, 3.0)
+	_draw_panel_box(p, Color(0.11, 0.11, 0.18), accent)
 	var cx: float = p.position.x + p.size.x * 0.5
 	var lx: float = lay["label_x"]
 
@@ -5575,10 +5614,7 @@ func _draw_result(fnt: Font) -> void:
 	#   그대로 쓰므로 버튼 히트테스트·개봉 순서는 전혀 안 바뀐다.
 	var boxless: bool = game_clear and not director.scores() and not RESULT_CLEAR_CARD
 	if not boxless:
-		draw_rect(Rect2(p.position.x + 6.0, p.position.y + 10.0, p.size.x, p.size.y), Color(0.0, 0.0, 0.0, 0.45))
-		draw_rect(p, Color(0.13, 0.13, 0.2))
-		draw_rect(Rect2(p.position.x, p.position.y, p.size.x, 8.0), accent)   # 상단 강조 바
-		draw_rect(p, accent, false, 3.0)
+		_draw_panel_box(p, Color(0.13, 0.13, 0.2), accent)   # 설정 모달과 같은 부품 — 상단 강조바 색만 갈린다
 
 	if rt < RESULT_CONTENT_IN:
 		draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
@@ -5707,14 +5743,12 @@ func _draw_result(fnt: Font) -> void:
 	var revivable: bool = lay["revivable"]
 	if revivable:
 		var cb: Rect2 = lay["cont"]
-		draw_rect(Rect2(cb.position.x, cb.position.y + 7.0, cb.size.x, cb.size.y), Color(0.4, 0.28, 0.05))
 		# 광고 대기 중 = 눌린 상태가 아니라 '지금은 못 누름'. 금색을 톤 다운해 비활성임을 색으로 먼저
 		#   알리고(hud-signal-by-color-not-text), 라벨만 바꾼다 — 버튼 자리·크기는 그대로라 안 튄다.
 		var cbase: Color = Color(0.62, 0.52, 0.20) if _ad_pending \
 				else (Color(1.0, 0.86, 0.35) if _cont_hover else Color(0.95, 0.78, 0.25))
-		draw_rect(cb, cbase)
-		draw_rect(Rect2(cb.position.x, cb.position.y, cb.size.x, cb.size.y * 0.32), Color(1.0, 1.0, 1.0, 0.22))
-		draw_rect(cb, Color(0.5, 0.38, 0.1), false, 4.0)
+		var cstate: int = BTN_OFF if _ad_pending else (BTN_PRESS if _cont_hover else BTN_NORMAL)
+		_draw_btn_box(cb, cbase, Color(0.4, 0.28, 0.05), Color(0.5, 0.38, 0.1), 7.0, 0.22, 4.0, cstate)
 		var cmid_y: float = cb.position.y + cb.size.y * 0.5
 		if _ad_pending:
 			# 로드 중 — ▶를 지운다(누르면 바로 간다는 약속을 잠깐 거둔다). 실광고(R2) 전엔 즉시 해소돼 안 보인다.
@@ -5750,17 +5784,14 @@ func _draw_result(fnt: Font) -> void:
 	var lfs: int = 26 if revivable else 42   # 주 CTA가 440×112로 커졌다(공통 자리) → 글자도 한 단
 	var icon_r: float = 13.0 if revivable else 17.0
 	var mid_y: float = r.position.y + r.size.y * 0.5
+	var rstate: int = BTN_PRESS if _retry_hover else BTN_NORMAL
 	if revivable:
 		# 부차: 어두운 초록 필(그림자·하이라이트 없음) — 광고(금색 주)와 홈(회색 고스트) 사이 위계
 		var sbase: Color = Color(0.30, 0.5, 0.28) if _retry_hover else Color(0.22, 0.4, 0.22)
-		draw_rect(r, sbase)
-		draw_rect(r, Color(0.16, 0.34, 0.16), false, 2.0)
+		_draw_btn_box(r, sbase, Color.TRANSPARENT, Color(0.16, 0.34, 0.16), 0.0, 0.0, 2.0, rstate, true)
 	else:
-		draw_rect(Rect2(r.position.x, r.position.y + 7.0, r.size.x, r.size.y), Color(0.10, 0.28, 0.14))
 		var base: Color = Color(0.42, 0.82, 0.32) if _retry_hover else Color(0.34, 0.72, 0.26)
-		draw_rect(r, base)
-		draw_rect(Rect2(r.position.x, r.position.y, r.size.x, r.size.y * 0.32), Color(1.0, 1.0, 1.0, 0.16))
-		draw_rect(r, Color(0.16, 0.42, 0.18), false, 4.0)
+		_draw_btn_box(r, base, Color(0.10, 0.28, 0.14), Color(0.16, 0.42, 0.18), 7.0, 0.16, 4.0, rstate)
 
 	# 회전 화살표는 '다시 한다'는 뜻 — 실패(재도전)에만. 클리어는 앞으로 가는 것이라 아이콘 없이 글자만.
 	var lw: float = fnt.get_string_size(label, HORIZONTAL_ALIGNMENT_LEFT, -1, lfs).x
@@ -5776,12 +5807,16 @@ func _draw_result(fnt: Font) -> void:
 
 	# ── 홈 (부차 동작 — 고스트 버튼)
 	var h: Rect2 = lay["home"]
-	if _home_hover:
+	# 호버 바탕은 폴백 전용 — 고스트 텍스처가 오면 각진 반투명 사각형이 라운드 테 밖으로 비죽 나온다.
+	#   그쪽에선 테 자체의 밝기(아래 alpha)가 호버를 말한다.
+	if _home_hover and not ui_9s.has("btn_ghost"):
 		draw_rect(h, Color(1.0, 1.0, 1.0, 0.08))
 	# 테두리 알약은 '담긴 맥락'을 전제로 한 형태다 — 상자가 없는 클리어에서는 검은 배경에 붕 떠 보여
 	#   글자만 남긴다(고스트의 정석). 상자가 있는 실패·무한에서는 테두리가 성립하므로 그대로.
 	if not boxless:
-		draw_rect(h, Color(0.5, 0.52, 0.62, 0.9 if _home_hover else 0.5), false, 2.0)
+		var gcol: Color = Color(0.5, 0.52, 0.62, 0.9 if _home_hover else 0.5)
+		if not _blit_9s("btn_ghost", h, gcol):
+			draw_rect(h, gcol, false, 2.0)
 	var hs: String = _t("go_home")
 	var hfs: int = 20
 	var hw2: float = fnt.get_string_size(hs, HORIZONTAL_ALIGNMENT_LEFT, -1, hfs).x
@@ -5930,10 +5965,8 @@ func _draw_menu_button(fnt: Font, r: Rect2, hot: bool, base: Color, base_dim: Co
 	if locked:
 		body = Color(0.19, 0.20, 0.26)
 		edge = Color(0.12, 0.13, 0.17)
-	draw_rect(Rect2(r.position.x, r.position.y + 8.0, r.size.x, r.size.y), edge)
-	draw_rect(r, body)
-	draw_rect(Rect2(r.position.x, r.position.y, r.size.x, r.size.y * 0.32), Color(1.0, 1.0, 1.0, 0.06 if locked else 0.16))
-	draw_rect(r, edge, false, 4.0)
+	_draw_btn_box(r, body, edge, edge, 8.0, 0.06 if locked else 0.16, 4.0,
+			BTN_OFF if locked else (BTN_PRESS if hot else BTN_NORMAL))
 
 	# 좌측 아이콘 원판 + 심볼
 	var ink: Color = Color(0.52, 0.54, 0.64) if locked else Color.WHITE
@@ -6142,8 +6175,9 @@ func _medal_color(rank: int) -> Color:
 # select → 메뉴 복귀 버튼(좌상단 화살표 + 라벨)
 func _draw_back_button(fnt: Font) -> void:
 	var r: Rect2 = BACK_BTN
-	draw_rect(r, Color(0.20, 0.21, 0.30) if _back_hover else Color(0.15, 0.16, 0.24))
-	draw_rect(r, Color(0.45, 0.47, 0.60), false, 2.0)
+	_draw_btn_box(r, Color(0.20, 0.21, 0.30) if _back_hover else Color(0.15, 0.16, 0.24),
+			Color.TRANSPARENT, Color(0.45, 0.47, 0.60), 0.0, 0.0, 2.0,
+			BTN_PRESS if _back_hover else BTN_NORMAL, true)
 	var ax: float = r.position.x + 26.0
 	var ay: float = r.position.y + r.size.y * 0.5
 	draw_colored_polygon(PackedVector2Array([
@@ -6294,12 +6328,10 @@ func _comma(n: int) -> String:
 func _draw_play_button(fnt: Font, cur: int) -> void:
 	var hot: bool = _play_hover
 	var r: Rect2 = PLAY_BTN
-	# 입체감: 아래 그림자 → 본체 → 상단 하이라이트
-	draw_rect(Rect2(r.position.x, r.position.y + 8.0, r.size.x, r.size.y), Color(0.10, 0.28, 0.14))
+	# 입체감: 아래 그림자 → 본체 → 상단 하이라이트 (결과 팝업 주CTA와 같은 초록 '진행' 문법)
 	var base: Color = Color(0.42, 0.82, 0.32) if hot else Color(0.34, 0.72, 0.26)
-	draw_rect(r, base)
-	draw_rect(Rect2(r.position.x, r.position.y, r.size.x, r.size.y * 0.32), Color(1.0, 1.0, 1.0, 0.16))
-	draw_rect(r, Color(0.16, 0.42, 0.18), false, 4.0)
+	_draw_btn_box(r, base, Color(0.10, 0.28, 0.14), Color(0.16, 0.42, 0.18), 8.0, 0.16, 4.0,
+			BTN_PRESS if hot else BTN_NORMAL)
 
 	var sd: Dictionary = STAGES[cur]
 	var big: String = _t("stage_n") % (cur + 1)
@@ -6746,6 +6778,90 @@ func _blit_icon(icon: String, center: Vector2, side: float, col: Color = Color.W
 		return false
 	draw_texture_rect(t, Rect2(center - Vector2(side, side) * 0.5, Vector2(side, side)), false, col)
 	return true
+
+# ── 9-slice 이음새(패널·버튼) ────────────────────────────────────────────────
+# 텍스처가 있으면 늘려 그리고 true, 없으면 false를 돌려 호출부가 기존 draw_rect 렌더로 잇는다.
+#   아이콘 이음새(_blit_icon)와 같은 계약이다.
+# 9분할: 네 모서리는 원본 크기(÷배율)로 고정, 변은 한 축만, 가운데는 양축으로 늘린다.
+func _blit_9s(name: String, r: Rect2, col: Color = Color.WHITE) -> bool:
+	var e: Dictionary = ui_9s.get(name, {}) as Dictionary
+	if e.is_empty():
+		return false
+	var tex: Texture2D = e["tex"] as Texture2D
+	var ts: Vector2 = tex.get_size()
+	var m: Array = e["m"] as Array
+	# 원본(텍스처 px) 마진 → 목적지(화면 px) 마진
+	var s: PackedFloat32Array = PackedFloat32Array([float(m[0]), float(m[1]), float(m[2]), float(m[3])])
+	var dl: float = s[0] / UI_TEX_SCALE
+	var dt: float = s[1] / UI_TEX_SCALE
+	var dr: float = s[2] / UI_TEX_SCALE
+	var db: float = s[3] / UI_TEX_SCALE
+	# 목적지가 모서리 합보다 좁으면 모서리를 비율대로 줄인다 — 안 그러면 좌우가 겹쳐 그려져 뭉갠다
+	#   (작은 버튼·얇은 강조바에서 실제로 걸린다).
+	var hsc: float = minf(1.0, r.size.x / maxf(0.001, dl + dr))
+	var vsc: float = minf(1.0, r.size.y / maxf(0.001, dt + db))
+	dl *= hsc; dr *= hsc; dt *= vsc; db *= vsc
+	var sw: float = maxf(0.0, ts.x - s[0] - s[2])   # 원본 가운데 폭/높이
+	var sh: float = maxf(0.0, ts.y - s[1] - s[3])
+	var dws: PackedFloat32Array = PackedFloat32Array([dl, maxf(0.0, r.size.x - dl - dr), dr])
+	var dhs: PackedFloat32Array = PackedFloat32Array([dt, maxf(0.0, r.size.y - dt - db), db])
+	var sws: PackedFloat32Array = PackedFloat32Array([s[0], sw, s[2]])
+	var shs: PackedFloat32Array = PackedFloat32Array([s[1], sh, s[3]])
+	var dy: float = r.position.y
+	var sy: float = 0.0
+	for iy in range(3):
+		var dx: float = r.position.x
+		var sx: float = 0.0
+		for ix in range(3):
+			if dws[ix] > 0.0 and dhs[iy] > 0.0 and sws[ix] > 0.0 and shs[iy] > 0.0:
+				draw_texture_rect_region(tex, Rect2(dx, dy, dws[ix], dhs[iy]),
+						Rect2(sx, sy, sws[ix], shs[iy]), col)
+			dx += dws[ix]
+			sx += sws[ix]
+		dy += dhs[iy]
+		sy += shs[iy]
+	return true
+
+# 모달 패널 한 장 = 그림자 → 본체 → 상단 강조바 → 테두리. 결과 팝업과 설정 모달이 **같은 부품**이다.
+#   body는 폴백 전용 색이다 — 납품 패널은 다크 톤 그림 자체를 받으므로 틴트하지 않는다(§4 P0).
+#   accent만 계속 코드가 쥔다(클리어=금색 / 실패=붉은색 — '색만 바뀐다'가 기획).
+const PANEL_DROP: Vector2 = Vector2(6.0, 10.0)   # 그림자 오프셋. 텍스처 경로도 같은 값으로 실루엣을 깐다
+const PANEL_BAR_H: float = 8.0
+func _draw_panel_box(r: Rect2, body: Color, accent: Color) -> void:
+	if ui_9s.has("panel"):
+		# 그림자도 같은 9-slice로 — 라운드 패널 밑에 각진 검정이 남으면 그게 더 튄다(블록 그림자와 같은 교훈).
+		_blit_9s("panel", Rect2(r.position + PANEL_DROP, r.size), Color(0.0, 0.0, 0.0, 0.45))
+		_blit_9s("panel", r)
+		# 강조바는 패널과 **같은 사각형**에 얹는다(같은 캔버스 레이어라 모서리가 자동으로 맞는다).
+		#   안 왔으면 아무것도 안 그린다 — 각진 띠를 대신 얹으면 라운드 밖으로 삐져나온다.
+		_blit_9s("panel_bar", r, accent)
+		return
+	draw_rect(Rect2(r.position.x + PANEL_DROP.x, r.position.y + PANEL_DROP.y, r.size.x, r.size.y), Color(0.0, 0.0, 0.0, 0.45))
+	draw_rect(r, body)
+	draw_rect(Rect2(r.position.x, r.position.y, r.size.x, PANEL_BAR_H), accent)
+	draw_rect(r, accent, false, 3.0)
+
+# 버튼 한 개 = 아래 그림자 → 본체 → 상단 하이라이트 띠 → 테두리. 화면의 모든 버튼이 이 네 겹을
+#   같은 순서로 쌓고 있었다(허브·결과·설정·선택) — 값만 달랐다. 그 값을 인자로 올린 게 이 함수다.
+#   drop/hi/bw를 0으로 주면 그 겹이 빠진다(고스트·부차 버튼).
+# 텍스처 경로에선 하이라이트·테두리를 **안 그린다**: 9-slice 그림이 이미 갖고 있다(이중으로 얹으면 탁해진다).
+#   본체는 회색조 마스터를 body로 틴트한다 = 블록과 같은 규약이라 색 변형(주황·파랑·회색)이 공짜로 딸려온다.
+func _draw_btn_box(r: Rect2, body: Color, shadow: Color, edge: Color,
+		drop: float, hi: float, bw: float, state: int = BTN_NORMAL, small: bool = false) -> void:
+	var names: Array = ["btn_sm", "btn_sm_press", "btn_sm"] if small else ["btn_lg", "btn_lg_press", "btn_lg_off"]
+	var nm: String = String(names[clampi(state, 0, 2)])
+	if ui_9s.has(nm):
+		if drop > 0.0:
+			_blit_9s(nm, Rect2(r.position.x, r.position.y + drop, r.size.x, r.size.y), shadow)
+		_blit_9s(nm, r, body)
+		return
+	if drop > 0.0:
+		draw_rect(Rect2(r.position.x, r.position.y + drop, r.size.x, r.size.y), shadow)
+	draw_rect(r, body)
+	if hi > 0.0:
+		draw_rect(Rect2(r.position.x, r.position.y, r.size.x, r.size.y * 0.32), Color(1.0, 1.0, 1.0, hi))
+	if bw > 0.0:
+		draw_rect(r, edge, false, bw)
 
 const RIM_PX: float = 3.0   # 블록 뒤로 삐져나오는 테 두께. 셀 간격(bpad=5)보다 좁게 = 옆 칸 안 침범
 func _blit_block(r: Rect2, col: Color, white: float = 0.0, rim: float = 0.0) -> void:
