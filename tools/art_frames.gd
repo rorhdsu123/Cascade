@@ -147,6 +147,15 @@ func _run() -> void:
 	g.set("tut_lock", false)
 	g.set("tut_cells", [])
 
+	# ── 5.5 막힘사(No room left) — 빈 칸이 아래에서 위로 메워지며 보드가 꽉 찬다.
+	#    별도 렌더 자리라 이음새를 놓치기 쉽다(실제로 1차에 놓쳤고 플테서 잡혔다).
+	# ⚠메우는 색은 게임 스트림이 아니라 **전역(코스메틱) RNG**를 쓴다 — seed_game으로는 안 잡힌다.
+	#   안 고정하면 이 판과 그 뒤 결과 화면(뒤에 보드가 비친다)이 매 실행 달라져 픽셀 비교가 깨진다.
+	seed(987654321)
+	g.call("_begin_stuck_death")
+	g.set("stuck_t", 3.0)   # 물결이 끝까지 지나간 상태(전 칸 alpha=1)
+	await _shot("j_stuck")
+
 	# ── 6. 결과(실패) — 재생(광고 이어하기)·재시도 아이콘이 사는 유일한 화면
 	g.set("killed", 6)
 	g.set("leaked", 3)

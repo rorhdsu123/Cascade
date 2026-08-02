@@ -6733,8 +6733,10 @@ class BlockGlowLayer extends Node2D:
 #   텍스처 경로에서 modulate는 곱셈이라 흰색을 곱해도 텍스처보다 밝아지지 않는다. 그래서
 #   '얼마나 달아올랐나'를 값으로 받아, 텍스처가 생기면 가산 패스로 번역한다(§8 백열 연출).
 #
-# ⚠블록 마스터가 안 덮는 것은 일부러 안 보냈다: 감시자 머리(H)·뿌리(#)는 자기 시각 언어가
-#   따로 있고(얼굴·잠김 표식) 아트 의뢰 범위(§4)에도 없다. 적·비행기도 각자 이음새를 쓴다.
+# 뿌리(#)도 보낸다 — 자물쇠 표식(안쪽 어두운 테두리)은 그대로 위에 얹으니 '잠긴 블록'으로 읽히고,
+#   라운드 블록 옆에 각진 사각형만 남으면 그게 더 튄다.
+# ⚠감시자 머리(H)만 안 보낸다: 얼굴이 그려지는 '생명체'라 블록 실루엣을 입히면 안 된다.
+#   적·비행기도 각자 이음새를 쓴다.
 # 아이콘 이음새. 텍스처가 있으면 그리고 true, 없으면 false를 돌려 호출부가 기존 도형 렌더로 잇는다.
 #   side = 정사각 변 길이. 지금 도형이 실제로 차지하는 폭에 맞춰 호출부마다 배수를 박아 뒀다
 #   (납품 아이콘이 96×96 정사각이라, 글자 크기가 아니라 '차지하는 자리'를 맞춰야 안 튄다).
@@ -6826,7 +6828,7 @@ func _draw_board(fnt: Font) -> void:
 			if board[r][c] == "#":
 				# 뿌리(감시자가 뻗은 잠긴 셀) — 강철회색 블록 + 안쪽 어두운 사각 테두리(잠김 표식).
 				# 조각(3원색·꽉 찬 블록)과 한눈에 구분: 무채색 + '속이 빈' 룩 = 잘라내야 할 죽은 칸.
-				draw_rect(Rect2(rx + bpad, ry + bpad, CELL - bpad * 2.0, CELL - bpad * 2.0), C_DEBRIS)
+				_blit_block(Rect2(rx + bpad, ry + bpad, CELL - bpad * 2.0, CELL - bpad * 2.0), C_DEBRIS)
 				var ins: float = bpad + 6.0
 				draw_rect(Rect2(rx + ins, ry + ins, CELL - ins * 2.0, CELL - ins * 2.0), C_DEBRIS.darkened(0.45), false, 3.0)
 				continue
@@ -7345,7 +7347,7 @@ func _draw_board(fnt: Font) -> void:
 					BOARD_X + cell.x * CELL + bpad, board_y + cell.y * CELL + bpad,
 					CELL - bpad * 2.0, CELL - bpad * 2.0)
 			# 셀 배경에서 제 색으로 밝아진다 — 원본의 '어둡게 나타나 밝아짐' (실측 페이드 50ms)
-			draw_rect(frect, C_CELL.lerp(_color_of(stuck_fill[cell]), fa))
+			_blit_block(frect, C_CELL.lerp(_color_of(stuck_fill[cell]), fa))
 
 func _draw_core(fnt: Font) -> void:
 	if bool(st.get("boss", false)):
@@ -7422,7 +7424,11 @@ func _draw_piece_cells(tl: Vector2, cs: float, col: Color, offsets: Array) -> vo
 			tl.y + float(ov2.y) * cs + pad,
 			cs - pad * 2.0, cs - pad * 2.0)
 		_blit_block(r, col)
-		draw_rect(r, Color(1.0, 1.0, 1.0, 0.5), false, maxf(1.5, cs * 0.03))
+		# 흰 테두리는 **평면 사각형일 때만** 그린다. 사각형 시절엔 이게 조각의 윤곽을 세워 줬는데,
+		#   블록에 라운드가 붙으면 라운드 바깥으로 각진 프레임이 튀어나와 어색해진다(플테 지적).
+		#   스프라이트가 이미 자기 윤곽을 갖고 있으니 그 역할은 끝났다.
+		if block_tex == null:
+			draw_rect(r, Color(1.0, 1.0, 1.0, 0.5), false, maxf(1.5, cs * 0.03))
 
 # 손에 들린 조각 — 모든 것 위에 뜬다. 그리드에 스냅하지 않고 포인터를 그대로 따라다닌다.
 # 놓일 자리는 조각이 아니라 아래 깔린 '흐린 미리보기'가 알려준다. 그래서 조각을 스냅시키면 안 된다
