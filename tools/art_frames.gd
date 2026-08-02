@@ -11,6 +11,10 @@ extends SceneTree
 # ⚠persist_enabled=false 필수 — 여기서 주입한 상태가 실유저 세이브에 각인되면 안 된다(C100).
 
 const ANIM_T: float = 12.345   # 얼린 시각. 맥동 위상을 고정하는 유일한 목적
+# 보드 지오메트리 — Main.gd의 동명 상수와 같은 값(SceneTree 스크립트라 저쪽 const를 못 가져온다).
+const COLS_N: int = 8
+const CELL_N: int = 90
+const BOARD_X_N: int = 40
 
 var g: Node = null
 var out_dir: String = ""
@@ -133,6 +137,25 @@ func _run() -> void:
 	g.set("dragging", true)
 	g.set("drag_pos", Vector2(400.0, 500.0))
 	await _shot("c_held")
+	g.set("dragging", false)
+
+	# ── 3.5 폭발 프리뷰 — 한 칸만 남은 줄 위에 조각을 들고 있으면 "이 줄이 터진다"가 맥동한다.
+	#    블록 위에 얹히는 강조 신호가 사는 자리라 라운드 전환에서 제일 어긋나기 쉽다(플테서 잡힌 곳).
+	var bp: Array = g.get("board")
+	for c3 in range(COLS_N):
+		bp[7][c3] = "G" if c3 != 3 else ""    # 7행을 3열만 비우고 채운다
+	g.set("board", bp)
+	var tr: Array = g.get("tray")
+	tr[0] = {"offsets": [Vector2i(0, 0)], "color": "Y"}   # 1칸짜리 조각 = 그 구멍에 딱 맞음
+	g.set("tray", tr)
+	g.set("sel", 0)
+	g.set("drag_slot", 0)
+	g.set("dragging", true)
+	g.set("click_mode", true)   # 드래그 lift 오프셋 제거 — 커서 자리가 곧 조각 자리라 조준이 확실해진다
+	g.set("drag_pos", Vector2(float(BOARD_X_N + 3 * CELL_N) + float(CELL_N) * 0.5,
+			float(int(g.get("board_y")) + 7 * CELL_N) + float(CELL_N) * 0.5))
+	g.call("_sync_hover_from_drag")
+	await _shot("k_blastpreview")
 	g.set("dragging", false)
 
 	# ── 4. 거점 붕괴 — 열마다 시차를 두고 쏟아지는 블록(보드와 다른 렌더 자리)

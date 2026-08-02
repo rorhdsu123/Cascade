@@ -6747,6 +6747,19 @@ func _blit_icon(icon: String, center: Vector2, side: float, col: Color = Color.W
 	draw_texture_rect(t, Rect2(center - Vector2(side, side) * 0.5, Vector2(side, side)), false, col)
 	return true
 
+# 블록 위 '맥동 강조'. 원래는 각진 흰 테두리였고, 평면 사각형 시절엔 그게 곧 블록 윤곽이라 맞았다.
+#   라운드가 붙으니 실루엣 밖으로 프레임이 튀어나온다(플테서 두 번 지적). 텍스처가 있으면 블록
+#   실루엣을 흰색으로 덧칠해 같은 신호를 준다 — **모양이 아니라 밝기로 말하게** 바꾼 것.
+#   [[hud-signal-by-color-not-text]]와 같은 방향: 신호는 얹지 말고 있는 요소를 변형해서.
+# ⚠가산 레이어(_glow)를 쓰면 안 된다. 그건 부모 위에 얹히는 자식이라 손에 든 조각까지 덮는데,
+#   이 신호들은 하필 조각을 들고 있는 동안 떠 있다. 그래서 여기서 인라인으로 그린다.
+const PULSE_WASH: float = 0.5   # 가는 선 → 면 전체 덧칠로 바뀌니 세기를 낮춰 잡는다
+func _pulse_block(r: Rect2, a: float) -> void:
+	if block_tex == null:
+		draw_rect(r, Color(1.0, 1.0, 1.0, a), false, 2.0)
+		return
+	draw_texture_rect(block_tex, r, false, Color(1.0, 1.0, 1.0, a * PULSE_WASH))
+
 func _blit_block(r: Rect2, col: Color, white: float = 0.0) -> void:
 	# LOD — 트레이 프리뷰는 셀 17px(5.3배 축소)라 텍스처를 넣으면 뭉갠다. 여기선 사각형이 낫다(§8).
 	if block_tex == null or r.size.x < BLOCK_TEX_MIN_PX:
@@ -6771,7 +6784,7 @@ func _draw_tut_target() -> void:
 		var cy: float = float(board_y + cv.y * CELL)
 		var rc: Rect2 = Rect2(cx + bpad, cy + bpad, CELL - bpad * 2.0, CELL - bpad * 2.0)
 		_blit_block(rc, Color(ghost.r, ghost.g, ghost.b, 0.55))
-		draw_rect(rc, Color(1.0, 1.0, 1.0, 0.4), false, 2.0)
+		_pulse_block(rc, 0.4)
 		minx = minf(minx, cx); miny = minf(miny, cy); maxx = maxf(maxx, cx + CELL); maxy = maxf(maxy, cy + CELL)
 	# 맥동 외곽 링 — 목표 칸 전체를 감싼다(시선 유도, 잠금 중에만, 놓으면 사라짐)
 	draw_rect(Rect2(minx, miny, maxx - minx, maxy - miny).grow(2.0 + 3.0 * pulse),
@@ -6875,7 +6888,7 @@ func _draw_board(fnt: Font) -> void:
 		_blit_block(brect, bcol, hot * white_amt)
 		# 달아오를수록 흰 테두리가 살아난다(터지기 직전이 가장 밝음)
 		if hot > 0.0:
-			draw_rect(brect, Color(1.0, 1.0, 1.0, hot * 0.9), false, 2.0)
+			_pulse_block(brect, hot * 0.9)
 
 	# ④ 소멸 잔상: 블록이 사라진 바로 그 줄 자리에 색 테두리만 한순간 남는다(BB 실측: 1프레임).
 	#    "여기 있던 줄이 방금 증발했다"를 아주 짧게 못 박는 장치.
@@ -7001,7 +7014,7 @@ func _draw_board(fnt: Font) -> void:
 				var tint: Color = pcol.lerp(Color.WHITE, 0.10 + 0.22 * pulse)
 				var prect: Rect2 = Rect2(prx + bpad, pry + bpad, CELL - bpad * 2.0, CELL - bpad * 2.0)
 				_blit_block(prect, tint)
-				draw_rect(prect, Color(1.0, 1.0, 1.0, 0.30 + 0.40 * pulse), false, 2.0)
+				_pulse_block(prect, 0.30 + 0.40 * pulse)
 
 		# ② 착지 미리보기: 놓일 칸에 '조각색을 흐리게' 깔아둔다 (회색 아님 — 조각색 그대로 옅게).
 		#    조각은 스냅하지 않고 포인터를 따라다니므로 이 미리보기가 계속 드러나 있다.
@@ -7016,7 +7029,7 @@ func _draw_board(fnt: Font) -> void:
 				_blit_block(grect, shcol)
 				# 줄이 터질 자리면 프리뷰 줄과 같은 세기로 맥동 = "이 한 수가 줄을 완성한다"
 				if will_clear:
-					draw_rect(grect, Color(1.0, 1.0, 1.0, 0.20 + 0.30 * pulse), false, 2.0)
+					_pulse_block(grect, 0.20 + 0.30 * pulse)
 
 	# 넉백 잔상 (밀쳐진 적의 이전→현재 위치 시안 스트릭)
 	for st in push_streaks:
