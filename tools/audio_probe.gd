@@ -371,6 +371,15 @@ func _run() -> void:
 	root.add_child(g)
 	# ⚠실유저 진행도 보호 — Main.tscn을 띄우면 _ready가 persist_enabled=true로 만든다.
 	g.set("persist_enabled", false)
+	# ⚠**A안(현행 출고 경로)을 잰다.** R16 B안('7'키, 타격+도레미)은 아직 귀로 판정 중이라
+	#   프로브가 검증하는 대상이 아니다. B안을 켜고 돌리면 아래 셋이 반드시 실패하는데, 전부
+	#   설계상 당연한 결과지 결함이 아니다:
+	#     ④ 연쇄 사다리 — 사다리 분석이 `clear_note`를 계단으로 세어 역행으로 읽는다
+	#        (R12에서 `clear2`를 `chain` 이름으로 쏴서 똑같이 당한 적이 있다)
+	#     ⑦ 어휘 열다섯 — `clear_hit`·`clear_note` 둘이 늘어난다
+	#     ⑮ 전멸 3층 — B안은 clear가 clear2를 안 쏘므로 광택이 3발이 아니라 2발이다
+	#   **B안을 채택하면 이 셋을 B 기준으로 다시 쓰고 이 줄을 지울 것.**
+	g.set("clear_ab", 0)
 	await process_frame
 
 	print("=== 오디오 프로브 (시드 %d) ===" % SEED_CAMPAIGN)
