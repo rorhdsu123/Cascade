@@ -387,14 +387,11 @@ var clear_ab: int = 1
 var _ab_label_t: float = 0.0     # 전환 직후 무엇이 켜졌는지 보여주는 라벨 수명(초)
 var _ab_label: String = ""       # 라벨 문구(A/B 전환과 로켓 재질 순환이 같은 자리를 쓴다)
 var _ab_col: Color = Color.WHITE
-var bgm_on: bool = false          # ⚠BGM 선호. R1엔 BGM이 없어 **아직 아무것도 안 한다**(AUDIO_PLAN §7).
-                                  #   레퍼런스 기본값 OFF. 죽은 토글을 숨길지는 미결.
 var _gear_hover: bool = false
 var _set_close_hover: bool = false
 var _set_home_hover: bool = false
 var _set_replay_hover: bool = false
 var _set_sound_hover: bool = false
-var _set_bgm_hover: bool = false
 var _set_privacy_hover: bool = false   # 개인정보 옵션 행(EEA/UK에서만 존재)
 
 # ===== 상태 =====
@@ -839,7 +836,7 @@ func _ui_dy() -> float:
 # API를 직접 만지지 않는다. 제출은 결과 팝업에서 _leaderboard.submit(), best는 캐시로 미러(C64 이음새).
 # (C70 세이브 감사의 손상 가드 >=4는 LeaderboardService._read_i32로 이관됨.)
 
-# 설정 선호 영속(user://). 지금은 소리/배경음 두 불린뿐 — 오디오가 붙으면 여기서 읽어 소비한다.
+# 설정 선호 영속(user://). 소리·진동 두 불린 + 죽은 자리 1바이트.
 const SETTINGS_SAVE: String = "user://settings.save"
 
 func _load_settings() -> void:
@@ -851,7 +848,11 @@ func _load_settings() -> void:
 		# 2바이트 미만 = 부분쓰기 손상 → 기본값 유지(안 그러면 sound_on이 조용히 false로 뒤집힘).
 		if n >= 2:
 			sound_on = f.get_8() != 0
-			bgm_on = f.get_8() != 0
+			# 2번째 바이트는 **버려진 자리**다(옛 배경음 토글). 자리는 남긴다 — 지우면 3번째
+			#   바이트(햅틱)가 한 칸 당겨져, 구버전이 쓴 파일을 새 코드가 읽을 때 햅틱이 옛
+			#   배경음 값(항상 false)으로 조용히 꺼진다. 워크트리·구버전이 같은 user://를 쓰는 한
+			#   포맷은 못 줄인다.
+			f.get_8()
 		# 3번째 바이트(햅틱)는 나중에 생겼다 → 없으면 기본값(on)을 그대로 둔다. 길이별로 단계적으로
 		#   읽어야 하는 이유: user://는 트렁크·워크트리·구버전 빌드가 같이 쓴다. 구버전이 쓴 2바이트를
 		#   새 코드가 읽어도, 새 코드가 쓴 3바이트를 구버전이 읽어도 둘 다 안전해야 한다.
@@ -863,7 +864,7 @@ func _save_settings() -> void:
 	var f := FileAccess.open(SETTINGS_SAVE, FileAccess.WRITE)
 	if f != null:
 		f.store_8(1 if sound_on else 0)
-		f.store_8(1 if bgm_on else 0)
+		f.store_8(0)                      # 버려진 자리(옛 배경음) — 위 _load_settings 주석 참조
 		f.store_8(1 if haptic_on else 0)
 		f.close()
 
@@ -4250,7 +4251,6 @@ func _input(event: InputEvent) -> void:
 			_set_replay_hover = (slay["replay_btn"] as Rect2).has_point(mp2)
 			_set_privacy_hover = (slay["privacy_btn"] as Rect2).has_point(mp2)
 			_set_sound_hover = (slay["sound_tog"] as Rect2).has_point(mp2)
-			_set_bgm_hover = (slay["bgm_tog"] as Rect2).has_point(mp2)
 			_set_haptic_hover = (slay["haptic_tog"] as Rect2).has_point(mp2)
 		elif event is InputEventMouseButton:
 			var sb: InputEventMouseButton = event as InputEventMouseButton
@@ -5523,18 +5523,18 @@ func _settings_layout() -> Dictionary:
 	#   한국 유저에게 아무 의미 없는 항목을 상시로 달아두지 않기 위해서다(AD_PLAN R3 / 구글 요구사항).
 	var priv: bool = _ads.privacy_options_required()
 	var extra: float = 68.0 if priv else 0.0
-	var p: Rect2 = Rect2(160.0, 270.0 + _ui_dy(), 480.0, 410.0 + extra)
+	var p: Rect2 = Rect2(160.0, 270.0 + _ui_dy(), 480.0, 364.0 + extra)
 	var px: float = p.position.x
 	var py: float = p.position.y
 	var pw: float = p.size.x
 	var ctrl_r: float = px + pw - 36.0    # 컨트롤 오른쪽 정렬 기준선
-	# 토글이 셋으로 늘어 행 간격을 70→58로 좁혔다(패널 높이는 그대로 = 긴 화면에서 아래로 안 삐져나감).
+	# 토글이 셋일 땐 행 간격을 70→58로 좁혔었다. 죽은 배경음 토글을 걷어내 둘이 되었으므로
+	#   원래 간격 70으로 되돌리고, 사라진 한 행만큼 패널도 짧아진다(410→364).
 	var r1: float = py + 104.0            # 소리
-	var r2: float = py + 162.0            # 배경음
-	var r3: float = py + 220.0            # 진동(햅틱)
-	var r4: float = py + 296.0            # 홈
-	var r5: float = py + 362.0            # 다시하기
-	var r6: float = py + 430.0            # 개인정보 옵션(조건부)
+	var r2: float = py + 174.0            # 진동(햅틱)
+	var r3: float = py + 250.0            # 홈
+	var r4: float = py + 316.0            # 다시하기
+	var r5: float = py + 384.0            # 개인정보 옵션(조건부)
 	var tw: float = 66.0
 	var th: float = 32.0
 	var bw: float = 140.0
@@ -5543,17 +5543,16 @@ func _settings_layout() -> Dictionary:
 		"panel": p,
 		"label_x": px + 36.0,
 		"title_y": py + 50.0,
-		"divider_y": py + 254.0,
+		"divider_y": py + 208.0,
 		"close": Rect2(px + pw - 56.0, py + 16.0, 40.0, 40.0),
 		"sound_tog": Rect2(ctrl_r - tw, r1 - th * 0.5, tw, th),
-		"bgm_tog": Rect2(ctrl_r - tw, r2 - th * 0.5, tw, th),
-		"haptic_tog": Rect2(ctrl_r - tw, r3 - th * 0.5, tw, th),
-		"home_btn": Rect2(ctrl_r - bw, r4 - bh * 0.5, bw, bh),
-		"replay_btn": Rect2(ctrl_r - bw, r5 - bh * 0.5, bw, bh),
+		"haptic_tog": Rect2(ctrl_r - tw, r2 - th * 0.5, tw, th),
+		"home_btn": Rect2(ctrl_r - bw, r3 - bh * 0.5, bw, bh),
+		"replay_btn": Rect2(ctrl_r - bw, r4 - bh * 0.5, bw, bh),
 		# 행이 없을 땐 빈 Rect2 = 히트 영역도 없음(그리기·입력이 같은 조건을 따로 읽지 않게).
-		"privacy_btn": Rect2(ctrl_r - bw, r6 - bh * 0.5, bw, bh) if priv else Rect2(),
+		"privacy_btn": Rect2(ctrl_r - bw, r5 - bh * 0.5, bw, bh) if priv else Rect2(),
 		"privacy_on": priv,
-		"r1": r1, "r2": r2, "r3": r3, "r4": r4, "r5": r5, "r6": r6,
+		"r1": r1, "r2": r2, "r3": r3, "r4": r4, "r5": r5,
 	}
 
 func _settings_click(pos: Vector2, lay: Dictionary) -> void:
@@ -5570,10 +5569,6 @@ func _settings_click(pos: Vector2, lay: Dictionary) -> void:
 		_save_settings()
 		if sound_on:
 			_sfx("tap")                   # 켠 직후 한 발 = 방금 켠 걸 귀로 확인시킨다(햅틱 토글과 같은 관습)
-	elif (lay["bgm_tog"] as Rect2).has_point(pos):
-		_fb("tap")
-		bgm_on = not bgm_on
-		_save_settings()
 	elif (lay["haptic_tog"] as Rect2).has_point(pos):
 		_fb("tap")
 		haptic_on = not haptic_on
@@ -5651,26 +5646,24 @@ func _draw_settings(fnt: Font) -> void:
 	draw_line(cc + Vector2(-9, -9), cc + Vector2(9, 9), xcol, 4.0)
 	draw_line(cc + Vector2(9, -9), cc + Vector2(-9, 9), xcol, 4.0)
 
-	# 토글 행: 소리 · 배경음 · 진동
+	# 토글 행: 소리 · 진동
 	_draw_text_outlined(fnt, Vector2(lx, float(lay["r1"]) + 9.0), _t("sound"), 26, Color(0.86, 0.87, 0.95))
 	_draw_toggle(lay["sound_tog"], sound_on, _set_sound_hover)
-	_draw_text_outlined(fnt, Vector2(lx, float(lay["r2"]) + 9.0), _t("music"), 26, Color(0.86, 0.87, 0.95))
-	_draw_toggle(lay["bgm_tog"], bgm_on, _set_bgm_hover)
-	_draw_text_outlined(fnt, Vector2(lx, float(lay["r3"]) + 9.0), _t("haptic"), 26, Color(0.86, 0.87, 0.95))
+	_draw_text_outlined(fnt, Vector2(lx, float(lay["r2"]) + 9.0), _t("haptic"), 26, Color(0.86, 0.87, 0.95))
 	_draw_toggle(lay["haptic_tog"], haptic_on, _set_haptic_hover)
 
 	# 구분선
 	draw_line(Vector2(lx, lay["divider_y"]), Vector2(p.position.x + p.size.x - 36.0, lay["divider_y"]), Color(1.0, 1.0, 1.0, 0.10), 2.0)
 
 	# 액션 행: 홈(메뉴로) · 다시하기(재시작)
-	_draw_text_outlined(fnt, Vector2(lx, float(lay["r4"]) + 9.0), _t("home"), 26, Color(0.86, 0.87, 0.95))
+	_draw_text_outlined(fnt, Vector2(lx, float(lay["r3"]) + 9.0), _t("home"), 26, Color(0.86, 0.87, 0.95))
 	_draw_mini_button(fnt, lay["home_btn"], _t("go_home"), _set_home_hover, Color(0.30, 0.33, 0.44), Color(0.92, 0.93, 1.0))
-	_draw_text_outlined(fnt, Vector2(lx, float(lay["r5"]) + 9.0), _t("restart_label"), 26, Color(0.86, 0.87, 0.95))
+	_draw_text_outlined(fnt, Vector2(lx, float(lay["r4"]) + 9.0), _t("restart_label"), 26, Color(0.86, 0.87, 0.95))
 	_draw_mini_button(fnt, lay["replay_btn"], _t("restart"), _set_replay_hover, Color(0.34, 0.72, 0.26), Color(0.98, 1.0, 0.94))
 
 	# 개인정보 옵션 — 필요한 지역에서만(EEA/UK). 홈과 같은 회색빛 유틸 언어를 쓴다(진행 버튼 아님).
 	if bool(lay["privacy_on"]):
-		_draw_text_outlined(fnt, Vector2(lx, float(lay["r6"]) + 9.0), _t("privacy_label"), 26, Color(0.86, 0.87, 0.95))
+		_draw_text_outlined(fnt, Vector2(lx, float(lay["r5"]) + 9.0), _t("privacy_label"), 26, Color(0.86, 0.87, 0.95))
 		_draw_mini_button(fnt, lay["privacy_btn"], _t("privacy_btn"), _set_privacy_hover, Color(0.30, 0.33, 0.44), Color(0.92, 0.93, 1.0))
 
 # 재생 삼각형(▶) — '광고 영상을 본다'는 뜻. 오른쪽을 향한 정삼각형.

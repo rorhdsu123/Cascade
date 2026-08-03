@@ -51,7 +51,6 @@ const STR: Dictionary = {
 		# ── 설정 모달 ──
 		"settings": "Settings",
 		"sound": "Sound",
-		"music": "Music",
 		"haptic": "Vibration",       # 'Haptics'보다 폰 설정에서 익숙한 말(안드로이드·iOS 둘 다)
 		"home": "Home",              # 라벨(설정 행 · 뒤로가기)
 		"go_home": "Home",           # 버튼(설정 홈 · 결과 홈)
@@ -182,7 +181,6 @@ const STR: Dictionary = {
 		"st14_tag": "도둑이 금고를 털어 도망친다 — 막거나 쫓아가 되찾아라",
 		"settings": "설정",
 		"sound": "소리",
-		"music": "배경음",
 		"haptic": "진동",
 		"home": "홈",
 		"go_home": "홈으로",
