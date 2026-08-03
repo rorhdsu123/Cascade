@@ -15,3 +15,4 @@ android/
 
 # 팀 내부 스프린트 보드(심사 계정 초대 시 노출 방지)
 docs/local/
+__pycache__/
