@@ -380,6 +380,13 @@ var _home_hover: bool = false    # 결과 팝업 홈 버튼 호버
 #   오디오가 붙는 날 이 값을 소비한다(유저 결정: 미리 넣되 지속만). 죽은 토글이 아니라 예약된 선호다.
 var settings_open: bool = false
 var sound_on: bool = true        # SFX 선호 — _sfx()가 소비한다(AUDIO_PLAN.md)
+# ⚠플테 전용: 삭제음 A/B. 0 = A(현재 칩 2층) · 1 = B(R16 타격+도레미). '7'키로 전환.
+#   §21 방법론 교훈 — **파일 A/B로는 판정이 안 났다("감이 안와"). 게임 안 키 전환만 통했다.**
+#   출고 전에 이 변수와 '7'키를 지우고 이긴 쪽을 고정할 것.
+var clear_ab: int = 1
+var _ab_label_t: float = 0.0     # 전환 직후 무엇이 켜졌는지 보여주는 라벨 수명(초)
+var _ab_label: String = ""       # 라벨 문구(A/B 전환과 로켓 재질 순환이 같은 자리를 쓴다)
+var _ab_col: Color = Color.WHITE
 var bgm_on: bool = false          # ⚠BGM 선호. R1엔 BGM이 없어 **아직 아무것도 안 한다**(AUDIO_PLAN §7).
                                   #   레퍼런스 기본값 OFF. 죽은 토글을 숨길지는 미결.
 var _gear_hover: bool = false
@@ -987,10 +994,55 @@ const SFX_WORDS: Dictionary = {
 	"fanfare": {"gap": 0.00, "db": -14.0, "det": 0.004},  # 아르페지오 4음이 겹치므로 clear보다 낮게
 	"score": {"gap": 0.055, "db": -10.0, "det": 0.010},  # 연달아 나가므로 작게(단, 안 들리면 없느니만 못하다)
 	"fail": {"gap": 0.00, "db": -7.8, "det": 0.004},   # 유저 요청이 "약하지만 짧게" — 축하보다 낮게 둔다
-	"tap": {"gap": 0.05, "db": -9.0, "det": 0.012},
+	# ── UI 탭 넷(R13) ─────────────────────────────────────────────────────────
+	# **파형을 안 늘렸다** — 전부 pop_high 하나에서 `base`(§14)로만 갈린다. UI는 판 안의 어떤 사건도
+	#   아니므로 새 음색을 주면 그 자리에 없던 물건이 하나 더 생긴다. 대신 **방향이 뜻을 나른다**
+	#   (§10 레퍼런스 실측: 집기=상승·착지=하강): 진입은 위, 뒤로는 아래, 막힘은 더 아래.
+	# ⚠tap_off는 '벌'이 아니다. 잠긴 버튼이 완전 무음이면 고장으로 읽히고, 경고음을 주면 §4가 기각한
+	#   '탐색을 벌하는 소리'가 된다 → 낮고 조용한 중립음 하나로 "눌리긴 했고, 여긴 아직 아니다"만 말한다.
+	# ⚠음정은 **5음계 가족 안에서** 고른다(+7 5도 위 · −5 4도 아래 · −8 6도 아래) — 연쇄 사다리와
+	#   같은 음률이라 UI 소리가 판의 소리와 협화한다. 크로매틱으로 잡으면 UI만 조성 밖에서 논다.
+	# ⚠**더 내리지 않는 이유는 폰이다.** pop_high를 −9 아래로 내리면 중심이 584Hz 밑으로 내려가
+	#   폰 시뮬 손실이 −3.6dB에서 급격히 깊어진다(−12반음 = −6.0dB). 무릎이 −7~−8이라 거기서 멈췄다.
+	#   §9 P0와 같은 함정 — 가장 조용한 단어가 폰에서 가장 많이 깎이면 '무음'으로 되돌아간다.
+	"tap": {"gap": 0.05, "db": -9.0, "det": 0.012},                 # 중립 — 열기·토글·항목
+	"tap_go": {"gap": 0.05, "db": -9.0, "det": 0.012, "base": 7},   # 진입·확정 — 플레이/재도전/CTA
+	"tap_back": {"gap": 0.05, "db": -9.5, "det": 0.012, "base": -5},# 뒤로·닫기(진입보다 낮고 조용히)
+	# 잠김은 폰 손실(−3.0dB)을 레벨로 절반쯤 되갚아 둔다 — 안 그러면 폰에서만 이 한 단어가 사라진다.
+	"tap_off": {"gap": 0.05, "db": -10.5, "det": 0.012, "base": -8},# 잠김·무반응
+	# ── 블라스트 창 채우기(R14) ────────────────────────────────────────────────
+	# §17③ 실측: 삭제 연출 창이 0.85~1.70초인데 양 끝이 비어 있었다(한 창은 1.18초 침묵).
+	#   "소리를 늘려라"가 아니라 **이미 있는 beat에 안 붙어 있던 것**을 붙인다.
+	# ⚠**전멸(climax)을 음정으로 키우지 않았다.** chip_low는 내릴수록 폰에서 죽는다(−5반음 =
+	#   폰 −9.2dB). 레퍼런스도 볼륨이 아니라 **층수·제스처**로 크기를 말한다(§10) → climax는
+	#   clear와 같은 음정에 **3층**(타격 + 45ms 광택 + 135ms 상승 광택)으로 커진다.
+	"climax": {"gap": 0.00, "db": -1.5, "det": 0.004},   # 판 최대 사건 — clear(−3.6)보다 위, 리미터가 받는다
+	# 칭찬 단어 팝인 — clear(0ms) → clear2(40ms) → praise(90ms)로 창 앞머리에 3박이 선다.
+	#   ⚠sparkle을 −5반음 내려 쓴다: chip_high 원음(5147Hz)은 R9에서 "거슬린다"로 기각된 대역에
+	#   가깝고, 내리면 폰 통과도 −2.4 → −1.6dB로 좋아진다(위로 올리면 +12에서 −6.8dB로 무너진다).
+	"praise": {"gap": 0.10, "db": -13.0, "det": 0.010, "base": -5},
+	# 누수(거점 −1) — **"손실엔 무음"을 유저 결정으로 뒤집은 두 번째 자리**(첫째는 fail, §11).
+	#   fail(판을 닫는 소리)과 같은 파형이되 **더 높고(덜 최종적) 더 조용하게** = 벌이 아니라 알림.
+	#   ⚠한 스텝에 여러 열이 새도 **한 발만** 운다(호출부가 루프 밖에 있다) — 열마다 울리면 진흙이다.
+	"leak": {"gap": 0.10, "db": -13.0, "det": 0.010, "base": 3},
 	# clear의 둘째 층 전용. FB_MAP엔 없다(호출부가 부르는 사건이 아니라 clear의 일부).
 	#   ⚠`chain` 이름으로 발화시켰더니 사다리 분석이 이걸 계단으로 세어 역행으로 읽었다(프로브가 잡음).
 	"clear2": {"gap": 0.00, "db": -11.0, "det": 0.004},
+	# ── R16 삭제음(B안). '7'키로 A/B 전환한다 — **파일 A/B로는 판정이 안 났다**(§21 방법론 교훈).
+	#   clear_hit  = 1층 타격 한 발(줄 수와 무관). 금속, 55ms, 크레스트 10.2dB.
+	#   clear_note = 2층 음정 n발(n = 동시에 지운 줄 수). 유리, 106ms — **도·레·미로 올라간다.**
+	#   ⚠음정을 나르려면 재질에 음정이 있어야 한다. 동전 짤랑임은 pitch_scale을 올려도 안 읽힌다
+	#     (유저 확인 2026-08-02: 유리만 "음 높아지는 게 들린다").
+	#   ⚠db는 clear/clear2의 위계(−3.6 / −11.0 = 7.4dB 차)를 그대로 옮긴 값이다. 굽기에서 −7dB로
+	#     섞어 유저가 고른 비율이라 바꾸면 그 판정이 무효가 된다.
+	"clear_hit": {"gap": 0.00, "db": -3.6, "det": 0.004},
+	"clear_note": {"gap": 0.00, "db": -11.0, "det": 0.004},
+	# ⚠**여기가 '잠잠하다'의 진짜 원인이었다**(유저 관찰 2026-08-02, §19 첫 항목과 같은 지목).
+	#   삭제음은 250ms에 끝나는데 링 간 발사 텀이 260ms다 — 소리가 끝난 뒤부터 화면만 계속 움직인다.
+	#   로켓 발사(_spawn_muzzle)와 유도탄 발사엔 `_fb` 호출이 아예 없었다. 그 창을 이 소리가 채운다.
+	#   음정 = 링 번호(바깥 링일수록 높다) → 물결이 퍼지는 걸 소리도 따라간다.
+	#   db가 낮은 이유: 한 판에 여러 발이 나가므로 개별로는 조용해야 합이 리미터를 안 때린다.
+	"rocket": {"gap": 0.040, "db": -16.0, "det": 0.008},
 }
 const SFX_VOICES: int = 8
 const SFX_BUDGET_MAX: float = 14.0      # 초당 발화 상한 — 진흙 방어의 마지막 선
@@ -1023,6 +1075,15 @@ const FB_MAP: Dictionary = {
 	#   그대로 무진동이다 — 실패에 진동까지 얹으면 벌주는 느낌이 되어 코지 톤과 싸운다.
 	"fail": {"hap": "", "sfx": "fail"},
 	"tap": {"hap": "", "sfx": "tap"},         # UI 탭은 진동 없음(OS 터치 피드백과 이중 진동)
+	# 전멸은 소리만 — 이 창엔 이미 clear의 pop 진동이 나가 있고, 0.2초 뒤 한 발을 더 얹으면
+	#   두 박이 뭉쳐 '고장난 진동'으로 읽힌다(햅틱은 승자독식이라 겹침을 못 견딘다, §3).
+	"climax": {"hap": "", "sfx": "climax"},
+	"praise": {"hap": "", "sfx": "praise"},
+	# 누수도 **소리만**. 손실에 진동을 얹으면 벌주는 느낌이 된다(fail과 같은 결정, §11).
+	"leak": {"hap": "", "sfx": "leak"},
+	"tap_go": {"hap": "", "sfx": "tap_go"},
+	"tap_back": {"hap": "", "sfx": "tap_back"},
+	"tap_off": {"hap": "", "sfx": "tap_off"},
 }
 
 # 유일한 접점. 호출부는 '무엇이 일어났나'만 말한다.
@@ -1066,6 +1127,23 @@ const SFX_HIGH: String = "res://sfx/pop_high.wav"     # 1034Hz — 동작: 집�
 #   이득이 작아서 **원음 그대로 뒀다**. 실기기에서 얇으면 그때 하이패스로 다듬는다(§9 P0 계열 위험).
 const SFX_CHIP_LOW: String = "res://sfx/chip_low.wav"    # 748Hz  — 삭제 타격(칩 놓기, 157ms)
 const SFX_CHIP_HIGH: String = "res://sfx/chip_high.wav"  # 4994Hz — 40ms 뒤 광택(칩 부딪힘, 104ms)
+# ── R16 삭제음 후보(B안). 출처·라이선스는 sfx/CREDITS.txt.
+#   §21이 남긴 측정을 그대로 따랐다: 타격은 밝은 데가 아니라 **가운데(0.8~2.5kHz)**에 있고,
+#   지금 칩 2층은 그 대역이 2%뿐이라 '아령 모양'이었다. 아래 둘은 중역에 몸통이 있다.
+#   ⚠앞뒤 무음을 자르고 새추레이션으로 크레스트를 눌러 넣었다 — '조용하다'의 원인은 레벨이
+#     아니라 크레스트 22dB였다(레벨 여유는 리미터까지 3~4dB뿐, §21⑥와 같은 결론).
+const SFX_CLEAR_HIT: String = "res://sfx/clear_hit.wav"    # 금속 55ms · 크레스트 10.2dB — 1층 타격
+const SFX_CLEAR_NOTE: String = "res://sfx/clear_note.wav"  # 유리 106ms — 2층 음정(도레미)
+# 로켓 발사 — 무음이던 창을 채운다. 후보 7종을 게임 안에서 '6'키로 돌려 고른 결과다(유저 2026-08-02).
+# ⚠**이 소리의 값어치는 대역에 있다.** 300~800Hz에 78.7%가 앉는데, 삭제음(1층 89.8% · 2층 99.7%가
+#   0.8~2.5kHz)이 안 쓰는 자리다 — 겹치지 않으면서 게임에 없던 **무게**를 넣는다. 유저 판정이
+#   "얇고 조용하다"였고 그 결핍이 바로 이 대역이었다.
+# ⚠밝은 후보(초고역 52%)를 기각한 이유는 취향이 아니다: ①로켓은 반복이 잦아 밝으면 가장 먼저
+#   귀가 피로해진다(`chain`을 어두운 파형으로 되돌린 것과 같은 판단) ②2~5kHz가 절반 넘는 소리는
+#   R9에서 "거슬린다"로 이미 기각됐다.
+# ⚠**미검증**: 폰 스피커는 300~500Hz도 약하다. 내 폰 시뮬은 300Hz 아래만 깎으므로 이 소리의
+#   무게가 실기기에서 얼마나 남는지는 안 재 봤다 — 실기기 확인에서 얇으면 재질을 다시 봐야 한다.
+const SFX_ROCKET: String = "res://sfx/rocket.wav"          # 신스 상승 150ms · 300~800Hz 78.7%
 
 func _sfx_build_bank() -> void:
 	var lo: AudioStream = load(SFX_LOW)
@@ -1075,6 +1153,16 @@ func _sfx_build_bank() -> void:
 	if lo == null or hi == null or bu == null or sk == null:
 		push_warning("SFX 로드 실패 — `godot --headless --path . --import` 먼저(새 워크트리 함정)")
 		return
+	# R16 B안 — 없으면 A안만 살고 '7'키가 죽는다(빌드는 계속 굴러간다).
+	var ch: AudioStream = load(SFX_CLEAR_HIT)
+	var cn: AudioStream = load(SFX_CLEAR_NOTE)
+	var rk: AudioStream = load(SFX_ROCKET)
+	if ch != null and cn != null and rk != null:
+		_sfx_bank["clear_hit"] = ch
+		_sfx_bank["clear_note"] = cn
+		_sfx_bank["rocket"] = rk
+	else:
+		push_warning("R16 삭제음 파형 없음 — '7'키 B안 비활성")
 	# 낮은 파형 = 확정·무게. 높은 파형 = 가벼움·상승.
 	# 동작 = pop(얌전·잦음) / 보상 = 칩 낮은음+부딪힘(둔탁하게 놓고 짤랑 얹기)
 	_sfx_bank["place"] = lo
@@ -1082,6 +1170,13 @@ func _sfx_build_bank() -> void:
 	_sfx_bank["grab"] = hi
 	_sfx_bank["score"] = hi
 	_sfx_bank["tap"] = hi
+	_sfx_bank["climax"] = bu      # 전멸 타격 = 삭제와 같은 칩(같은 사건의 '더 큰 판'이라 같은 음색)
+	_sfx_bank["praise"] = sk      # 칭찬 팝인 = 광택층과 같은 파형(작게, −5반음)
+	_sfx_bank["leak"] = lo        # 누수 = fail과 같은 파형(더 높고 더 조용하게)
+	# UI 탭 셋은 같은 파형이다 — 음정(base)만 다르다. 새 파일을 안 늘리는 게 요점(R13).
+	_sfx_bank["tap_go"] = hi
+	_sfx_bank["tap_back"] = hi
+	_sfx_bank["tap_off"] = hi
 	_sfx_bank["clear"] = bu       # 줄 삭제 타격(칩 놓기, 748Hz)
 	_sfx_bank["clear2"] = sk      # 40ms 뒤 광택(칩 부딪힘, 4994Hz)
 	# ⚠**아르페지오는 clear2가 아니라 낮은 파형이다**(R12에서 되돌렸다). clear2(4994Hz)를 +12반음
@@ -1149,6 +1244,12 @@ func _sfx(kind: String, intensity: float = 0.0) -> void:
 		return
 	var semi: int = 0
 	if kind == "clear":
+		# ── R16 B안: 1층 타격 + 줄 수만큼의 도레미 런. '7'키로 A안(아래)과 전환한다.
+		if clear_ab == 1 and _sfx_bank.has("clear_hit"):
+			_sfx_chain_step = 0
+			_sfx_last[kind] = _sfx_t
+			_sfx_clear_run(flash_lines, int(clampf(intensity, 1.0, 99.0)))
+			return
 		# 콤보 = 청소 범위 → 음정. 세기가 아니라 음높이라 볼륨을 낮춰 들어도 구분이 살아남는다.
 		semi = _sfx_semi(int(clampf(intensity, 1.0, 99.0)) - 1)
 		_sfx_chain_step = 0     # 다운비트가 연쇄 사다리를 0으로 되돌린다(종 → 뒤이어 오르는 런)
@@ -1158,11 +1259,39 @@ func _sfx(kind: String, intensity: float = 0.0) -> void:
 		#   ⚠+9반음을 안 준다 — 둘째 층 파형(1758Hz)이 **이미** 첫 층(1464Hz)보다 높다.
 		#   R9까지는 같은 파형을 썼기에 음정으로 올렸지만, 이제 올리면 2462Hz로 다시 날카로워진다.
 		_sfx_queue.append({"at": _sfx_t + 0.040, "kind": "clear2", "semi": semi})
+	elif kind == "climax":
+		# 전멸 = clear의 '더 큰 판'. 음정이 아니라 **층수**로 커진다(§10 레퍼런스: 레벨 위계가 거의
+		#   없고 음색·제스처·층수로 차별화). 45ms 광택 + 135ms 상승 광택 = 꼬리가 한 번 더 올라간다.
+		#   ⚠둘째 광택을 +12로 올리면 안 된다 — chip_high가 10.3kHz로 가서 폰 통과가 −6.8dB로 무너지고
+		#   R9에서 기각된 '거슬리는' 대역으로 되돌아간다. +5까지가 안전선이다.
+		_sfx_queue.append({"at": _sfx_t + 0.045, "kind": "clear2", "semi": 0})
+		_sfx_queue.append({"at": _sfx_t + 0.135, "kind": "clear2", "semi": 5})
+	elif kind == "rocket":
+		semi = mini(int(clampf(intensity, 0.0, 6.0)) * 2, 12)   # 링 번호 → 음정(바깥일수록 높다)
 	elif kind == "chain":
 		semi = _sfx_semi(_sfx_chain_step)
 		_sfx_chain_step += 1
 	_sfx_last[kind] = _sfx_t
 	_sfx_fire(kind, semi)
+
+# R16 삭제음 B안 — 화면에서 일어난 일을 소리가 그대로 말한다.
+#   **음 개수 = 동시에 지운 줄 수**(1줄 도 · 2줄 도레 · 3줄 도레미). 지금까지 줄 수는 소리에
+#   전혀 안 쓰였고 콤보만 음정 하나를 정했다 — 화면에서 가장 큰 사건을 소리가 모르고 있었다.
+#   **시작 음높이 = 연속 콤보.** 두 축이 안 싸우게 개수와 높이로 갈랐다.
+# ⚠간격 55ms는 팡파레(100ms)보다 촘촘해야 '한 사건'으로 들리기 때문이다. 단 `_sfx_queue`는
+#   다음 프레임에 나가므로 실제 간격은 ±16ms 흔들린다(§21⑦에서 전멸이 두 발로 갈렸던 것과 같은
+#   원인). 런은 리듬이 아니라 상승이 요점이라 이 지터를 감수한다 — 못 견디면 _sfx_fire 직행으로.
+# ⚠**레퍼런스(블블)에는 이런 상승 런이 없다**(§21③: 사건의 80%가 한 발). 이건 레퍼런스 추종이
+#   아니라 창작자 결정이다(유저 요청 2026-08-02). 나중에 되돌릴 땐 그 사실부터 기억할 것.
+func _sfx_clear_run(lines: int, combo: int) -> void:
+	var n: int = clampi(lines, 1, 4)
+	var start: int = _sfx_semi(clampi(combo - 1, 0, 3))
+	# 겹쳐 쌓이면 리미터를 세게 때린다(팡파레가 db를 명시하는 것과 같은 이유). 3발 이상은 낮춘다.
+	var ndb: float = float((SFX_WORDS["clear_note"] as Dictionary)["db"]) - (2.0 if n >= 3 else 0.0)
+	for i in range(n):
+		_sfx_queue.append({"at": _sfx_t + 0.040 + float(i) * 0.055, "kind": "clear_note",
+				"semi": mini(start + SFX_LADDER[i], 16), "db": ndb})
+	_sfx_fire("clear_hit", 0)      # 타격은 음정을 안 받는다 — 올리면 몸통이 얇아진다
 
 func _sfx_fire(kind: String, semi: int, db_over: float = 99.0) -> bool:
 	if _sfx_budget < 1.0:
@@ -1206,6 +1335,8 @@ func _sfx_take_voice() -> AudioStreamPlayer:
 # _hap_step 바로 뒤에서 부른다 — 조기 반환(메뉴·히트스톱)보다 먼저여야 예약된 fanfare 음이 안 끊긴다.
 func _sfx_step(delta: float) -> void:
 	_sfx_t += delta
+	if _ab_label_t > 0.0:                  # A/B 라벨 수명(플테 전용)
+		_ab_label_t = maxf(0.0, _ab_label_t - delta)
 	_sfx_budget = minf(SFX_BUDGET_MAX, _sfx_budget + delta * SFX_BUDGET_REFILL)
 	if _sfx_queue.is_empty():
 		return
@@ -2477,6 +2608,7 @@ func _burst_lines() -> void:
 # 전멸(화면 전체 청소) 클라이맥스 — 보드 중앙에서 퍼지는 큰 충격파 + 히트스톱(셰이크·전체화면 섬광 없음)
 func _fire_climax() -> void:
 	var ctr: Vector2 = Vector2(BOARD_X + COLS * CELL * 0.5, board_y + ROWS * CELL * 0.5)
+	_fb("climax")                   # 게임에서 제일 큰 순간 — R13까지 여기 `_fb` 호출이 0개였다
 	hitstop = maxf(hitstop, 0.14)   # 멈칫→릴리스가 '팍'의 절반. 살짝 강화.
 	# '한 방' 펀치(C90 D 튜닝) — 잔잔한 확장 링(파동)을 없애고, 순간 밝은 플래시 + 전부 동시 폭발 + 빠르게 사그라듦.
 	#   전역 randf = 연출 스트림(game_rng 무관 → 회귀 무영향).
@@ -2537,6 +2669,7 @@ func _apply_hit(h: Dictionary) -> void:
 		plane_flights.append({"from": ep, "to": _plane_slot_rect().get_center(), "t": 0.0, "dur": PLANE_GRAB_DUR})
 		kill_pulse = 0.35
 		hitstop = maxf(hitstop, 0.05)
+		_fb("chain")            # 보석 낚아채기와 **같은 문법인데 여기만 무음이었다**(R13 곁다리 발견)
 		enemies.remove_at(found)
 		return
 	e["hp"] -= h["dmg"]
@@ -2684,6 +2817,8 @@ func _reveal_leaks() -> void:
 		_add_floater(Vector2(BOARD_X + int(col) * CELL + CELL * 0.5, board_y + ROWS * CELL + 16.0),
 				"-1", Color(1.0, 0.25, 0.25), 0.9, 40)
 	if pending_leaks.size() > 0:
+		# ⚠**루프 밖 = 스텝당 한 발.** 열마다 울리면 3열 동시 누수에 세 발이 겹쳐 진흙이 된다.
+		_fb("leak")
 		red_flash = RED_FLASH_DUR
 		shake_timer = maxf(shake_timer, SHAKE_DUR * 1.6)
 		# 박자3(손해 학습): 튜토리얼 중 첫 누수 — 붉은 플래시·-1·흔들림이 이미 눈을 아래로 끈다.
@@ -4040,13 +4175,18 @@ func _notification(what: int) -> void:
 	if what != NOTIFICATION_WM_GO_BACK_REQUEST:
 		return
 	_track_revive_dismissed("back")   # 결과 팝업에서 뒤로가기 = 부활 거절(아래 홈 분기보다 먼저 잡는다)
+	# ⚠모바일에선 화면 버튼보다 이 경로가 더 자주 눌린다 — 여기 소리를 안 달면 폰에서만 UI가 무음이 된다.
 	if settings_open:
+		_fb("tap_back")
 		settings_open = false
 	elif mode == "play" and (game_over or game_clear):
+		_fb("tap_back")
 		mode = _home_mode()          # 결과 팝업에서 뒤로 = 홈(재도전은 명시 버튼으로만)
 	elif mode == "play":
+		_fb("tap")                   # 일시정지(설정 열기) = 기어와 같은 소리
 		settings_open = true         # 판 중에는 절대 안 나간다 — 일시정지(홈·재시작이 그 안에 있다)
 	elif mode == "select" or mode == "leaderboard":
+		_fb("tap_back")
 		mode = "menu"
 	else:
 		get_tree().quit()            # 허브에서 한 번 더 = 종료(안드로이드 관례)
@@ -4074,6 +4214,7 @@ func _input(event: InputEvent) -> void:
 		elif event is InputEventKey:
 			var sek: InputEventKey = event as InputEventKey
 			if sek.pressed and sek.keycode == KEY_ESCAPE:
+				_fb("tap_back")
 				settings_open = false   # ESC = 모달 닫기(홈 아님)
 		return
 
@@ -4091,24 +4232,36 @@ func _input(event: InputEvent) -> void:
 			if mb.pressed and mb.button_index == MOUSE_BUTTON_LEFT:
 				var mbp: Vector2 = mb.position - mdy
 				if MENU_ADV_BTN.has_point(mbp):
+					_fb("tap_go")
 					_adventure_go()                # 이어하기 = 다음 스테이지로 바로
 				elif MENU_CLASSIC_BTN.has_point(mbp):
 					if _endless_unlocked():
+						_fb("tap_go")
 						_start_endless()           # 무한 모드 바로 시작
+					else:
+						_fb("tap_off")             # 잠김 — 화면은 여전히 무반응이고 소리만 "여긴 아직"이라 말한다
 					# 잠겼으면 무반응 — 선택화면의 잠긴 카드와 같은 어휘(자물쇠는 이유를 이미 적어 둠)
 				elif LEADERBOARD_ENABLED and MENU_LB_BTN.has_point(mbp):
 					# ⚠mbp(=dy 보정 좌표)여야 한다. raw position을 쓰면 그리는 자리와 눌리는 자리가
 					#   _ui_dy만큼 어긋나 1000보다 높은 모든 화면(=모든 폰)에서 이 버튼이 죽는다.
 					#   호버는 보정 좌표라 '불은 들어오는데 안 눌리는' 형태로 숨는다. (tools/ux_hit_probe.gd)
+					_fb("tap")
 					mode = "leaderboard"           # 우상단 트로피 → 리더보드 peek
 		elif event is InputEventKey:
+			# ⚠키 경로도 같은 소리를 태운다 — 버튼에만 달면 키로 눌렀을 때만 조용해져서, 같은 행동이
+			#   입력 방식에 따라 다르게 들린다(데스크톱 플테에서 '가끔 소리가 안 난다'로 보고된다).
 			var mk: InputEventKey = event as InputEventKey
 			if mk.pressed and (mk.keycode == KEY_SPACE or mk.keycode == KEY_ENTER):
+				_fb("tap_go")
 				_adventure_go()                    # 기본 = Adventure(이어하기)
 			elif mk.pressed and (mk.keycode == KEY_E or mk.keycode == KEY_0):
 				if _endless_unlocked():
+					_fb("tap_go")
 					_start_endless()               # E/0 = Classic(무한). 잠금은 버튼과 같은 게이트를 탄다
+				else:
+					_fb("tap_off")
 			elif mk.pressed and mk.keycode == KEY_L and LEADERBOARD_ENABLED:
+				_fb("tap")
 				mode = "leaderboard"               # L = 리더보드
 		return
 
@@ -4124,15 +4277,19 @@ func _input(event: InputEvent) -> void:
 			if lmb.pressed and lmb.button_index == MOUSE_BUTTON_LEFT:
 				var lmp: Vector2 = lmb.position - ldy
 				if BACK_BTN.has_point(lmp):
+					_fb("tap_back")
 					mode = "menu"
 				elif LB_PLAY_BTN.has_point(lmp) and _endless_unlocked():
+					_fb("tap_go")
 					_start_endless()   # ⚠허브 버튼과 같은 게이트 — 여기만 열어두면 잠금이 새는 뒷문이 된다
 		elif event is InputEventKey:
 			var lk: InputEventKey = event as InputEventKey
 			if lk.pressed and lk.keycode == KEY_ESCAPE:
+				_fb("tap_back")
 				mode = "menu"
 			elif lk.pressed and (lk.keycode == KEY_SPACE or lk.keycode == KEY_E):
 				if _endless_unlocked():
+					_fb("tap_go")
 					_start_endless()
 		return
 
@@ -4167,8 +4324,10 @@ func _input(event: InputEvent) -> void:
 							_dev_reset_arm = DEV_RESET_ARM  # 첫 탭 = 무장(시간 지나면 저절로 풀림)
 							queue_redraw()
 					elif BACK_BTN.has_point(smp):
+						_fb("tap_back")
 						mode = "menu"                       # 허브로 복귀
 					elif PLAY_BTN.has_point(smp) and not _all_cleared():
+						_fb("tap_go")
 						_start_stage(_current_stage())      # 하단 버튼 = 프런티어(다음 판)로 진행
 					elif smp.y > SEL_TOP and smp.y < SEL_VIEW_BOT:
 						_sel_drag_y = smp.y                 # 그리드 영역 프레스 = 드래그 스크롤 시작
@@ -4178,8 +4337,10 @@ func _input(event: InputEvent) -> void:
 			var sk: InputEventKey = event as InputEventKey
 			if sk.pressed and (sk.keycode == KEY_SPACE or sk.keycode == KEY_ENTER):
 				if not _all_cleared():
+					_fb("tap_go")
 					_start_stage(_current_stage())         # 프런티어로 진행
 			elif sk.pressed and sk.keycode == KEY_ESCAPE:
+				_fb("tap_back")
 				mode = "menu"                              # 뒤로 = 허브
 				# ⚠'오늘의 판'(featured) 진입은 C60에서 보류 — 플레이어 노출 제거. 엔진은 tools/probe로만 도달.
 			elif sk.pressed and sk.keycode == KEY_0 and OS.is_debug_build():
@@ -4223,23 +4384,28 @@ func _input(event: InputEvent) -> void:
 			var mbe: InputEventMouseButton = event as InputEventMouseButton
 			if mbe.pressed and mbe.button_index == MOUSE_BUTTON_LEFT:
 				if has_cont and (lay["cont"] as Rect2).has_point(mbe.position):
+					_fb("tap_go")
 					_request_revive_ad()
 				elif (lay["retry"] as Rect2).has_point(mbe.position):
+					_fb("tap_go")
 					_track_revive_dismissed("retry")
 					_result_advance()
 				elif (lay["home"] as Rect2).has_point(mbe.position):
+					_fb("tap_back")
 					_track_revive_dismissed("home")
 					mode = _home_mode()
 		elif event is InputEventKey:
 			var ke: InputEventKey = event as InputEventKey
 			# SPACE = 주 동작. 부활 가능하면 '광고 이어하기', 아니면 재도전/다음.
 			if ke.pressed and ke.keycode == KEY_SPACE:
+				_fb("tap_go")
 				if has_cont:
 					_request_revive_ad()
 				else:
 					_track_revive_dismissed("retry")
 					_result_advance()
 			elif ke.pressed and ke.keycode == KEY_ESCAPE:
+				_fb("tap_back")
 				_track_revive_dismissed("home")
 				mode = _home_mode()
 		return
@@ -4255,11 +4421,28 @@ func _input(event: InputEvent) -> void:
 	if event is InputEventKey:
 		var pk: InputEventKey = event as InputEventKey
 		if pk.pressed and pk.keycode == KEY_ESCAPE:
+			_fb("tap_back")
 			mode = _home_mode()  # 플레이 중 포기 → 홈(허브)으로
 			return
 		# ⚠플테 전용 DEV: '9'키 = 점수 +10,000. PB 너머 심화(bf 3~6)를 자연 그라인드 없이 눈으로 보기 위함.
 		#   실제 _add_endless_score를 태워 넘김 엣지·발화·심화 파이프라인 그대로 재현.
 		#   ⚠릴리스 빌드에선 죽는다(OS.is_debug_build) — 점수를 부풀리는 키는 리더보드를 통째로 오염시킨다.
+		# ⚠플테 전용 DEV: '7'키 = 삭제음 A/B 전환 + 즉시 미리듣기(3줄 = 도레미).
+		#   §21 교훈 두 개를 한꺼번에 지킨다 — ①파일 A/B는 판정이 안 나므로 게임 안에서 바꿔 듣는다
+		#   ②미리듣기 없는 축은 "아예 소리가 안 난다"로 읽힌다(R15에서 '7'키가 정확히 그랬다).
+		#   ⚠릴리스 빌드에선 죽는다 — 출고본엔 A/B 자체가 없어야 한다.
+		if pk.pressed and pk.keycode == KEY_7 and OS.is_debug_build():
+			clear_ab = 1 - clear_ab
+			_ab_label_t = 2.0
+			_ab_label = "SFX B — 타격+도레미+로켓" if clear_ab == 1 else "SFX A — 현재(칩)"
+			_ab_col = Color(0.35, 0.85, 1.0) if clear_ab == 1 else Color(0.95, 0.75, 0.35)
+			_sfx_last.erase("clear")        # 간격 게이트를 비워 미리듣기가 씹히지 않게
+			if clear_ab == 1 and _sfx_bank.has("clear_hit"):
+				_sfx_clear_run(3, 1)
+			else:
+				_sfx("clear", 3.0)
+			queue_redraw()
+			return
 		if pk.pressed and pk.keycode == KEY_9 and endless and OS.is_debug_build():
 			_add_endless_score(10000)
 			queue_redraw()
@@ -4296,6 +4479,7 @@ func _input(event: InputEvent) -> void:
 
 		# 설정 기어 → 모달 열기(들고 있던 조각은 트레이로 되돌림)
 		if mbe.pressed and gear_rect.has_point(mbe.position):
+			_fb("tap")
 			settings_open = true
 			plane_armed = false   # 모달 뒤에 조준이 살아 있으면 돌아왔을 때 유령 링이 떠 있다
 			_return_held()
@@ -4305,9 +4489,13 @@ func _input(event: InputEvent) -> void:
 		#   빈 슬롯은 히트 영역이 없다 — 눌리는데 아무 일도 안 일어나면 고장으로 읽힌다.
 		if mbe.pressed and plane_held and _plane_slot_rect().has_point(mbe.position):
 			if plane_armed:
+				_fb("tap_go")        # 발사 확정. ⚠비행(호밍) 자체의 소리는 아직 없다 — AUDIO_PLAN §20 B-11
 				_fire_plane()
 			elif not _plane_target().is_empty():
+				_fb("tap")           # 조준 켜짐
 				plane_armed = true   # 표적이 없으면 조준 자체를 안 켠다(빈 링 = 거짓 약속)
+			else:
+				_fb("tap_off")       # 표적이 없어 조준이 안 켜진다 = 잠긴 버튼과 같은 '아직 아니다'
 			return
 		# 슬롯 밖을 누르면 조준 해제 — '한 번 더 눌러야 나간다'의 짝은 '딴 데 누르면 취소된다'다.
 		if mbe.pressed:
@@ -4315,6 +4503,7 @@ func _input(event: InputEvent) -> void:
 
 		# 입력 방식 토글 버튼 (PC 테스트 편의용) — 안 그릴 땐 히트 영역도 없다(show_input_toggle)
 		if show_input_toggle and mbe.pressed and mode_btn.has_point(mbe.position):
+			_fb("tap")
 			click_mode = not click_mode
 			_return_held()   # 모드가 바뀌면 들고 있던 조각은 트레이로 돌려놓는다
 			return
@@ -4413,6 +4602,10 @@ func _process(delta: float) -> void:
 				rp["launched"] = true
 				rockets.append({"dir": rp["dir"], "idx": rp["idx"], "t": 0.0, "dur": ROCKET_DUR, "combo": flash_combo})
 				_spawn_muzzle(rp["dir"], rp["idx"])
+				# R16 B안 — 여기가 무음이라 삭제음이 끝난 뒤 화면만 움직였다. 링 번호로 음정을 올려
+				#   물결이 퍼지는 걸 소리도 따라간다. gap·예산이 발수를 알아서 눌러 준다.
+				if clear_ab == 1:
+					_sfx("rocket", float(rp.get("ring", 0)))
 		# 유도 로켓 발사 — 거점서 곧 샐 적으로 호밍(도착 시각에 맞춰 아래 resolve_hits가 처치)
 		for sp in resolve_seeker_plan:
 			if not sp["fired"] and resolve_timer >= sp["launch"]:
@@ -4440,6 +4633,9 @@ func _process(delta: float) -> void:
 			praise_t = PRAISE_DUR
 			praise_combo = praise_pending_combo
 			praise_pending_combo = 0
+			# 단어가 뜨는 바로 그 프레임에 작은 반짝임 — 여기까지가 창 앞머리의 3박이다
+			#   (clear 0ms → clear2 40ms → praise 90ms). 시각 계단시차에 소리를 맞춰 얹은 것.
+			_fb("praise")
 	# 점수 롤업(C90): 표시 점수가 실제로 또르르. 표시가 최고를 '넘는 순간' PB 판전체 폭발 1회 발화(차오름→돌파).
 	if endless_score_shown < float(endless_score):
 		var _sdiff: float = float(endless_score) - endless_score_shown
@@ -5317,16 +5513,24 @@ func _settings_layout() -> Dictionary:
 
 func _settings_click(pos: Vector2, lay: Dictionary) -> void:
 	if (lay["close"] as Rect2).has_point(pos):
+		_fb("tap_back")
 		settings_open = false
 	elif (lay["sound_tog"] as Rect2).has_point(pos):
+		# ⚠**끌 때는 뒤집기 전에** 울린다 — _sfx가 sound_on을 보고 조기 반환하므로, 순서를 바꾸면
+		#   끄는 탭만 응답이 없어 "토글이 씹혔나"로 읽힌다(켤 때만 소리가 나던 게 R12까지의 상태).
+		#   재생은 이미 시작된 보이스가 마저 낸다 — 플래그가 내려가도 잘리지 않는다.
+		if sound_on:
+			_sfx("tap_back")              # 끄기 = 내려가는 음
 		sound_on = not sound_on
 		_save_settings()
 		if sound_on:
 			_sfx("tap")                   # 켠 직후 한 발 = 방금 켠 걸 귀로 확인시킨다(햅틱 토글과 같은 관습)
 	elif (lay["bgm_tog"] as Rect2).has_point(pos):
+		_fb("tap")
 		bgm_on = not bgm_on
 		_save_settings()
 	elif (lay["haptic_tog"] as Rect2).has_point(pos):
+		_fb("tap")
 		haptic_on = not haptic_on
 		_save_settings()
 		if haptic_on:
@@ -5334,14 +5538,17 @@ func _settings_click(pos: Vector2, lay: Dictionary) -> void:
 			#   기기에서 어휘를 재생해 볼 수 있는 유일한 트리거이기도 하다 — 세기 판정용.
 			_haptic("pop", 3.0)
 	elif (lay["home_btn"] as Rect2).has_point(pos):
+		_fb("tap_back")
 		settings_open = false
 		_track_revive_dismissed("home")
 		mode = _home_mode()               # 홈 = 허브(결과팝업 '홈으로'와 동일 경로)
 	elif (lay["replay_btn"] as Rect2).has_point(pos):
+		_fb("tap_go")
 		settings_open = false
 		_track_revive_dismissed("retry")
 		_result_advance()                 # 재시작 = 감독이 정하는 재도전(스테이지=현 스테이지, 무한=새 런)
 	elif bool(lay["privacy_on"]) and (lay["privacy_btn"] as Rect2).has_point(pos):
+		_fb("tap")
 		# 구글의 개인정보 옵션 폼(네이티브)을 띄운다. 모달은 닫지 않는다 — 폼을 닫으면 설정으로 돌아온다.
 		_ads.show_privacy_options()
 	# 그 밖(패널 빈 곳·스크림)은 무시 = 모달. 잘못 눌러 튕기는 사고 방지(결과팝업과 동일 원칙).
@@ -7783,6 +7990,14 @@ func _draw_bottom(fnt: Font) -> void:
 			draw_string(fnt, Vector2(sr.position.x + sr.size.x * 0.5 - dw * 0.5,
 					sr.position.y + sr.size.y * 0.5 + 8.0),
 					dash, HORIZONTAL_ALIGNMENT_LEFT, -1, 22, Color(0.3, 0.3, 0.4))
+
+	# ⚠플테 전용: 삭제음 A/B 라벨. 어느 쪽이 켜졌는지 안 보이면 A/B가 성립하지 않는다(§21).
+	#   전환 직후 2초만 뜨고 사라진다 — 상시 표시는 화면을 어지럽힌다.
+	if _ab_label_t > 0.0 and OS.is_debug_build() and _ab_label != "":
+		var ab_col: Color = _ab_col
+		ab_col.a = clampf(_ab_label_t / 0.5, 0.0, 1.0)     # 마지막 0.5초에 페이드아웃
+		draw_string(fnt, Vector2(24.0, float(bot_y) + 176.0), _ab_label,
+				HORIZONTAL_ALIGNMENT_LEFT, -1, 22, ab_col)
 
 	# 입력 방식 토글 (PC 테스트용) — 눌러서 드래그/클릭 전환. 모바일에선 안 그린다(show_input_toggle).
 	if not show_input_toggle:

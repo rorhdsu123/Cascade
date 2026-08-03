@@ -41,6 +41,24 @@ func _init() -> void:
 	var g: AudioStreamWAV = m._sfx_bank["grab"]
 	var pl: AudioStreamWAV = m._sfx_bank["place"]
 	_seq("%s/grab_then_place.wav" % OUT_DIR, [[g, -2], [pl, 7]], 0.35)
+	# ⑤ UI 탭 넷(R13) — 진입(+7) · 중립(0) · 뒤로(−5) · 잠김(−8). 한 파형에서 음정·레벨로만 갈린다.
+	#   ⚠**상대 레벨을 보존해야 판정이 된다** → 음마다 db를 실어 넘긴다(정규화는 합친 뒤 한 번뿐).
+	#   순서대로 들으면 "위로 들어가고 아래로 나온다"가 방향으로 읽혀야 한다.
+	# ⑥ 전멸 3층(R14) — 타격 + 45ms 광택 + 135ms 상승 광택. clear(2층)과 나란히 들어 '더 큰가'를 본다.
+	var sk2: AudioStreamWAV = m._sfx_bank["clear2"]
+	_seq("%s/climax_3layer.wav" % OUT_DIR, [[lo, 0, -1.5], [sk2, 0, -11.0], [sk2, 5, -11.0]], 0.045)
+	# ⑦ 누수·칭찬 — 둘 다 '작아야' 하는 소리다. 삭제음 뒤에 붙여 위계가 맞는지 듣는다.
+	_seq("%s/leak_and_praise.wav" % OUT_DIR, [
+			[lo, 0, -3.6], [m._sfx_bank["leak"], 3, -13.0],
+			[lo, 0, -3.6], [m._sfx_bank["praise"], -5, -13.0]], 0.55)
+	var ui: AudioStreamWAV = m._sfx_bank["tap"]
+	var wds: Dictionary = m.SFX_WORDS
+	_seq("%s/ui_taps.wav" % OUT_DIR, [
+			[ui, int(wds["tap_go"].get("base", 0)), float(wds["tap_go"]["db"])],
+			[ui, 0, float(wds["tap"]["db"])],
+			[ui, int(wds["tap_back"].get("base", 0)), float(wds["tap_back"]["db"])],
+			[ui, int(wds["tap_off"].get("base", 0)), float(wds["tap_off"]["db"])],
+		], 0.45)
 	m.free()
 	quit()
 
@@ -58,6 +76,8 @@ func _seq(path: String, notes: Array, step: float) -> void:
 		var src: AudioStreamWAV = notes[k][0]
 		var n_src: int = src.data.size() / 2
 		var ratio: float = pow(2.0, float(notes[k][1]) / 12.0)
+		# 셋째 원소가 있으면 그 음의 dB — 게임의 위계를 프리뷰에 그대로 옮긴다(없으면 등레벨).
+		var gain: float = db_to_linear(float((notes[k] as Array)[2])) if (notes[k] as Array).size() > 2 else 1.0
 		var at: int = k * step_n
 		var i: int = 0
 		while true:
@@ -67,7 +87,7 @@ func _seq(path: String, notes: Array, step: float) -> void:
 				break
 			var a: float = float(_s16(src.data, si)) / 32768.0
 			var b: float = float(_s16(src.data, si + 1)) / 32768.0
-			acc[at + i] += lerpf(a, b, sp - float(si))
+			acc[at + i] += lerpf(a, b, sp - float(si)) * gain
 			i += 1
 	# ⚠합친 뒤 피크 정규화 — 안 하면 겹친 음이 프리뷰 파일 자체를 클립시켜 음색 판정이 왜곡된다.
 	var pk: float = 0.0
