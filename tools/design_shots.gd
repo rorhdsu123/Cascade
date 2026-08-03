@@ -75,6 +75,29 @@ func _run() -> void:
 	g.set("plane_held", true)
 	await _shot("04_play")
 
+	# ── 9. 적 7종 한 줄 — 의뢰서가 적을 **글로만** 설명하고 있었다("바이올렛 원", "라임 작은 원 3개").
+	#   P0로 basic을 그려 달라면서 현재 모습을 한 번도 안 보여준 셈이라, 표와 같은 순서로 심어 찍는다.
+	#   실플레이로는 한 화면에 못 모은다(등장 스테이지가 다 다르다) → 직접 심는 수밖에 없다.
+	# ⚠hp=maxhp로 둔다 — 손상되면 코드가 어둡게 틴트하므로, 디자이너가 그릴 **밝은 기준 상태**가 보여야 한다.
+	# ⚠원래 배열을 반드시 되돌린다. 안 그러면 뒤의 결과·허브 프레임까지 적이 박힌 채로 찍힌다.
+	var prev_es: Array = g.get("enemies")
+	var roster: Array = ["basic", "swarm", "fast", "bomb", "tank", "split", "thief"]
+	var row_es: Array = []
+	for k in range(roster.size()):
+		row_es.append({
+			"col": k, "row": 1, "vis_row": 1.0, "hp": 4, "maxhp": 4,
+			"etype": roster[k], "id": 9200 + k,
+			# ⚠평상시 모습으로 세운다. 기본값으로 두면 bomb은 fuse=0(폭발 직전 후광+숫자)이고
+			#   step_every가 작으면 곧 전진한다는 '!' 경고가 머리 위에 뜬다 — 둘 다 코드가 상황에
+			#   따라 얹는 것이라, 디자이너가 그릴 **기준 형태**를 가린다.
+			"step_every": 99, "fuse": 6,
+		})
+	g.set("enemies", row_es)
+	g.set("plane_held", false)
+	await _shot("09_enemies_raw")
+	g.set("enemies", prev_es)
+	g.set("plane_held", true)
+
 	# ── 2. 설정 모달 — ⚠플레이 중에만 그려진다(Main.gd:4061이 menu 분기 뒤에 있다). 허브엔 기어가 없다.
 	g.set("settings_open", true)
 	await _shot("02_settings")
@@ -115,6 +138,16 @@ func _run() -> void:
 	slot_crop.resize(590 * 2, 145 * 2, Image.INTERPOLATE_NEAREST)
 	slot_crop.save_png(out_dir + "08_plane_slot.png")
 	print("shot 08_plane_slot")
+
+	# ── 9b. 적 줄을 3배로 — 한 마리가 90px이라 등배로는 형태가 안 읽힌다(블록·슬롯과 같은 이유).
+	#   보드 좌측(BOARD_X=40)부터 7칸 = 630px, 세로는 셀 위아래로 여유를 둬 링·다리가 안 잘리게.
+	var enemy_img: Image = Image.load_from_file(out_dir + "09_enemies_raw.png")
+	var by: int = int(g.get("board_y")) + 90        # row 1의 위쪽 경계
+	var er: Rect2i = Rect2i(40, by - 18, 630, 126)
+	var enemy_crop: Image = enemy_img.get_region(er)
+	enemy_crop.resize(630 * 3, 126 * 3, Image.INTERPOLATE_NEAREST)
+	enemy_crop.save_png(out_dir + "09_enemies.png")
+	print("shot 09_enemies")
 
 	print("DONE")
 	quit()
