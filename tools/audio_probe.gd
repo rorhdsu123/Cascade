@@ -255,6 +255,17 @@ func _pass(idle: int) -> Array:
 	seed(SEED_CAMPAIGN)
 	g.seed_game(SEED_CAMPAIGN)
 	g._start_stage(0)
+	# ⚠**인트로 카드가 도는 동안은 봇도 기다린다.** 그 1.13초는 `_input`이 판 입력을 통째로 막는
+	#   구간이라(카드 뒤 오배치 방지) 사람은 조각을 못 놓는다.
+	# ⚠**스트레스 패스에선 인트로를 아예 끈다.** 그 패스는 14수를 14프레임에 넣는 '인간 불가능' 속도인데,
+	#   거기에 인트로(고정 1.4초 사건)를 얹으면 **현실에 없는 겹침**이 만들어진다 — R25에서 실제로
+	#   19발/초가 찍혔다. 인트로 창의 예산은 패스 I가 따로 잰다(거기선 8발/초로 여유 안이다).
+	#   사람 템포(1.8초/수)에선 그대로 둔다 — 거긴 진짜로 그렇게 들리는 순서다.
+	if idle <= IDLE_STRESS:
+		g.intro_t = -1.0
+	else:
+		while g.intro_t >= 0.0:
+			g._process(1.0 / 60.0)
 	var placed: int = _play(PLACES, idle)
 	return [g._sfx_log.duplicate(true), placed]
 
@@ -527,7 +538,7 @@ func _pass_intro(skip: bool) -> Dictionary:
 		if String(e["drop"]) != "":
 			continue
 		ev.append({"t": float(e["t"]) - t0, "kind": String(e["kind"]), "semi": int(e["semi"])})
-	return {"ev": ev}
+	return {"ev": ev, "ev_raw": g._sfx_log.duplicate(true)}
 
 # 패스 J — 보석 카운터 도착(R24 · §22 B-2). **수집 스테이지에서만** 나는 소리라 봇 패스(스테이지 1)엔
 #   한 발도 안 나온다 — 여기서 안 재면 배선이 통째로 빠져 있어도 초록이다(grab·score·fail에서
@@ -926,6 +937,8 @@ func _run() -> void:
 	var iev: Array = it["ev"]
 	var in_semis: Array = []
 	var dock_t: float = -1.0
+	var dock_semis: Array = []
+	var dock_ts: Array = []
 	var hold_hits: Array = []
 	for e0 in iev:
 		var e4: Dictionary = e0 as Dictionary
@@ -933,16 +946,28 @@ func _run() -> void:
 		if k4 == "goal_in":
 			in_semis.append(int(e4["semi"]))
 		elif k4 == "goal_dock":
-			dock_t = float(e4["t"])
+			if dock_t < 0.0:
+				dock_t = float(e4["t"])       # 열차의 **첫 발**이 화면의 '툭'과 같은 프레임이어야 한다
+			dock_semis.append(int(e4["semi"]))
+			dock_ts.append(float(e4["t"]))
 		# 홀드 구간(등장 끝 ~ 도킹 시작)은 **일부러 비운 자리**다(레퍼런스도 0.35초 무음).
 		if float(e4["t"]) > float(g.INTRO_APPEAR) and float(e4["t"]) < float(g.INTRO_APPEAR) + float(g.INTRO_HOLD):
 			hold_hits.append(k4)
-	print("── 목표 카드: %s · 등장 음정 %s · 안착 %.2fs(INTRO_TOTAL %.2f)"
-			% [str(iev.size()) + "발", str(in_semis), dock_t, float(g.INTRO_TOTAL)])
+	print("── 목표 카드: %s · 등장 음정 %s · 안착 %.2fs(INTRO_TOTAL %.2f) · 안착 롤 %s"
+			% [str(iev.size()) + "발", str(in_semis), dock_t, float(g.INTRO_TOTAL), str(dock_semis)])
 	_check("㉕ 카드 등장 배선(_start_stage → goal_in 3발 상승)",
 			in_semis == [0, 4, 7], str(in_semis))
-	_check("㉕ 도킹 안착 배선(INTRO_TOTAL → goal_dock)",
+	_check("㉕ 도킹 안착 배선(INTRO_TOTAL → goal_dock 첫 발)",
 			dock_t >= 0.0 and absf(dock_t - float(g.INTRO_TOTAL)) < 0.05, "%.3fs" % dock_t)
+	# ⚠**R25에서 이 검사를 다시 썼다** — 전엔 "안착 = 1발"을 보고 있었고, 그 1발이 바로 유저가
+	#   "너무 종소리 같다"고 한 결함이었다(§33). 검사가 설계 의도를 굳히면 그 의도가 틀렸을 때
+	#   수정을 막는다(R18에서 로고 2층으로 겪은 것과 같은 자리).
+	var roll_span: float = (float(dock_ts[dock_ts.size() - 1]) - float(dock_ts[0])) if dock_ts.size() > 1 else 0.0
+	_check("㉕ 안착은 '띠리링' = %d발 열차(한 방 아님)" % int((g.DOCK_RUN as Array).size()),
+			dock_semis == (g.DOCK_RUN as Array), str(dock_semis))
+	_check("㉕ 열차 폭 = %d발 × %.0fms" % [int((g.DOCK_RUN as Array).size()) - 1, float(g.DOCK_GAP) * 1000.0],
+			absf(roll_span - float(g.DOCK_GAP) * float((g.DOCK_RUN as Array).size() - 1)) < 0.03,
+			"%.3fs" % roll_span)
 	# ⚠홀드는 '아직 안 붙인 자리'가 아니라 **비운 자리**다 — 나중에 여기 뭘 붙이면 이 검사가 먼저 묻는다.
 	_check("㉕ 홀드 구간(%.2fs)은 무음" % float(g.INTRO_HOLD), hold_hits.is_empty(), str(hold_hits))
 	# 스킵 — 도킹 연출을 건너뛰었으면 안착음도 없어야 한다(소리가 화면에 없는 사건을 말하면 안 된다).
@@ -953,6 +978,11 @@ func _run() -> void:
 		skipped[k5] = int(skipped.get(k5, 0)) + 1
 	_check("㉖ 인트로 스킵 = 닫기음만(안착음 없음)",
 			int(skipped.get("goal_dock", 0)) == 0 and int(skipped.get("tap_back", 0)) == 1, str(skipped))
+	# 안착 열차가 예산·풀을 넘기지 않나 — 8발이 0.28초에 몰리는 자리라 여기가 인트로의 천장이다.
+	var mi: Dictionary = _analyze(it["ev_raw"])
+	_check("㉖ 인트로 예산(선율 %d · 롤링 %d)" % [MAX_MUSIC_VOICES, MAX_FIRES_IN_1S],
+			int(mi["max_music"]) <= MAX_MUSIC_VOICES and int(mi["max_fires_1s"]) <= MAX_FIRES_IN_1S,
+			"선율 %d · 1초 %d발" % [int(mi["max_music"]), int(mi["max_fires_1s"])])
 
 	# ── 패스 J: 보석 카운터 도착(R24 · §22 B-2)
 	var gm: Dictionary = _pass_gem()

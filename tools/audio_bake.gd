@@ -113,13 +113,20 @@ func _init() -> void:
 	# ⑩ 판 진입 목표 카드(R23) — **타임라인 그대로**(등장 3발 · 홀드 무음 · 안착 벨). 낱개로 들으면
 	#   이 라운드가 지킨 것(홀드 0.5초를 비워 둔 것)이 안 들린다 — 레퍼런스도 그 자리가 0.35초 무음이다.
 	var gi: AudioStreamWAV = m._sfx_bank["goal_in"]
-	_at("%s/GOAL_CARD.wav" % OUT_DIR, [
+	var gtl2: Array = [
 			[gi, 0, float(wd["goal_in"]["db"]), 0.0],
 			[gi, 4, float(wd["goal_in"]["db"]), 0.085],
 			[gi, 7, float(wd["goal_in"]["db"]), 0.170],
-			[m._sfx_bank["goal_dock"], int(wd["goal_dock"]["base"]), float(wd["goal_dock"]["db"]),
-					float(m.INTRO_TOTAL)],
-		])
+		]
+	# 안착은 **열차**다(R25) — Main.gd의 DOCK_RUN·DOCK_GAP·DOCK_FADE를 그대로 읽는다.
+	#   여기서 값을 다시 적으면 게임과 프리뷰가 조용히 갈린다(§18의 '자를 두 벌 두지 말 것').
+	var dk: AudioStreamWAV = m._sfx_bank["goal_dock"]
+	var dbase: int = int(wd["goal_dock"]["base"])
+	var ddb: float = float(wd["goal_dock"]["db"])
+	for di in range((m.DOCK_RUN as Array).size()):
+		gtl2.append([dk, dbase + int(m.DOCK_RUN[di]), ddb - float(di) * float(m.DOCK_FADE),
+				float(m.INTRO_TOTAL) + float(di) * float(m.DOCK_GAP)])
+	_at("%s/GOAL_CARD.wav" % OUT_DIR, gtl2)
 	# ⑪ 보석 카운터 도착(R24) — 진행도 4계단을 이어 굽고, 끝에 **동시 도착 5개**를 붙인다.
 	#   이 라운드의 판단 둘이 그대로 들려야 한다: ①음정이 진행도를 나르나 ②겹칠 때 화음이 되나.
 	var gc: AudioStreamWAV = m._sfx_bank["collect"]

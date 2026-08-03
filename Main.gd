@@ -1142,10 +1142,13 @@ const SFX_WORDS: Dictionary = {
 	#   여기에 새 음색을 주면 세계에 없던 물건이 하나 더 생긴다(§19 UI 탭 넷과 같은 판단).
 	#   단발 탭과는 **figure로** 갈린다 — 탭은 한 발, 이건 0/+4/+7 3발이다.
 	"goal_in": {"gap": 0.00, "db": -11.0, "det": 0.008},
-	# 도킹 안착만 글로켄이다 — 레퍼런스도 이 한 발만 0.9초 우는 벨이고, 우리 파형 중 그걸 할 수 있는 건
-	#   이것뿐이다(§30과 같은 이유). ⚠**+12인 이유는 `result_win`(+7)과 안 겹치려는 것**이다:
-	#   같은 악기·같은 레벨이면 판 시작이 판 끝처럼 들린다. 한 옥타브 위는 길이도 0.7초로 줄어
-	#   '툭 안착'에 맞고, 칩이 **위로** 날아가는 화면 방향과도 맞는다.
+	# 도킹 안착 = **한 방이 아니라 '띠리링'**(R25에서 고쳤다). 유저 판정 "너무 종소리 같다,
+	#   레퍼런스는 띠리링이었다" → 다시 재니 레퍼런스 도착음은 **33ms 간격 13발이 0.43초 동안
+	#   트라이어드를 구르며 감쇠**하는 열차였다(§10의 'REF_gem 상승 아르페지오'와 같은 물건).
+	#   ⚠내 첫 측정이 "벨 한 방"이라 읽은 건 온셋 검출을 **파일 전체 최대치**로 정규화해서
+	#   −30dB짜리 사건이 통째로 사라졌기 때문이다(§33).
+	# ⚠**+12인 이유는 `result_win`(+7)과 안 겹치려는 것**이다: 같은 악기·같은 레벨이면 판 시작이
+	#   판 끝처럼 들린다. 한 옥타브 위는 길이도 0.7초로 줄어 롤을 쌓아도 지속음 풀이 안 넘친다.
 	"goal_dock": {"gap": 0.00, "db": -12.0, "det": 0.004, "base": 12, "music": true},
 	# ── 보석 카운터 도착(R24 · §22 B-2) ────────────────────────────────────────
 	# §17이 "레퍼런스에서 **가장 밀도 높은 소리**(REF_gem 500ms 연속 열차)가 우리는 무음"이라고
@@ -1465,6 +1468,11 @@ func _sfx(kind: String, intensity: float = 0.0) -> void:
 		#   R9에서 기각된 '거슬리는' 대역으로 되돌아간다. +5까지가 안전선이다.
 		_sfx_queue.append({"at": _sfx_t + 0.045, "kind": "clear2", "semi": 0})
 		_sfx_queue.append({"at": _sfx_t + 0.135, "kind": "clear2", "semi": 5})
+	elif kind == "goal_dock":
+		# 안착 = 열차 한 줄(R25). 첫 발은 지금, 나머지는 예약 — 화면의 '툭'과 첫 발이 같은 프레임이다.
+		_sfx_last[kind] = _sfx_t
+		_sfx_dock_run()
+		return
 	elif kind == "collect":
 		# 진행도 계단을 호출부가 넘긴다(사다리 index) — 축하 무대의 스윕·글자와 같은 문법이다.
 		semi = _sfx_semi(int(intensity))
@@ -1512,6 +1520,28 @@ func _sfx_clear_run(lines: int, combo: int) -> void:
 		_sfx_queue.append({"at": _sfx_t + 0.040 + float(i) * 0.055, "kind": "clear_note",
 				"semi": mini(start + SFX_LADDER[i], 16), "db": ndb})
 	_sfx_fire("clear_hit", 0)      # 타격은 음정을 안 받는다 — 올리면 몸통이 얇아진다
+
+# 목표 칩 안착의 '띠리링'(R25). 레퍼런스 실측을 그대로 옮긴 값이다 —
+#   ①한 방이 아니라 **열차** ②음계를 오르는 게 아니라 **트라이어드를 구른다**(C–E–G–C′을 오르내림)
+#   ③뒤로 갈수록 **조용해진다**(레퍼런스 −30 → −42dB).
+# ⚠**13발을 그대로 못 쓴다.** 초당 발화 예산이 14라 13발이면 이 창의 다른 소리가 전부 굶는다
+#   → 간격을 40ms로 벌려 8발로 줄였다(0.28초). 밀도는 90%쯤 남고 예산은 반만 쓴다.
+# ⚠지속음이라 8발이 겹친다 — +12(0.70초)라서 최대 겹침이 7이고 전용 풀(12) 안이다.
+#   base를 내리면 음이 길어져 **여기서 풀이 넘친다**(그때는 발수부터 줄일 것).
+# ⚠**롤의 꼭대기를 +9로 묶었다.** 처음엔 [0,4,7,12,16,12,16,19]로 잡았는데 base(+12) 위에 얹히므로
+#   실제 최고음이 **+31 = 6.3kHz**였다 — §4가 "더 올리면 개 호루라기"라며 사다리를 16반음에서
+#   끊은 그 선을 두 배로 넘긴다. base는 '이 단어의 자리'고 semi는 '지금 몇 번째'라 **둘을 더해서**
+#   봐야 하는데, figure를 짜면서 그걸 잊었다. 지금 꼭대기는 +21 = 3.5kHz다.
+const DOCK_RUN: Array = [0, 4, 7, 9, 7, 4, 7, 9]
+const DOCK_GAP: float = 0.040
+const DOCK_FADE: float = 1.1        # 발마다 이만큼 낮아진다 = 열차가 잦아든다
+
+func _sfx_dock_run() -> void:
+	var db0: float = float((SFX_WORDS["goal_dock"] as Dictionary)["db"])
+	_sfx_fire("goal_dock", int(DOCK_RUN[0]), db0)
+	for i in range(1, DOCK_RUN.size()):
+		_sfx_queue.append({"at": _sfx_t + float(i) * DOCK_GAP, "kind": "goal_dock",
+				"semi": int(DOCK_RUN[i]), "db": db0 - float(i) * DOCK_FADE})
 
 func _sfx_fire(kind: String, semi: int, db_over: float = 99.0) -> bool:
 	if _sfx_budget < 1.0:
