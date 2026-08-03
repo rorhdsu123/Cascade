@@ -18,19 +18,42 @@ import os
 import re
 
 ROOT = os.path.expanduser("~/.claude/projects")
-PATTERN = "*Cascade*"
+# Cascade 이전 프로토타입(코드명 MergeBattle)은 Desktop/MVP3에서 돌았다 — 2026-07-11에
+# '줄 삭제 = 로켓 공격'이 여기서 나왔고, 그게 이 게임의 시작이다. 그래서 같이 훑는다.
+PATTERNS = ["*Cascade*", "*Desktop-MVP3"]
 
 # 사람 발화가 아닌 것들 — 훅·명령 출력·툴 결과·시스템 리마인더
 SKIP_PREFIX = ("<", "Caveat:", "[Request interrupted")
 SKIP_CONTAINS = ("<command-name>", "<local-command", "tool_use_id", "<system-reminder>")
 
+# ⚠대화록엔 붙여넣은 비밀이 섞여 있다(실제로 GitHub 토큰 1건 발견 — 2026-07-22).
+# 산출물이 사람 손을 타기 전에 여기서 지운다.
+SECRETS = [
+    re.compile(r"gh[pousr]_[A-Za-z0-9]{20,}"),          # GitHub 토큰
+    re.compile(r"github_pat_[A-Za-z0-9_]{20,}"),
+    re.compile(r"\bAIza[A-Za-z0-9_\-]{30,}"),           # Google API 키
+    re.compile(r"\bsk-[A-Za-z0-9_\-]{20,}"),            # OpenAI 류
+    re.compile(r"ca-app-pub-\d{10,}[~/]\d{6,}"),        # AdMob 유닛
+]
+
+
+def redact(text):
+    for pat in SECRETS:
+        text = pat.sub("«비밀 삭제»", text)
+    return text
+
 
 def harvest():
     """모든 Cascade 프로젝트 폴더에서 사람 발화를 (시각, 트랙, 세션, 본문)으로 뽑는다."""
     out = []
-    for d in sorted(glob.glob(os.path.join(ROOT, PATTERN))):
-        track = os.path.basename(d).replace("-Users-im-yujin-Desktop-Cascade", "") or "-trunk"
-        track = track.replace("-worktrees-", "").lstrip("-") or "trunk"
+    dirs = sorted({d for p in PATTERNS for d in glob.glob(os.path.join(ROOT, p))})
+    for d in dirs:
+        base = os.path.basename(d)
+        if base.endswith("MVP3"):
+            track = "proto"
+        else:
+            track = base.replace("-Users-im-yujin-Desktop-Cascade", "")
+            track = track.replace("-worktrees-", "").lstrip("-") or "trunk"
         for f in sorted(glob.glob(os.path.join(d, "*.jsonl"))):
             sid = os.path.basename(f)[:8]
             for line in open(f, errors="replace"):
@@ -54,7 +77,7 @@ def harvest():
                     continue
                 if any(s in text for s in SKIP_CONTAINS):
                     continue
-                out.append((rec.get("timestamp", "")[:16].replace("T", " "), track, sid, text))
+                out.append((rec.get("timestamp", "")[:16].replace("T", " "), track, sid, redact(text)))
     out.sort()
     return out
 
