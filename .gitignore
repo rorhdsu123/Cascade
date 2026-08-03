@@ -12,3 +12,6 @@ build/
 # 병렬 작업 worktree(트렁크 안에 두되 git은 무시 — 스테이지/무한 트랙, C63)
 worktrees/
 android/
+
+# 팀 내부 스프린트 보드(심사 계정 초대 시 노출 방지)
+docs/local/
