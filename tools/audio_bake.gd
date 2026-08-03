@@ -101,6 +101,15 @@ func _init() -> void:
 			tl.append([fr, fsemi, float(wd["fw_rise"]["db"]), t0])
 		tl.append([fp, fsemi, float(wd["fw_pop"]["db"]), t0 + float(m.CLEAR_ROCKET_RISE)])
 	_at("%s/CLEAR_STAGE.wav" % OUT_DIR, tl)
+	# ⑨ 결과 팝업 개봉(R22) — 승·패를 **한 파일에 이어** 굽는다. 낱개로 들으면 "승은 위, 패는 아래"라는
+	#   방향이 안 들린다(§19에서 UI 탭 넷을 이어 구운 것과 같은 이유). 각 경우 = 개봉음 + 버튼 도착음.
+	var rc: AudioStreamWAV = m._sfx_bank["result_cta"]
+	_at("%s/RESULT_POPUP.wav" % OUT_DIR, [
+			[m._sfx_bank["result_win"], int(wd["result_win"]["base"]), float(wd["result_win"]["db"]), 0.0],
+			[rc, int(wd["result_cta"]["base"]), float(wd["result_cta"]["db"]), float(m.RESULT_BTN_IN)],
+			[m._sfx_bank["result_lose"], int(wd["result_lose"]["base"]), float(wd["result_lose"]["db"]), 2.5],
+			[rc, int(wd["result_cta"]["base"]), float(wd["result_cta"]["db"]), 2.5 + float(m.RESULT_BTN_IN)],
+		])
 	m.free()
 	quit()
 

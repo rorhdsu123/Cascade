@@ -1113,6 +1113,27 @@ const SFX_WORDS: Dictionary = {
 	#   det도 좁혔다: 노이즈성 재질에 넓은 디튠은 음정이 아니라 **길이**를 흔들어 들린다.
 	#   db는 길이가 0.10 → 0.4~1.0초로 길어진 만큼 낮췄다(7발이 겹쳐 쌓인다).
 	"fw_pop": {"gap": 0.00, "db": -13.0, "det": 0.004},
+	# ── 결과 팝업 개봉(R22 · §22 B-15) ────────────────────────────────────────
+	# 실측(2026-08-03): 팝업이 열린 뒤 **2초 동안 발화 0**이다 — 죽음 연출까지 합치면 실패 경로가
+	#   3.7초 무음이고, 이는 §24가 축하 무대에서 고친 3.4초보다 길다. 화면은 카드가 튀어 앉고
+	#   내용이 들어오고 버튼이 도착하는데 소리가 그걸 하나도 모르고 있었다.
+	# ⚠**파형이 글로켄(선율)이다.** 레퍼런스(Block Out!)는 이 자리에 6.5kHz 반짝임을 1.8초 깔았고
+	#   (§26 곁다리), 우리 파형 중 '감쇠하며 우는' 물건은 이것뿐이다. 타격음을 얹으면 0.1초에 끝나
+	#   팝업이 열리는 동안이 도로 빈다 — §27이 로고 조립에서 이미 겪은 문제다.
+	# ⚠**승패는 음정으로만 가른다**(tap_go/tap_back과 같은 문법 = 방향이 뜻을 나른다, §19).
+	#   레벨이나 음색으로 가르지 않는 이유: 실패에 어둡고 큰 소리를 주면 벌이 된다(§4 "손실은 눈으로").
+	#   승패는 이미 앞 소리가 말했다(축하 무대 / fail) — 여기 소리는 '화면이 바뀌었다'의 보강이다.
+	# ⚠**패배 쪽이 두 배 오래 운다**(실측 0.93 vs 1.87초) — 파형 하나를 음정으로 갈랐으니 낮은 쪽이
+	#   그만큼 길어진다(§14: 음을 올리면 샘플이 짧아진다). 낮은 종이 길게 우는 건 실제 악기의 물리라
+	#   귀에 어긋나지 않지만, **길게 우는 소리를 크게까지 주면 벌이 된다** → 패배만 leak·praise와
+	#   같은 −13 자리로 내렸다(승리는 축하의 꼬리라 −12).
+	"result_win": {"gap": 0.00, "db": -12.0, "det": 0.004, "base": 7, "music": true},
+	"result_lose": {"gap": 0.00, "db": -13.0, "det": 0.004, "base": -5, "music": true},
+	# 버튼 도착(RESULT_BTN_IN) — **장식이 아니라 상태 변화다**: 그 전까지 `_input`이 팝업을 통째로
+	#   막고 있어서(개봉 중 오조작 방지) 이 소리가 "지금부터 눌린다"를 말한다.
+	#   ⚠tap 넷과 같은 파형이되 음정은 +2다 — 0·+7·−5·−8엔 이미 임자가 있고(중립·진입·뒤로·잠김)
+	#   같은 값을 주면 UI 소리끼리 서로를 흉내 낸다. +2도 5음계 안이라 판의 소리와 협화한다.
+	"result_cta": {"gap": 0.05, "db": -14.0, "det": 0.012, "base": 2},
 }
 const SFX_VOICES: int = 8
 # ⚠12다. 글자 6음(각 1.4초)이 아직 울리는 채로 정점 화음 4음이 얹혀 **최대 10**이 겹친다(실측) —
@@ -1173,6 +1194,11 @@ const FB_MAP: Dictionary = {
 	"logo": {"hap": "", "sfx": "logo"},
 	"fw_rise": {"hap": "", "sfx": "fw_rise"},
 	"fw_pop": {"hap": "", "sfx": "fw_pop"},
+	# 결과 팝업(R22)도 **소리만**. 판이 이미 끝난 뒤의 화면 전환이라 손에 뭔가 닿는 사건이 아니고,
+	#   실패 팝업에 진동을 얹으면 fail에서 뒤집지 않은 결정("손실엔 무진동", §11)을 여기서 뒤집게 된다.
+	"result_win": {"hap": "", "sfx": "result_win"},
+	"result_lose": {"hap": "", "sfx": "result_lose"},
+	"result_cta": {"hap": "", "sfx": "result_cta"},
 }
 
 # 유일한 접점. 호출부는 '무엇이 일어났나'만 말한다.
@@ -1317,6 +1343,11 @@ func _sfx_build_bank() -> void:
 	_sfx_bank["logo"] = lh if lh != null else bu
 	var fb: AudioStream = load(SFX_FW_BURST)
 	_sfx_bank["fw_pop"] = fb if fb != null else sk
+	# 결과 팝업(R22) — 개봉은 **선율과 같은 글로켄**이다. 축하 무대를 인용하는 게 아니라 '감쇠하며
+	#   우는' 파형이 이것뿐이라서다(§R22). 버튼 도착만 UI 탭과 같은 파형 = UI 사건이기 때문.
+	_sfx_bank["result_win"] = ml if ml != null else hi
+	_sfx_bank["result_lose"] = ml if ml != null else hi
+	_sfx_bank["result_cta"] = hi
 
 
 # 전용 SFX 버스 + 하드 리미터를 **런타임에** 만든다 — 버스 레이아웃 리소스 파일을 안 만들므로
@@ -4782,7 +4813,15 @@ func _process(delta: float) -> void:
 
 	# 결과 팝업 타이머 — 무대가 끝난(또는 실패로 바로 뜬) 시점부터 순차 개봉
 	if (game_over or game_clear) and not _death_playing() and not _clear_stage_on():
+		var rt_was: float = result_t
 		result_t = 0.0 if result_t < 0.0 else result_t + delta
+		# 개봉 두 박에 소리를 붙인다(R22 · §22 B-15) — 실측으로 이 창은 2초 내내 발화 0이었다.
+		#   ⚠**경계를 넘는 프레임에 한 번만.** result_t는 팝업이 닫힐 때까지 계속 올라가므로
+		#   조건을 값 비교로 쓰면 매 프레임 울린다(진흙 정도가 아니라 굉음이 된다).
+		if rt_was < 0.0:
+			_fb("result_win" if game_clear else "result_lose")
+		elif rt_was < RESULT_BTN_IN and result_t >= RESULT_BTN_IN:
+			_fb("result_cta")       # 여기서부터 입력이 열린다(_input의 개봉 가드) = 상태 변화의 신호
 		queue_redraw()
 
 	# 전투 순차 연출 진행 (타이머는 항상 0으로 수렴 → 데드락 없음)

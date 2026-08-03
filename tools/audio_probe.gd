@@ -447,6 +447,59 @@ func _pass_clear() -> Dictionary:
 		ev.append({"t": float(e["t"]) - t0 - float(g.CLEAR_HOLD), "kind": String(e["kind"]), "semi": int(e["semi"])})
 	return {"ev": ev, "rows": rows.size(), "log": g._sfx_log.duplicate(true)}
 
+# 패스 H — 결과 팝업 개봉(R22 · §22 B-15). 봇 패스(A~C)에서도 팝업은 뜨지만 거기선 **개봉이
+#   한 번뿐**이라 이 자리의 진짜 위험이 안 드러난다: `result_t`는 팝업이 닫힐 때까지 계속 오르므로
+#   경계가 아니라 값으로 조건을 쓰면 **매 프레임 운다**. 그래서 개봉 뒤를 2.5초 더 굴려 총 발화를 센다.
+# ⚠승·패를 따로 세운다 — 어휘가 갈리는 자리라 한쪽만 재면 반대쪽 배선이 빠져도 초록이다.
+func _pass_result(win: bool) -> Dictionary:
+	g.sfx_log_on = true
+	g.sound_on = true
+	g._sfx_log = []
+	g._sfx_t = 0.0
+	seed(SEED_CAMPAIGN)
+	g.seed_game(SEED_CAMPAIGN)
+	g._start_stage(0)
+	g.intro_t = -1.0
+	g.result_t = -1.0
+	_idle(2)
+	if win:
+		# 축하 무대를 실제로 태운다(팝업은 무대가 끝나야 뜬다). 보드는 비워 둔다 — 스윕 발수는
+		#   여기 관심이 아니고, 판이 앞 패스·유저 세이브에 따라 달라지는 걸 막는다(패스 G의 교훈).
+		for r0 in range(g.ROWS):
+			for c0 in range(g.COLS):
+				g.board[r0][c0] = ""
+		g.game_over = false
+		g.game_clear = true
+		g._plan_clear_fx()
+		g.clear_show_t = -float(g.CLEAR_HOLD)
+		g._fb("finish")
+	else:
+		# ⚠`pending_core_dead = true`로 세우면 안 된다 — `_end_turn` 안의 `advance_step`이
+		#   `core_hp <= 0`으로 **재계산해 덮는다**(R11에서 이 함정에 한 번 걸렸다).
+		g.core_hp = 0
+		g._end_turn()
+	# 팝업이 열릴 때까지 굴린다(죽음 연출·축하 무대가 끝나야 뜬다).
+	var t0: float = -1.0
+	for _i in range(int(15.0 * 60.0)):
+		g._process(1.0 / 60.0)
+		if g.result_t >= 0.0:
+			t0 = g._sfx_t
+			break
+	_idle(150)          # 개봉 뒤 2.5초 — 매 프레임 발화라면 여기서 150발로 터진다
+	var ev: Array = []
+	var ring: float = t0
+	var hole: float = 0.0
+	for e0 in g._sfx_log:
+		var e: Dictionary = e0 as Dictionary
+		if String(e["drop"]) != "" or t0 < 0.0 or float(e["t"]) < t0 - 0.001:
+			continue
+		var t: float = float(e["t"])
+		if t - ring > hole:
+			hole = t - ring
+		ring = maxf(ring, t + _dur(String(e["kind"]), int(e["semi"])))
+		ev.append({"t": t - t0, "kind": String(e["kind"])})
+	return {"open": t0, "ev": ev, "hole": hole, "cover": ring - t0}
+
 func _run() -> void:
 	g = load("res://Main.tscn").instantiate()
 	root.add_child(g)
@@ -545,12 +598,16 @@ func _run() -> void:
 	var allowed: Array = ["grab", "place", "clear2", "chain", "score", "fail",
 			"tap", "tap_go", "tap_back", "tap_off", "fanfare", "climax", "praise", "leak",
 			"sweep", "clear_hit", "clear_note", "rocket", "letter", "chord", "logo",
-			"fw_rise", "fw_pop"]
+			"fw_rise", "fw_pop",
+			# 결과 팝업(R22) — 패스 A에는 **아직 안 나온다**(승리 후 1초만 더 굴리는데 팝업은 죽음
+			#   연출 1.6초·축하 무대 3.6초 뒤에 뜬다). 그래도 설계표에 있으니 여기 적어 둔다 —
+			#   나중에 패스 A를 더 길게 굴리면 정상 동작이 FAIL로 나오는 자리다.
+			"result_win", "result_lose", "result_cta"]
 	var unexpected: Array = []
 	for k in kinds_a.keys():
 		if not allowed.has(String(k)):
 			unexpected.append(k)
-	_check("⑦ 어휘는 설계표(23) 안", unexpected.is_empty(),
+	_check("⑦ 어휘는 설계표(26) 안", unexpected.is_empty(),
 			"예상 밖: %s" % str(unexpected))
 
 	# ── 패스 D: 어휘 직접 타격(fanfare 1회 상한·판 경계 리셋)
@@ -732,6 +789,38 @@ func _run() -> void:
 			int(mg["max_voices"]) <= MAX_VOICES and int(mg["max_music"]) <= MAX_MUSIC_VOICES
 					and int(mg["max_fires_1s"]) <= MAX_FIRES_IN_1S,
 			"타격 %d · 선율 %d · 1초 %d발" % [int(mg["max_voices"]), int(mg["max_music"]), int(mg["max_fires_1s"])])
+
+	# ── 패스 H: 결과 팝업 개봉(R22 · §22 B-15)
+	for win in [true, false]:
+		var rs: Dictionary = _pass_result(win)
+		var tag: String = "클리어" if win else "실패"
+		var rev: Array = rs["ev"]
+		var rcnt: Dictionary = {}
+		for e0 in rev:
+			var k: String = String((e0 as Dictionary)["kind"])
+			rcnt[k] = int(rcnt.get(k, 0)) + 1
+		var open_word: String = "result_win" if win else "result_lose"
+		var cta_t: float = -1.0
+		for e0 in rev:
+			if String((e0 as Dictionary)["kind"]) == "result_cta":
+				cta_t = float((e0 as Dictionary)["t"])
+		print("── 결과 팝업(%s): %s · 최대 무음 %.2fs · 소리가 덮는 길이 %.2fs"
+				% [tag, str(rcnt), float(rs["hole"]), float(rs["cover"])])
+		_check("㉓ 팝업 개봉 배선(%s → %s)" % [tag, open_word],
+				int(rcnt.get(open_word, 0)) == 1 and int(rcnt.get("result_win" if not win else "result_lose", 0)) == 0,
+				str(rcnt))
+		# 버튼 도착 = **상태 변화**다(그 전까지 _input이 팝업을 통째로 막는다) → 시각까지 본다.
+		_check("㉓ 버튼 도착 배선(RESULT_BTN_IN=%.2f)" % float(g.RESULT_BTN_IN),
+				int(rcnt.get("result_cta", 0)) == 1 and absf(cta_t - float(g.RESULT_BTN_IN)) < 0.05,
+				"%d발 · %.3fs" % [int(rcnt.get("result_cta", 0)), cta_t])
+		# ⚠**이 검사가 요점이다.** result_t는 팝업이 닫힐 때까지 계속 오르므로 조건을 경계가 아니라
+		#   값으로 쓰면 개봉음이 2.5초 동안 150발 난다 — 진흙이 아니라 굉음이다.
+		var rn: int = int(rcnt.get("result_win", 0)) + int(rcnt.get("result_lose", 0)) + int(rcnt.get("result_cta", 0))
+		_check("㉔ 개봉 뒤 2.5초 동안 정확히 2발(경계에서만)", rn == 2, "%d발" % rn)
+		# 개봉 창에 구멍이 없나 — 지속음 한 발이 개봉 3박(카드·내용·버튼 0.30s)을 통째로 덮어야 한다.
+		#   ⚠상한이 아니라 **하한**이고, 기준은 0.8초다: 타격 파형으로 되돌리면 0.1초쯤에서 끊기므로
+		#   여기서 즉시 터진다. 승·패가 0.93 / 1.87초로 갈리는 건 음정 차(같은 파형을 +7 / −5로 쓴다).
+		_check("㉔ 개봉 창을 소리가 ≥0.8초 덮는다", float(rs["cover"]) >= 0.8, "%.2fs" % float(rs["cover"]))
 
 	print("=== %s (실패 %d) ===" % ["PASS" if fails == 0 else "FAIL", fails])
 	quit(1 if fails > 0 else 0)
