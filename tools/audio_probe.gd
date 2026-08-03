@@ -27,7 +27,10 @@ const IDLE_STRESS: int = 1       # 인간이 불가능한 최고 속도 = 상한
 #   tap_go(+7) 0.13×2^(−7/12)≈0.09 · tap_back(−5) ≈0.18 · tap_off(−8) ≈0.21.
 const WORD_DUR: Dictionary = {"grab": 0.13, "place": 0.09, "clear": 0.16, "chain": 0.06, "score": 0.13, "fail": 0.09,
 		"tap": 0.13, "tap_go": 0.09, "tap_back": 0.18, "tap_off": 0.21, "clear2": 0.10, "fanfare": 0.16,
-		"climax": 0.16, "praise": 0.14, "leak": 0.08}   # R14 — 블라스트 창 채우기
+		"climax": 0.16, "praise": 0.14, "leak": 0.08,   # R14 — 블라스트 창 채우기
+		# R17 클리어 축하 무대. clear_hit 0.06(금속 55ms) · clear_note 0.11(유리 106ms) · rocket 0.15.
+		"clear_hit": 0.06, "clear_note": 0.11, "rocket": 0.15,
+		"sweep": 0.11, "letter": 0.09, "logo": 0.16, "fw_rise": 0.15, "fw_pop": 0.14}
 const MAX_VOICES: int = 8
 const MAX_FIRES_IN_1S: int = 15         # 예산 14/초 + 회복 여유 1
 const LADDER_MAX_SEMI: int = 16
@@ -366,6 +369,52 @@ func _pass_fx() -> Dictionary:
 	out["leak"] = _count("leak")
 	return out
 
+# 패스 G — 클리어 축하 무대(R17). 봇은 14수 예산 안에 스테이지를 못 깨므로 **무대는 패스 A~F에
+#   한 프레임도 안 나온다** → 여기서 안 재면 배선이 통째로 빠져 있어도 프로브가 조용히 초록이 된다
+#   (grab·score·fail·전멸에서 이미 네 번 겪은 함정).
+# ⚠어휘를 직접 때리지 않는다. `clear_stage_shot`·`clear_movie`와 **같은 강제 경로**로 진짜 무대를
+#   열고 _process를 끝까지 굴린다 — 소리가 화면 타이머에서 나오므로 그 타이머를 돌려야 재는 의미가 있다.
+func _pass_clear() -> Dictionary:
+	g.sfx_log_on = true
+	g.sound_on = true
+	g._sfx_log = []
+	g._sfx_t = 0.0
+	seed(SEED_CAMPAIGN)
+	g.seed_game(SEED_CAMPAIGN)
+	g._start_stage(0)
+	g.intro_t = -1.0
+	_idle(2)
+	# 보드에 블록을 깔아 둔다 — 스윕은 **블록이 있는 행만** 울리므로 빈 판이면 0발이 정상이 되어
+	#   검사가 공허해진다. 아래 세 행 + 맨 윗행(= 스윕 종료 타격의 조건)을 채운다.
+	# ⚠**보드를 먼저 비운다.** _start_stage(0)가 남기는 판은 앞 패스와 **유저 세이브**에 따라 달라진다
+	#   — 튜토리얼이 살아 있으면 _tut_setup_beat1이 십자를 미리 깔아 두기 때문(실측으로 드러났다).
+	#   그 위에 채우면 이 검사가 기계마다 다른 수를 세게 된다.
+	for r0 in range(g.ROWS):
+		for c0 in range(g.COLS):
+			g.board[r0][c0] = ""
+	var rows: Array = [0, g.ROWS - 3, g.ROWS - 2, g.ROWS - 1]
+	for r in rows:
+		for c in range(g.COLS):
+			g.board[r][c] = g.COLORS[c % g.COLORS.size()]
+	g._sfx_log = []
+	var t0: float = g._sfx_t
+	g.game_over = false
+	g.game_clear = true
+	g._plan_clear_fx()
+	g.clear_show_t = -float(g.CLEAR_HOLD)
+	g._fb("finish")
+	# 무대 + 폭죽 잔여 수명까지 전부 흘려보낸다(마지막 터짐이 CLEAR_FX_END 근처다)
+	_idle(int(ceil((float(g.CLEAR_FX_END) + float(g.CLEAR_HOLD) + 0.5) * 60.0)))
+	# 로그를 '무대 시각'(clear_show_t와 같은 축)으로 옮겨 담는다 — 구멍을 화면 사건과 대조하려면
+	#   같은 자를 써야 한다. 0 = 무대가 열리는 순간(암전 시작), 음수 = 프리롤(스윕).
+	var ev: Array = []
+	for e0 in g._sfx_log:
+		var e: Dictionary = e0 as Dictionary
+		if String(e["drop"]) != "":
+			continue
+		ev.append({"t": float(e["t"]) - t0 - float(g.CLEAR_HOLD), "kind": String(e["kind"]), "semi": int(e["semi"])})
+	return {"ev": ev, "rows": rows.size(), "log": g._sfx_log.duplicate(true)}
+
 func _run() -> void:
 	g = load("res://Main.tscn").instantiate()
 	root.add_child(g)
@@ -460,13 +509,18 @@ func _run() -> void:
 			"A %d줄 · C %d줄" % [sig_a.size(), sig_c.size()])
 
 	# fanfare = 아르페지오 4음(R12부터 자기 이름으로 남는다). tap_* 셋은 R13 UI 탭(같은 파형·다른 음정).
+	# ⚠축하 무대 다섯(R17)이 여기 나오는 건 정상이다 — **봇이 실제로 스테이지1을 깬다**(실측).
+	#   패스 D의 옛 주석("봇은 14수 안에 못 깬다")은 밸런스가 바뀌기 전 이야기다. 다만 패스 A는
+	#   승리 후 1초만 더 굴리므로 무대의 앞부분(스윕·글자)까지만 잡힌다 → 전체는 패스 G가 잰다.
 	var allowed: Array = ["grab", "place", "clear", "clear2", "chain", "score", "fail",
-			"tap", "tap_go", "tap_back", "tap_off", "fanfare", "climax", "praise", "leak"]
+			"tap", "tap_go", "tap_back", "tap_off", "fanfare", "climax", "praise", "leak",
+			"sweep", "clear_hit", "letter", "logo", "fw_rise", "fw_pop"]
 	var unexpected: Array = []
 	for k in kinds_a.keys():
 		if not allowed.has(String(k)):
 			unexpected.append(k)
-	_check("⑦ 어휘는 열다섯뿐", unexpected.is_empty(), "예상 밖: %s" % str(unexpected))
+	_check("⑦ 어휘는 설계표(21) 안", unexpected.is_empty(),
+			"예상 밖: %s" % str(unexpected))
 
 	# ── 패스 D: 어휘 직접 타격(fanfare 1회 상한·판 경계 리셋)
 	var log_d: Array = _pass_vocab()
@@ -543,6 +597,66 @@ func _run() -> void:
 			"%d발" % int(fx.get("praise", 0)))
 	_check("⑰ 비행기 픽업 배선(_apply_hit → chain)", int(fx.get("plane", 0)) == 1, "%d발" % int(fx.get("plane", 0)))
 	_check("⑱ 누수 = 3열 동시라도 한 발", int(fx.get("leak", 0)) == 1, "%d발" % int(fx.get("leak", 0)))
+
+	# ── 패스 G: 클리어 축하 무대 배선 + 무음 구간(R17)
+	var cs: Dictionary = _pass_clear()
+	var ev: Array = cs["ev"]
+	var cnt: Dictionary = {}
+	var sweep_semis: Array = []
+	var letter_semis: Array = []
+	for e0 in ev:
+		var e: Dictionary = e0 as Dictionary
+		var k: String = String(e["kind"])
+		cnt[k] = int(cnt.get(k, 0)) + 1
+		if k == "sweep":
+			sweep_semis.append(int(e["semi"]))
+		elif k == "letter":
+			letter_semis.append(int(e["semi"]))
+	# 무대 안의 최대 무음 구멍 — **이번 라운드가 고치려 한 바로 그 지표**(§17③과 같은 자).
+	#   총 발화수로는 판정이 안 된다: 붐비는 자리에 더 쌓아도 총량은 오른다.
+	var stage_end: float = float(g.CLEAR_SHOW_TOTAL)
+	var prev: float = -float(g.CLEAR_HOLD)
+	var hole: float = 0.0
+	var hole_at: float = 0.0
+	for e0 in ev:
+		var t: float = float((e0 as Dictionary)["t"])
+		if t > stage_end:
+			break
+		if t - prev > hole:
+			hole = t - prev
+			hole_at = prev
+		prev = t
+	if stage_end - prev > hole:
+		hole = stage_end - prev
+		hole_at = prev
+	var mg: Dictionary = _analyze(cs["log"])
+	print("── 축하 무대: %s" % str(cnt))
+	print("     스윕 음정 %s · 글자 음정 %s" % [str(sweep_semis), str(letter_semis)])
+	print("     최대 무음 %.2fs (무대시각 %.2f~%.2f) · 동시 보이스 %d · 롤링 1초 %d발"
+			% [hole, hole_at, hole_at + hole, int(mg["max_voices"]), int(mg["max_fires_1s"])])
+	_check("⑲ 스윕 배선 = 블록 있는 행 수", int(cnt.get("sweep", 0)) == int(cs["rows"]),
+			"sweep %d발 · 행 %d" % [int(cnt.get("sweep", 0)), int(cs["rows"])])
+	var sweep_up: bool = true
+	for i in range(1, sweep_semis.size()):
+		if int(sweep_semis[i]) <= int(sweep_semis[i - 1]):
+			sweep_up = false
+	_check("⑲ 스윕은 아래→위로 오른다", sweep_up and int(cnt.get("clear_hit", 0)) == 1,
+			"음정 %s · 종료 타격 %d발" % [str(sweep_semis), int(cnt.get("clear_hit", 0))])
+	# 로고 = BLOCK 5글자 + CASTLE 1 = 6발이 한 줄로 오른다. 강펀치(logo)는 정확히 한 번.
+	_check("⑳ 로고 조립 배선(글자 %d + 정점 1)" % (int(g.WM_L1.length()) + 1),
+			int(cnt.get("letter", 0)) == int(g.WM_L1.length()) + 1 and int(cnt.get("logo", 0)) == 1,
+			"letter %d · logo %d" % [int(cnt.get("letter", 0)), int(cnt.get("logo", 0))])
+	_check("⑳ 로고 강펀치 = 2층(광택이 뒤따름)", int(cnt.get("clear2", 0)) >= 1,
+			"clear2 %d발" % int(cnt.get("clear2", 0)))
+	_check("㉑ 폭죽 = 발사·터짐 각 %d발" % int(g.CLEAR_ROCKET_N),
+			int(cnt.get("fw_rise", 0)) == int(g.CLEAR_ROCKET_N) and int(cnt.get("fw_pop", 0)) == int(g.CLEAR_ROCKET_N),
+			"발사 %d · 터짐 %d" % [int(cnt.get("fw_rise", 0)), int(cnt.get("fw_pop", 0))])
+	# 무음 상한 0.55s — 레퍼런스 삭제음 한 사건이 0.32s이므로 그 두 배를 넘으면 '끊겼다'로 들린다.
+	#   ⚠이 검사는 배선이 빠지면 즉시 크게 터진다(전엔 3.4초였다) = 회귀 감시가 목적이다.
+	_check("㉒ 무대 안 최대 무음 ≤ 0.55s", hole <= 0.55, "%.2fs @ %.2f" % [hole, hole_at])
+	_check("㉒ 무대 예산(동시 %d · 롤링 %d)" % [MAX_VOICES, MAX_FIRES_IN_1S],
+			int(mg["max_voices"]) <= MAX_VOICES and int(mg["max_fires_1s"]) <= MAX_FIRES_IN_1S,
+			"보이스 %d · 1초 %d발" % [int(mg["max_voices"]), int(mg["max_fires_1s"])])
 
 	print("=== %s (실패 %d) ===" % ["PASS" if fails == 0 else "FAIL", fails])
 	quit(1 if fails > 0 else 0)

@@ -1043,6 +1043,26 @@ const SFX_WORDS: Dictionary = {
 	#   음정 = 링 번호(바깥 링일수록 높다) → 물결이 퍼지는 걸 소리도 따라간다.
 	#   db가 낮은 이유: 한 판에 여러 발이 나가므로 개별로는 조용해야 합이 리미터를 안 때린다.
 	"rocket": {"gap": 0.040, "db": -16.0, "det": 0.008},
+	# ── 클리어 축하 무대(R17 · §22 B-7) ───────────────────────────────────────
+	# 무대 2.8초가 `finish` 아르페지오(0.3초) 말고는 통째로 무음이었다 — **판에서 가장 긴 무음이
+	#   하필 가장 큰 순간**에 있었다. 화면엔 스윕 8행·글자 11개·색종이·폭죽 7발이 다 있는데
+	#   소리가 그걸 하나도 모르고 있었다(§17③이 블라스트 창에서 진단한 것과 같은 병).
+	# **새 파형을 하나도 안 만든다** — 다섯 어휘 전부 기존 파형 넷에서 나온다(§13 한 가족 원칙).
+	# ⚠**사다리 계단을 호출부가 정한다**(intensity = 계단 번호). 행 높이·글자 순서·발 번호가
+	#   그대로 음정이 되므로 **연출 상수를 고치면 소리가 자동으로 따라온다**.
+	"sweep": {"gap": 0.00, "db": -13.0, "det": 0.004},    # 피니시 스윕 행마다 — 아래→위로 오르는 유리 런
+	"letter": {"gap": 0.00, "db": -10.0, "det": 0.006},   # 로고 글자 팝인 = 블록이 놓이는 것이니 place와 같은 파형
+	# CASTLE 오버슛 정점. 연출 전체에서 **강펀치는 여기 한 번뿐**이라(주석: _clear_l2_scale)
+	#   소리도 여기 한 번뿐이어야 한다 — 전부 통통 튀면 아무것도 안 튄 것과 같다.
+	"logo": {"gap": 0.00, "db": -2.0, "det": 0.004},      # clear(−3.6)보다 위, climax(−1.5) 아래
+	# 폭죽 — **발사는 낮게, 터짐은 밝게** 대역을 갈랐다. 로켓 파형은 300~800Hz에 78.7%,
+	#   칩 높은음은 5kHz대라 둘이 안 겹친다(§23③ '동작 어휘가 300~2kHz에 96.9%'의 반대 처방).
+	# ⚠터짐을 2층(타격+광택)으로 하면 발화가 7발 더 늘어 롤링 1초가 예산을 넘는다(실측 17발 > 15).
+	#   층 대신 **음정을 발마다 흩어** 7발이 같은 소리로 안 들리게 한다.
+	"fw_rise": {"gap": 0.00, "db": -11.0, "det": 0.010},
+	# base −5 = praise와 같은 자리(5147→3850Hz). 원음대로 쓰면 R9에서 "거슬린다"로 기각된 대역이고
+	#   내리면 폰 통과도 좋아진다. 7발이 연달아 나가므로 이 어휘는 밝기를 특히 조심해야 한다.
+	"fw_pop": {"gap": 0.00, "db": -10.0, "det": 0.010, "base": -5},
 }
 const SFX_VOICES: int = 8
 const SFX_BUDGET_MAX: float = 14.0      # 초당 발화 상한 — 진흙 방어의 마지막 선
@@ -1084,6 +1104,13 @@ const FB_MAP: Dictionary = {
 	"tap_go": {"hap": "", "sfx": "tap_go"},
 	"tap_back": {"hap": "", "sfx": "tap_back"},
 	"tap_off": {"hap": "", "sfx": "tap_off"},
+	# 축하 무대(R17)는 **소리만**. 이 창엔 이미 `finish`의 roll 진동이 나가 있고, 2.8초 동안 진동을
+	#   열 몇 번 더 얹으면 승자독식 액추에이터가 하나의 긴 웅웅거림으로 뭉갠다(§3 = 진동의 물리).
+	"sweep": {"hap": "", "sfx": "sweep"},
+	"letter": {"hap": "", "sfx": "letter"},
+	"logo": {"hap": "", "sfx": "logo"},
+	"fw_rise": {"hap": "", "sfx": "fw_rise"},
+	"fw_pop": {"hap": "", "sfx": "fw_pop"},
 }
 
 # 유일한 접점. 호출부는 '무엇이 일어났나'만 말한다.
@@ -1161,6 +1188,11 @@ func _sfx_build_bank() -> void:
 		_sfx_bank["clear_hit"] = ch
 		_sfx_bank["clear_note"] = cn
 		_sfx_bank["rocket"] = rk
+		# 축하 무대의 둘 — 스윕은 삭제음의 도레미와 **같은 유리**(판을 쓸어버리는 것도 줄삭제다),
+		#   폭죽 발사는 블라스트 로켓과 **같은 신스**(둘 다 뭔가가 날아오르는 소리다).
+		#   ⚠이 둘은 R16 파형에 얹혀 있으므로 파일이 없으면 같이 죽는다(축하가 조용해질 뿐 안 깨진다).
+		_sfx_bank["sweep"] = cn
+		_sfx_bank["fw_rise"] = rk
 	else:
 		push_warning("R16 삭제음 파형 없음 — '7'키 B안 비활성")
 	# 낮은 파형 = 확정·무게. 높은 파형 = 가벼움·상승.
@@ -1186,6 +1218,11 @@ func _sfx_build_bank() -> void:
 	# ⚠적 처치는 pop_high로 되돌렸다 — 연쇄는 한 판에 5~9발이라 밝은 파형을 쓰면 가장 먼저 귀를
 	#   피곤하게 한다. 964Hz는 레퍼런스 삭제음 1층(904Hz)과 같은 자리다.
 	_sfx_bank["chain"] = hi
+	# 축하 무대(R17) — 글자는 '블록이 놓이는' 파형(place와 같다), 로고 강펀치는 삭제 타격과 같은 칩,
+	#   폭죽 터짐은 광택 파형을 −5반음 내려 쓴다(praise와 같은 자리).
+	_sfx_bank["letter"] = lo
+	_sfx_bank["logo"] = bu
+	_sfx_bank["fw_pop"] = sk
 
 
 # 전용 SFX 버스 + 하드 리미터를 **런타임에** 만든다 — 버스 레이아웃 리소스 파일을 안 만들므로
@@ -1268,6 +1305,13 @@ func _sfx(kind: String, intensity: float = 0.0) -> void:
 		_sfx_queue.append({"at": _sfx_t + 0.135, "kind": "clear2", "semi": 5})
 	elif kind == "rocket":
 		semi = mini(int(clampf(intensity, 0.0, 6.0)) * 2, 12)   # 링 번호 → 음정(바깥일수록 높다)
+	elif kind == "logo":
+		# 로고 강펀치 = clear·climax와 같은 **2층 문법**(타격 + 45ms 광택). 이 한 방만 층이 있다.
+		_sfx_queue.append({"at": _sfx_t + 0.045, "kind": "clear2", "semi": 5})
+	elif kind == "sweep" or kind == "letter" or kind == "fw_rise" or kind == "fw_pop":
+		# 축하 무대 넷 — **계단을 호출부가 정한다**(행 높이·글자 순서·폭죽 번호가 곧 음정이다).
+		#   `chain`처럼 내부 카운터를 쓰면 화면 순서와 어긋나고, 무대엔 되돌릴 다운비트도 없다.
+		semi = _sfx_semi(int(intensity))
 	elif kind == "chain":
 		semi = _sfx_semi(_sfx_chain_step)
 		_sfx_chain_step += 1
@@ -3650,6 +3694,8 @@ const CLEAR_LETTER_GAP: float = 0.08   # 글자 간 등장 간격(실측)
 const CLEAR_LETTER_POP: float = 0.20   # 글자 하나가 튀어 안착하는 시간
 const CLEAR_L2_IN: float = 0.56        # 1행 조립 완료 직후 CASTLE 등장
 const CLEAR_L2_PEAK: float = 2.5       # 오버슛 배율 — 1행을 다 가릴 만큼 커졌다가 튕겨 돌아온다
+const CLEAR_L2_PUNCH: float = 0.40     # 폭주가 멈추고 되튀는 순간 = 연출 유일의 강펀치(_clear_l2_scale)
+                                       #   ⚠소리(`logo`)가 이 상수를 읽는다 — 애니메이션과 어긋나면 안 되므로 상수로 뺐다
 const CLEAR_CONFETTI_AT: float = 1.00  # 색종이 낙하 시작 — 로고가 다 선 뒤에야 쏟아진다(레퍼런스 순서)
 const CLEAR_ROCKET_N: int = 7          # 폭죽 발수
 const CLEAR_ROCKET_FIRST: float = 1.20 # 첫 로켓 발사 — 색종이보다 0.2s 늦게(층을 겹치지 않고 쌓는다)
@@ -3711,10 +3757,10 @@ func _clear_l2_scale(u: float) -> float:
 		return _ease_out_back(clampf(u / 0.08, 0.0, 1.0))          # 등장 팝
 	if u < 0.24:
 		return 1.0                                                  # 짧은 정지 = 폭주 전 예비동작
-	if u < 0.40:
-		return lerpf(1.0, CLEAR_L2_PEAK, _ease_in_cubic((u - 0.24) / 0.16))
+	if u < CLEAR_L2_PUNCH:
+		return lerpf(1.0, CLEAR_L2_PEAK, _ease_in_cubic((u - 0.24) / (CLEAR_L2_PUNCH - 0.24)))
 	if u < 0.78:
-		return lerpf(CLEAR_L2_PEAK, 1.0, _ease_out_cubic((u - 0.40) / 0.38))
+		return lerpf(CLEAR_L2_PEAK, 1.0, _ease_out_cubic((u - CLEAR_L2_PUNCH) / 0.38))
 	return 1.0
 
 # 폭죽 계획 — 코스메틱 RNG(전역)만 쓴다. 게임 판정은 game_rng라서 회귀에 안 샌다.
@@ -3731,6 +3777,45 @@ func _plan_clear_fx() -> void:
 			"col": pal[randi() % pal.size()],
 			"seed": randf_range(0.0, TAU),
 		})
+
+# 폭죽 7발의 음정 — 사다리 계단 번호를 **일부러 흩는다**. 0~6을 순서대로 주면 음계 연습처럼
+#   들리고(레퍼런스에도 그런 상승 런은 없다, §21③) 발마다 색이 다른 화면과도 안 맞는다.
+#   ⚠난수를 안 쓰는 이유는 §5 그대로 — 연출이 randf를 더 뽑으면 회귀 골든 하류가 시프트한다.
+const CLEAR_FW_STEPS: Array = [0, 4, 2, 6, 1, 5, 3]
+
+# ===== 축하 무대의 소리 beat (R17 · §22 B-7) =====
+# 무대는 게임 로직이 멈춘 채 _process가 타이머만 굴린다 → 소리도 **화면과 같은 타이머**에서
+#   경계를 넘는 프레임에 한 번씩 쏜다(스윕 행·색종이가 이미 쓰는 방식 그대로).
+# ⚠시각 상수에서 전부 파생시킨다. 연출 타이밍을 고치면 소리가 자동으로 따라오고, 어긋날 수가 없다.
+# 색종이(CLEAR_CONFETTI_AT)는 **의도적으로 무음**이다 — 나풀나풀 떨어지는 데 붙일 어택이 없고,
+#   바로 앞(정점)과 뒤(폭죽)가 이미 꽉 차 있어 여기 한 발을 더 얹으면 진흙이 된다.
+func _clear_stage_audio(was: float, now: float) -> void:
+	# ① 로고 조립 — 글자 하나가 한 계단씩. 화면에서 워드마크가 자라는 것과 같은 방향(상승)이다.
+	var n1: int = WM_L1.length()
+	for i in range(n1):
+		var lt: float = CLEAR_LOGO_IN + float(i) * CLEAR_LETTER_GAP
+		if was < lt and now >= lt:
+			_fb("letter", float(i))
+	# CASTLE 등장 = 같은 상승선의 다음 계단(줄이 바뀌어도 소리는 한 줄로 이어진다)
+	if was < CLEAR_L2_IN and now >= CLEAR_L2_IN:
+		_fb("letter", float(n1))
+	# ② 오버슛 정점 — 연출 전체에서 강펀치는 여기 한 번뿐이다. 소리도 여기 한 번뿐이다.
+	var pk: float = CLEAR_L2_IN + CLEAR_L2_PUNCH
+	if was < pk and now >= pk:
+		_fb("logo")
+	# ③ 폭죽 — 올라감(휘슬)과 터짐(크랙)이 각자 자기 시각에. '올라감→터짐'의 예비동작이
+	#    화면에 있는데(CLEAR_ROCKET_RISE) 소리에 없으면 터짐이 허공에서 나온다.
+	var fi: int = 0
+	for rk0 in clear_rockets:
+		var rk: Dictionary = rk0 as Dictionary
+		var t0: float = float(rk["t0"])
+		var step: float = float(CLEAR_FW_STEPS[fi % CLEAR_FW_STEPS.size()])
+		fi += 1
+		if was < t0 and now >= t0:
+			_fb("fw_rise", step)
+		var tb: float = t0 + CLEAR_ROCKET_RISE
+		if was < tb and now >= tb:
+			_fb("fw_pop", step)
 
 # 무대가 재생 중인가 — 참이면 보드를 안 그리고 결과 팝업도 미룬다
 func _clear_stage_on() -> bool:
@@ -3902,10 +3987,19 @@ func _sweep_row_fx(r: int) -> void:
 			})
 	if hit == 0:
 		return
+	# 소리도 파도를 따라 오른다 — 계단 = 행 높이(맨 아래 0 → 맨 위 7). 사다리가 정확히 8칸이라
+	#   8행이 한 칸씩 채운다. ⚠**빈 행은 소리도 없다**(위 hit==0 반환의 아래에 있는 이유) —
+	#   화면에 아무것도 안 터지는데 음만 울리면 §2 원칙 ①("이미 시각으로 말한 것의 보강")이 깨진다.
+	_fb("sweep", float(ROWS - 1 - r))
 	# 행마다 얇은 섬광이 겹쳐 파도가 화면으로 번진다. 맨 윗행(=스윕 종료)에만 제대로 한 방 + 흔들림.
 	if r == 0:
 		flash_timer = FLASH_DUR * 0.7
 		shake_timer = maxf(shake_timer, SHAKE_DUR * 0.5)
+		# 파도 도착 = 삭제 타격 한 발(새 어휘를 안 만든다 — 이건 문자 그대로 '판 전체 줄삭제'다).
+		#   ⚠_sfx가 아니라 _sfx_fire 직행이다: clear_hit는 clear의 내부 층이라 FB_MAP에 없고,
+		#   _sfx_clear_run도 같은 이유로 직행한다.
+		#   ⚠섬광과 **같은 조건**에 묶어 뒀다 — 맨 윗행이 비어 있으면 섬광도 없고 이 소리도 없다.
+		_sfx_fire("clear_hit", 0)
 	else:
 		flash_timer = maxf(flash_timer, FLASH_DUR * 0.3)
 
@@ -4349,6 +4443,27 @@ func _input(event: InputEvent) -> void:
 				queue_redraw()
 		return
 
+	# ⚠플테 전용 DEV: '5'키 = 클리어 축하 무대를 지금 재생(소리 판정용).
+	#   §21 방법론 교훈 — **파일 A/B로는 판정이 안 나고 게임 안에서 들어야 답이 나온다.** 그런데
+	#   축하 무대는 스테이지를 실제로 깨야만 볼 수 있어서 한 번 듣는 데 몇 분이 들었다 = 귀로
+	#   튜닝하는 게 사실상 불가능했다. 이 키가 그 왕복을 없앤다.
+	# ⚠**아래 세 관문(죽음 연출·무대 중 입력 삼킴·결과 팝업)보다 위에 있어야 한다.** 무대가 끝나면
+	#   결과 팝업이 열려 있고 그 분기가 먼저 return하므로, 밑에 두면 **두 번째 재생이 안 먹는다**
+	#   (실측으로 드러났다 — 한 번 듣고 매번 팝업을 닫아야 했다).
+	# ⚠**진행도는 안 건드린다** — _check_win과 달리 cleared·_save_campaign을 안 부른다.
+	#   보드를 조작하는 '8'키와 같은 급이라 릴리스 빌드에선 죽는다.
+	if event is InputEventKey and (event as InputEventKey).pressed \
+			and (event as InputEventKey).keycode == KEY_5 and OS.is_debug_build():
+		game_over = false
+		game_clear = true
+		result_t = -1.0                # 팝업 개봉 타이머를 되감는다(안 그러면 무대 위에 팝업이 남는다)
+		_sfx_fanfare_used = false      # 판당 1회 상한을 풀어야 두 번째 재생에도 아르페지오가 산다
+		_plan_clear_fx()
+		clear_show_t = -CLEAR_HOLD     # 프리롤(스윕)부터 = 실제 승리와 완전히 같은 경로
+		_fb("finish")
+		queue_redraw()
+		return
+
 	# ── 죽음 연출 재생 중: 아무 입력이나 누르면 건너뛴다 (재도전을 반복할 땐 매번 1.6초가 짐이 된다)
 	if _death_playing():
 		var skip: bool = (event is InputEventMouseButton and (event as InputEventMouseButton).pressed) \
@@ -4578,11 +4693,15 @@ func _process(delta: float) -> void:
 		var el_now: float = clear_show_t + CLEAR_HOLD
 		for r in range(ROWS):
 			var tr: float = float(ROWS - 1 - r) * CLEAR_SWEEP_STAGGER
-			if el_was < tr and el_now >= tr:
+			# ⚠경계는 `<=`/`>`다. 맨 아랫행은 tr = 0인데 타이머가 정확히 -CLEAR_HOLD에서 시작하므로
+			#   `el_was < 0`은 첫 프레임부터 거짓이었다 = **맨 아랫행만 팝·파편이 통째로 빠져 있었다**
+			#   (지우기는 _draw_clear_wipe가 따로 그려서 눈에 안 띄었다). 소리를 붙이다 드러난 선재 결함.
+			if el_was <= tr and el_now > tr:
 				_sweep_row_fx(r)
 		# 색종이는 로고가 다 선 뒤에 쏟아진다 — 클리어 즉시 뿌리면 조립을 가리고, 정작 고조 구간엔 남는 게 없다
 		if was < CLEAR_CONFETTI_AT and clear_show_t >= CLEAR_CONFETTI_AT:
 			_spawn_confetti(true)
+		_clear_stage_audio(was, clear_show_t)   # 글자·정점·폭죽 — 화면과 같은 타이머에서(R17)
 		queue_redraw()
 
 	# 결과 팝업 타이머 — 무대가 끝난(또는 실패로 바로 뜬) 시점부터 순차 개봉
