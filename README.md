@@ -64,6 +64,7 @@ git clone <이 저장소>
 
 | 파일 | 무엇이 들어 있나 |
 |---|---|
+| [`CREDITS.md`](docs/CREDITS.md) | 외부 에셋·오픈소스 출처와 라이선스 전수 목록 |
 | [`RELEASE.md`](docs/RELEASE.md) | 소스에서 Play 업로드 파일까지 가는 절차 |
 | [`PRIVACY.md`](docs/PRIVACY.md) | 개인정보처리방침 초안 + Play 제출 답안 |
 | [`AD_PLAN.md`](docs/AD_PLAN.md) | 광고 배관. 광고가 **안 나올 때** 게임이 무엇을 하는가가 핵심 |

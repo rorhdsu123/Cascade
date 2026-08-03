@@ -1,0 +1,19 @@
+BlockCastle — 폰트 출처
+
+두 폰트 모두 SIL Open Font License 1.1이고, 라이선스 전문은 같은 폴더의 OFL.txt에 있다.
+⚠OFL.txt의 첫 줄은 Noto의 저작권 표기다 — Baloo 2의 표기가 빠져 있어서 이 파일로 채운다.
+  OFL은 저작권 표기와 라이선스 전문을 함께 동봉할 것을 요구하고, 라이선스 본문은 두 폰트가
+  같은 버전이라 하나로 충분하다.
+
+NotoSans-Regular.ttf
+  Copyright 2022 The Noto Project Authors
+  https://github.com/notofonts/latin-greek-cyrillic
+  SIL Open Font License 1.1
+  용도: 본문·UI 전반. 라틴 전용 서브셋이라 CJK는 두부가 된다(i18n.gd SUPPORTED=["en"]의 이유).
+
+Baloo2.ttf
+  Copyright 2019 The Baloo 2 Project Authors
+  https://github.com/EkType/Baloo2
+  SIL Open Font License 1.1
+  용도: 표시용(_font_display) — 콤보 칭찬 텍스트 등 캔디 톤 굵은 글자.
+  백로그: 라틴 서브셋으로 줄이기(출시 전, C90에서 남긴 항목).
