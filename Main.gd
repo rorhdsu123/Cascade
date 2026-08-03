@@ -1147,6 +1147,22 @@ const SFX_WORDS: Dictionary = {
 	#   같은 악기·같은 레벨이면 판 시작이 판 끝처럼 들린다. 한 옥타브 위는 길이도 0.7초로 줄어
 	#   '툭 안착'에 맞고, 칩이 **위로** 날아가는 화면 방향과도 맞는다.
 	"goal_dock": {"gap": 0.00, "db": -12.0, "det": 0.004, "base": 12, "music": true},
+	# ── 보석 카운터 도착(R24 · §22 B-2) ────────────────────────────────────────
+	# §17이 "레퍼런스에서 **가장 밀도 높은 소리**(REF_gem 500ms 연속 열차)가 우리는 무음"이라고
+	#   적어 둔 자리다. 잡는 순간엔 `chain`이 울리는데(_apply_hit) 0.42초 날아가 **카운터에 닿는
+	#   순간**은 조용했다 — 화면에선 숫자가 오르고 카운터가 톡 튀는(collect_pop) 바로 그 프레임이다.
+	# ⚠**파형은 `goal_dock`과 같은 글로켄이다** — 둘 다 '무언가가 상단 HUD에 날아가 안착한다'는
+	#   같은 문법이고(§31), 잡을 때의 `chain`(pop_high)과 갈려야 "잡았다 → 도착했다"가 두 사건으로
+	#   읽힌다. 같은 파형을 두 번 쓰면 메아리로 들린다.
+	# ⚠**음정이 진행도를 나른다** — 그 색의 quota를 향해 4계단(0/2/4/7)을 오른다. 마지막 보석이
+	#   가장 높아서 '다 모았다'가 귀로 온다. 화면(카운터 숫자)이 이미 말하는 것의 보강이다(§2).
+	# ⚠판당 **15발**까지 나간다(st9 = collect_targets [15]) → §4 "잦을수록 작고 짧게"가 세게 걸린다.
+	#   그래서 base +12로 올려 길이를 1.4 → 0.7초로 줄이고(지속음이 15발 쌓이면 진흙이다) 레벨도
+	#   `chain`(−7.6)보다 한참 아래로 뒀다.
+	# ⚠**gap 0이다 = 절대 안 드롭한다.** 한 블라스트에서 여러 개가 같은 프레임에 도착할 수 있는데
+	#   간격으로 눌러 버리면 화면 카운터는 +3인데 소리는 한 발이 된다 — 진행 신호를 삼키는 셈이다.
+	#   겹쳐도 5음계라 **화음**이 되고(정점 화음과 같은 이치) 지속음 전용 풀이라 삭제음을 안 뺏는다.
+	"collect": {"gap": 0.00, "db": -12.0, "det": 0.004, "base": 12, "music": true},
 }
 const SFX_VOICES: int = 8
 # ⚠12다. 글자 6음(각 1.4초)이 아직 울리는 채로 정점 화음 4음이 얹혀 **최대 10**이 겹친다(실측) —
@@ -1215,6 +1231,9 @@ const FB_MAP: Dictionary = {
 	# 목표 카드(R23)도 소리만 — 판이 아직 시작 전이라 손에 닿는 사건이 없다.
 	"goal_in": {"hap": "", "sfx": "goal_in"},
 	"goal_dock": {"hap": "", "sfx": "goal_dock"},
+	# 보석 도착(R24)도 소리만 — 잡는 순간의 진동은 이미 없고(chain은 무진동, 캐스케이드 뭉갬),
+	#   도착마다 진동을 얹으면 판당 15번이라 승자독식 액추에이터가 통째로 뭉갠다.
+	"collect": {"hap": "", "sfx": "collect"},
 }
 
 # 유일한 접점. 호출부는 '무엇이 일어났나'만 말한다.
@@ -1367,6 +1386,7 @@ func _sfx_build_bank() -> void:
 	# 목표 카드(R23) — 등장은 UI 파형 3발, 안착만 글로켄 한 방(레퍼런스와 같은 역할 분담).
 	_sfx_bank["goal_in"] = hi
 	_sfx_bank["goal_dock"] = ml if ml != null else hi
+	_sfx_bank["collect"] = _sfx_bank["goal_dock"]   # 보석 도착 = 목표 칩 안착과 같은 사건(R24)
 
 
 # 전용 SFX 버스 + 하드 리미터를 **런타임에** 만든다 — 버스 레이아웃 리소스 파일을 안 만들므로
@@ -1445,6 +1465,9 @@ func _sfx(kind: String, intensity: float = 0.0) -> void:
 		#   R9에서 기각된 '거슬리는' 대역으로 되돌아간다. +5까지가 안전선이다.
 		_sfx_queue.append({"at": _sfx_t + 0.045, "kind": "clear2", "semi": 0})
 		_sfx_queue.append({"at": _sfx_t + 0.135, "kind": "clear2", "semi": 5})
+	elif kind == "collect":
+		# 진행도 계단을 호출부가 넘긴다(사다리 index) — 축하 무대의 스윕·글자와 같은 문법이다.
+		semi = _sfx_semi(int(intensity))
 	elif kind == "goal_in":
 		# 목표 카드 등장 = **3발 상승 figure**(레퍼런스 온셋 간격 85ms 그대로, §31). 첫 발은 지금,
 		#   나머지 둘은 예약한다 — 카드가 떠오르는 0.28초 안에 셋이 다 들어간다.
@@ -4991,6 +5014,15 @@ func _process(delta: float) -> void:
 			if gt2 < collect_pop.size():
 				collect_pop[gt2] = 0.34   # 카운터 톡 튐
 			kill_pulse = 0.35
+			# 도착 = 카운터가 오르는 그 프레임(R24 · §22 B-2). 음정은 **그 색의 진행도**를 나른다:
+			#   quota를 4계단으로 나눠 마지막 보석이 가장 높다 = '다 모았다'가 귀로 온다.
+			#   ⚠증가 **뒤에** 센다(안 그러면 마지막 보석이 한 계단 아래로 울린다).
+			var gtg: int = int(tgts2[gt2]) if gt2 < tgts2.size() else 0
+			var ggot: int = int(collected_by_type[gt2]) if gt2 < collected_by_type.size() else 0
+			var gstep: int = 0
+			if gtg > 1:
+				gstep = int(floor(float(maxi(0, ggot - 1)) / float(gtg - 1) * 3.0))
+			_fb("collect", float(gstep))
 			gem_flights.remove_at(gf)
 			if not game_clear and not game_over:
 				_check_win()              # 마지막 보석이 도착하며 클리어

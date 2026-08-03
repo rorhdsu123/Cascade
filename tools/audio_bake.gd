@@ -120,6 +120,17 @@ func _init() -> void:
 			[m._sfx_bank["goal_dock"], int(wd["goal_dock"]["base"]), float(wd["goal_dock"]["db"]),
 					float(m.INTRO_TOTAL)],
 		])
+	# ⑪ 보석 카운터 도착(R24) — 진행도 4계단을 이어 굽고, 끝에 **동시 도착 5개**를 붙인다.
+	#   이 라운드의 판단 둘이 그대로 들려야 한다: ①음정이 진행도를 나르나 ②겹칠 때 화음이 되나.
+	var gc: AudioStreamWAV = m._sfx_bank["collect"]
+	var gdb: float = float(wd["collect"]["db"])
+	var gbase: int = int(wd["collect"]["base"])
+	var gtl: Array = []
+	for gi2 in range(4):
+		gtl.append([gc, gbase + int(lad[gi2]), gdb, float(gi2) * 0.55])
+	for gi3 in range(5):        # 같은 프레임에 다섯 = 5음계라 화음이 된다(간격 0 = 안 드롭)
+		gtl.append([gc, gbase + int(lad[gi3]), gdb, 2.60])
+	_at("%s/GEM_COLLECT.wav" % OUT_DIR, gtl)
 	m.free()
 	quit()
 

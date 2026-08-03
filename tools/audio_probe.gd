@@ -529,6 +529,72 @@ func _pass_intro(skip: bool) -> Dictionary:
 		ev.append({"t": float(e["t"]) - t0, "kind": String(e["kind"]), "semi": int(e["semi"])})
 	return {"ev": ev}
 
+# 패스 J — 보석 카운터 도착(R24 · §22 B-2). **수집 스테이지에서만** 나는 소리라 봇 패스(스테이지 1)엔
+#   한 발도 안 나온다 — 여기서 안 재면 배선이 통째로 빠져 있어도 초록이다(grab·score·fail에서
+#   네 번 겪은 함정). 잡기(_apply_hit)부터 도착(_process의 gem_flights 만료)까지 **실제 경로**를 태운다.
+func _pass_gem() -> Dictionary:
+	g.sfx_log_on = true
+	g.sound_on = true
+	g._sfx_log = []
+	g._sfx_t = 0.0
+	seed(SEED_CAMPAIGN)
+	g.seed_game(SEED_CAMPAIGN)
+	# ⚠**스테이지 번호를 박지 않는다** — 수집판의 위치는 밸런스 작업마다 바뀐다(지금은 5번째지만
+	#   이름은 st9다). 박아 두면 순서가 바뀐 날 검사가 조용히 '보석 0발'로 초록이 된다.
+	var sidx: int = -1
+	for si in range((g.STAGES as Array).size()):
+		if not (g.STAGES[si] as Dictionary).get("collect_targets", []).is_empty():
+			sidx = si
+			break
+	if sidx < 0:
+		return {"n": -1, "target": -1, "semis": [], "got": -1}
+	g._start_stage(sidx)
+	g.intro_t = -1.0
+	_idle(12)
+	var tgt: int = int((g.st.get("collect_targets", [1]) as Array)[0])
+	var semis: Array = []
+	var arrivals: int = 0
+	for i in range(tgt):
+		for c0 in range(int(g.COLS)):
+			g.board[0][c0] = ""          # 맨 윗줄을 비워 둔다 — 차 있으면 _spawn_gem이 조용히 보류한다
+		g._spawn_gem(i % int(g.COLS))
+		var gid: int = -1
+		for e0 in g.enemies:
+			if String((e0 as Dictionary)["etype"]) == "gem":
+				gid = int((e0 as Dictionary)["id"])
+		if gid < 0:
+			continue
+		g._sfx_log = []
+		g._apply_hit({"id": gid, "dmg": 1, "kb": 0})   # 낚아챔 → 비행 시작(여기선 chain이 운다)
+		_idle(36)                                       # 비행 0.42초보다 길게 = 도착까지
+		for e1 in g._sfx_log:
+			var e: Dictionary = e1 as Dictionary
+			if String(e["drop"]) == "" and String(e["kind"]) == "collect":
+				arrivals += 1
+				semis.append(int(e["semi"]))
+	# ② **동시 도착** — 한 블라스트에서 여러 개가 같은 프레임에 닿을 수 있다. 간격으로 눌리면
+	#   화면 카운터는 +5인데 소리는 한 발이 된다(진행 신호를 삼킴) → 다 울리는지, 그리고 그때
+	#   지속음 풀이 넘치지 않는지 같이 본다.
+	g._sfx_log = []
+	for _k in range(5):
+		g.gem_flights.append({"from": Vector2.ZERO, "to": Vector2.ZERO, "t": 0.0, "dur": 0.05,
+				"gtype": 0, "color": Color.WHITE})
+	_idle(10)
+	var burst: int = 0
+	var burst_drop: int = 0
+	for e2 in g._sfx_log:
+		var e3: Dictionary = e2 as Dictionary
+		if String(e3["kind"]) != "collect":
+			continue
+		if String(e3["drop"]) == "":
+			burst += 1
+		else:
+			burst_drop += 1
+	var mgm: Dictionary = _analyze(g._sfx_log)
+	return {"n": arrivals, "target": tgt, "semis": semis, "burst": burst, "burst_drop": burst_drop,
+			"music": int(mgm["max_music"]),
+			"got": int(g.collected_by_type[0]) if (g.collected_by_type as Array).size() > 0 else -1}
+
 func _run() -> void:
 	g = load("res://Main.tscn").instantiate()
 	root.add_child(g)
@@ -633,12 +699,14 @@ func _run() -> void:
 			#   나중에 패스 A를 더 길게 굴리면 정상 동작이 FAIL로 나오는 자리다.
 			"result_win", "result_lose", "result_cta",
 			# 목표 카드(R23) — 이건 패스 A에도 **나온다**(캠페인 진입에서 켜지므로 봇 패스의 첫 소리다).
-			"goal_in", "goal_dock"]
+			"goal_in", "goal_dock",
+			# 보석 도착(R24) — 수집 스테이지 전용이라 패스 A(스테이지 1)엔 안 나온다. 패스 J가 잰다.
+			"collect"]
 	var unexpected: Array = []
 	for k in kinds_a.keys():
 		if not allowed.has(String(k)):
 			unexpected.append(k)
-	_check("⑦ 어휘는 설계표(28) 안", unexpected.is_empty(),
+	_check("⑦ 어휘는 설계표(29) 안", unexpected.is_empty(),
 			"예상 밖: %s" % str(unexpected))
 
 	# ── 패스 D: 어휘 직접 타격(fanfare 1회 상한·판 경계 리셋)
@@ -885,6 +953,25 @@ func _run() -> void:
 		skipped[k5] = int(skipped.get(k5, 0)) + 1
 	_check("㉖ 인트로 스킵 = 닫기음만(안착음 없음)",
 			int(skipped.get("goal_dock", 0)) == 0 and int(skipped.get("tap_back", 0)) == 1, str(skipped))
+
+	# ── 패스 J: 보석 카운터 도착(R24 · §22 B-2)
+	var gm: Dictionary = _pass_gem()
+	print("── 보석 도착: %d발 / quota %d · 수집 %d · 음정 %s"
+			% [int(gm["n"]), int(gm["target"]), int(gm["got"]), str(gm["semis"])])
+	_check("㉗ 도착 배선 = 보석 하나에 한 발", int(gm["n"]) == int(gm["target"]),
+			"%d발 / %d개" % [int(gm["n"]), int(gm["target"])])
+	# 음정이 진행도를 나르는가 — 첫 발은 사다리 바닥, 마지막 발은 꼭대기, 그리고 **되돌아가지 않는다.**
+	var gs: Array = gm["semis"]
+	var mono: bool = true
+	for i in range(1, gs.size()):
+		if int(gs[i]) < int(gs[i - 1]):
+			mono = false
+	_check("㉗ 음정이 진행도를 나른다(바닥→꼭대기·역행 0)",
+			mono and gs.size() > 0 and int(gs[0]) == 0 and int(gs[gs.size() - 1]) == 7, str(gs))
+	# 동시 도착 — 카운터가 +5면 소리도 5발이어야 한다(간격으로 눌리면 진행 신호를 삼킨다).
+	_check("㉘ 동시 도착 5개 = 5발(드롭 0) · 선율 풀 %d 이내" % MAX_MUSIC_VOICES,
+			int(gm["burst"]) == 5 and int(gm["burst_drop"]) == 0 and int(gm["music"]) <= MAX_MUSIC_VOICES,
+			"%d발 · 드롭 %d · 선율 %d" % [int(gm["burst"]), int(gm["burst_drop"]), int(gm["music"])])
 
 	print("=== %s (실패 %d) ===" % ["PASS" if fails == 0 else "FAIL", fails])
 	quit(1 if fails > 0 else 0)
