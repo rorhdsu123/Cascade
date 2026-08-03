@@ -2,13 +2,13 @@
 
 importer="wav"
 type="AudioStreamWAV"
-uid="uid://b0867kph152de"
-path="res://.godot/imported/fwF_boom.wav-973379ded7796cc7823a1f01af99c14e.sample"
+uid="uid://cbib5u03dj36m"
+path="res://.godot/imported/riseC_synth.wav-1cc19f644695b935c468c172f8f11d06.sample"
 
 [deps]
 
-source_file="res://sfx/pick/fwF_boom.wav"
-dest_files=["res://.godot/imported/fwF_boom.wav-973379ded7796cc7823a1f01af99c14e.sample"]
+source_file="res://sfx/pick/riseC_synth.wav"
+dest_files=["res://.godot/imported/riseC_synth.wav-1cc19f644695b935c468c172f8f11d06.sample"]
 
 [params]
 

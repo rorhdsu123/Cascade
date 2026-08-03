@@ -128,9 +128,12 @@ def parse_main():
     #   **조용히 안 돌아간다**(§18의 '조용한 탈락'과 같은 사고) → 후보 목록도 같이 읽고,
     #   그래도 못 찾은 어휘는 아래에서 경고로 띄운다.
     picks = re.findall(r'\["res://sfx/(pick/\w+)\.wav",', src)
-    if picks:
-        m0 = re.search(r'var\s+fw_pick:\s*int\s*=\s*(\d+)', src)
-        bank.setdefault("fw_pop", picks[int(m0.group(1)) if m0 else 0])
+    loader = re.search(r'func _sfx_load_fw.*?_sfx_bank\["(\w+)"\]\s*=\s*st', src, re.S)
+    if picks and loader:
+        # ⚠어느 **어휘**가 후보를 쓰는지도 코드에서 읽는다 — R18에서 후보 목록이 fw_pop에서
+        #   fw_rise로 옮겨 갔는데 여기 이름을 박아 뒀더니 표가 **옛 파형을 계속 보여줬다**.
+        m0 = re.search(r'var\s+\w*pick:\s*int\s*=\s*(\d+)', src)
+        bank[loader.group(1)] = picks[(int(m0.group(1)) if m0 else 0) % len(picks)]
     words, missing = [], []
     for name, body in re.findall(r'"(\w+)":\s*\{("gap".*?)\},', src):
         if name not in bank:

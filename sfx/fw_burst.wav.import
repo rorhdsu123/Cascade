@@ -2,13 +2,13 @@
 
 importer="wav"
 type="AudioStreamWAV"
-uid="uid://d3nn3ia58gbwi"
-path="res://.godot/imported/fwE_deep.wav-aeae0e136cd633d829ca05fc74891bd1.sample"
+uid="uid://y0bm808tgnlu"
+path="res://.godot/imported/fw_burst.wav-332634282acbe7bd9b5da824d6e10e17.sample"
 
 [deps]
 
-source_file="res://sfx/pick/fwE_deep.wav"
-dest_files=["res://.godot/imported/fwE_deep.wav-aeae0e136cd633d829ca05fc74891bd1.sample"]
+source_file="res://sfx/fw_burst.wav"
+dest_files=["res://.godot/imported/fw_burst.wav-332634282acbe7bd9b5da824d6e10e17.sample"]
 
 [params]
 

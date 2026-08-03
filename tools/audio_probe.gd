@@ -120,6 +120,16 @@ func _play(max_places: int, idle: int) -> int:
 	return places
 
 # ── 로그 해석 ────────────────────────────────────────────────────────────────
+# 파형 지문 — 같은 소리가 다른 파일 이름으로 들어와도 같은 값이 나온다(길이 + 성긴 체크섬).
+func _fp(st) -> String:
+	var d: PackedByteArray = st.data
+	var sum: int = 0
+	var i: int = 0
+	while i < d.size():
+		sum = (sum * 31 + d[i]) & 0x7fffffff
+		i += 97
+	return "%d:%d" % [d.size(), sum]
+
 # 어휘 한 발이 실제로 몇 초 우는가 — 파형 길이 ÷ 재생 음정. 뱅크·SFX_WORDS에서 직접 읽는다.
 func _dur(kind: String, semi: int) -> float:
 	var st = g._sfx_bank.get(kind, null)
@@ -653,8 +663,31 @@ func _run() -> void:
 	_check("⑳ 로고 조립 배선(글자 %d + 정점 1)" % (int(g.WM_L1.length()) + 1),
 			int(cnt.get("letter", 0)) == int(g.WM_L1.length()) + 1 and int(cnt.get("logo", 0)) == 1,
 			"letter %d · logo %d" % [int(cnt.get("letter", 0)), int(cnt.get("logo", 0))])
-	_check("⑳ 로고 강펀치 = 2층(광택이 뒤따름)", int(cnt.get("clear2", 0)) >= 1,
-			"clear2 %d발" % int(cnt.get("clear2", 0)))
+	# ⚠**이 검사가 R18에서 통째로 바뀌었다.** 전엔 "로고 강펀치 = 2층(광택이 뒤따름)"을 봤는데,
+	#   그 2층 문법(타격 + 45ms 광택)이 **바로 삭제음의 문법**이라 유저가 "폭죽 터질 때 라인 터지는
+	#   소리가 들린다"고 잡아냈다. 즉 옛 검사는 결함을 **지키고 있었다.**
+	#   지금 보는 것: 무대가 열린 뒤(t≥0) 울리는 소리가 **판 안의 삭제·로켓 파형을 쓰지 않는가.**
+	#   ⚠어휘 이름이 아니라 **파형 파일**로 본다 — R18의 발사음은 이름만 `fw_rise`였고 파일은
+	#   블라스트 로켓 그 자체였다(이름만 보는 검사는 조용히 통과했다).
+	#   ⚠`letter`(=place와 같은 pop_low)는 **일부러 남긴 인용**이다: 로고 글자는 블록이 놓이는
+	#   것이니 의미가 같다. 스윕·종료 타격도 프리롤(t<0)이고 '판 전체 줄삭제'라 의미가 같다.
+	# ⚠**경로가 아니라 소리로 비교한다.** 처음엔 resource_path로 봤는데, 후보 폴더에 들어 있는
+	#   `riseD_current.wav`는 로켓음의 **복사본**이라 경로만 다르고 소리는 같다 → 검사가 조용히
+	#   통과했다(일부러 결함을 세워 재 보고 알았다). **자를 만들면 그 자가 실패하는지부터 볼 것.**
+	var play_fps: Array = []
+	for k in ["clear", "clear2", "clear_hit", "clear_note", "rocket"]:
+		var st0 = g._sfx_bank.get(k, null)
+		if st0 != null and not play_fps.has(_fp(st0)):
+			play_fps.append(_fp(st0))
+	var quoted: Array = []
+	for e0 in ev:
+		var e2: Dictionary = e0 as Dictionary
+		if float(e2["t"]) < 0.0:
+			continue
+		var st1 = g._sfx_bank.get(String(e2["kind"]), null)
+		if st1 != null and play_fps.has(_fp(st1)):
+			quoted.append("%s(%s)" % [String(e2["kind"]), String(st1.resource_path).get_file()])
+	_check("⑳ 무대가 열린 뒤엔 삭제·로켓 파형을 안 쓴다", quoted.is_empty(), "인용: %s" % str(quoted))
 	_check("㉑ 폭죽 = 발사·터짐 각 %d발" % int(g.CLEAR_ROCKET_N),
 			int(cnt.get("fw_rise", 0)) == int(g.CLEAR_ROCKET_N) and int(cnt.get("fw_pop", 0)) == int(g.CLEAR_ROCKET_N),
 			"발사 %d · 터짐 %d" % [int(cnt.get("fw_rise", 0)), int(cnt.get("fw_pop", 0))])

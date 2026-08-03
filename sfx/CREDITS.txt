@@ -66,3 +66,13 @@ sfx/pick/fw*.wav = OpenGameArt "25 CC0 bang / firework SFX" (rubberduck)
 ⚠**임포트 압축**: R16에 들어온 clear_hit·clear_note·rocket이 `compress/mode=2`(QOA)로 남아 있었다.
   게임 재생은 멀쩡하지만 `AudioStreamWAV.data`가 PCM이 아니라 **bake 도구가 쓰레기 프리뷰를 만든다**
   (§13에 적혀 있는 함정을 그 세 파일에만 안 지켰다). 전부 `compress/mode=0`으로 고쳤다.
+
+── R18 후속: 축하 무대가 게임플레이 소리를 인용하던 것 ──
+유저: "폭죽 터질 때 블록 라인 터지는 소리가 들린다." 정확한 관찰이었다 —
+  ①로고 강펀치 = chip_low + 45ms chip_high = **A안 삭제음과 파형·층 구조가 같음**
+  ②폭죽 발사 = rocket.wav = **블라스트 로켓과 같은 파일**
+→ fw_burst.wav = fw_03      (유저 채택, 실제 불꽃놀이 1.03s · 꼬리 크래클)
+  logo_hit.wav = cannon_04  (로고 강펀치 · 대포 0.53s · 0.8~2.5kHz 41% · 2층 폐지)
+  sfx/pick/rise*.wav        (발사음 후보 — 박격포 shot_02·shot_03 / Kenney phaserUp3 / 현재 로켓)
+⚠**의미가 같은 인용은 남긴다**: 스윕의 clear_note·clear_hit(판 전체 줄삭제 = 진짜로 같은 사건),
+  로고 글자의 pop_low(=블록이 놓이는 소리). 유저는 이 둘을 지적하지 않았다.
