@@ -208,7 +208,9 @@ func _ladder(log: Array) -> Dictionary:
 		if String(e["drop"]) != "":
 			continue
 		var k: String = String(e["kind"])
-		if k == "clear":
+		# 다운비트 = 삭제 타격. ⚠B안에선 `clear`가 안 울리고 `clear_hit`이 그 자리다 —
+		#   여기 이름을 안 고치면 런이 절대 안 끊겨서 사다리 되돌림이 전부 '역행'으로 읽힌다.
+		if k == "clear" or k == "clear_hit":
 			if cur.size() > 0:
 				runs.append(cur)
 			cur = []
@@ -379,7 +381,7 @@ func _pass_fx() -> Dictionary:
 	_idle(30)
 	out["climax"] = _count("climax")
 	out["praise"] = _count("praise")
-	out["clear2"] = _count("clear2")     # 삭제 광택 1 + 전멸 3층의 2 = 3발이어야 한다
+	out["clear2"] = _count("clear2")     # B안: 삭제는 광택을 안 쏜다 → 전멸 3층의 2발뿐
 	# ② 비행기 픽업 — 실제 _apply_hit 경로. chain이 다른 처치와 안 섞이게 로그를 비우고 센다.
 	g._spawn_plane(0)
 	var pid: int = -1
@@ -450,15 +452,11 @@ func _run() -> void:
 	root.add_child(g)
 	# ⚠실유저 진행도 보호 — Main.tscn을 띄우면 _ready가 persist_enabled=true로 만든다.
 	g.set("persist_enabled", false)
-	# ⚠**A안(현행 출고 경로)을 잰다.** R16 B안('7'키, 타격+도레미)은 아직 귀로 판정 중이라
-	#   프로브가 검증하는 대상이 아니다. B안을 켜고 돌리면 아래 셋이 반드시 실패하는데, 전부
-	#   설계상 당연한 결과지 결함이 아니다:
-	#     ④ 연쇄 사다리 — 사다리 분석이 `clear_note`를 계단으로 세어 역행으로 읽는다
-	#        (R12에서 `clear2`를 `chain` 이름으로 쏴서 똑같이 당한 적이 있다)
-	#     ⑦ 어휘 열다섯 — `clear_hit`·`clear_note` 둘이 늘어난다
-	#     ⑮ 전멸 3층 — B안은 clear가 clear2를 안 쏘므로 광택이 3발이 아니라 2발이다
-	#   **B안을 채택하면 이 셋을 B 기준으로 다시 쓰고 이 줄을 지울 것.**
-	g.set("clear_ab", 0)
+	# ⚠**A/B가 없어진다**(R20). R16~R19 동안 프로브는 `clear_ab=0`으로 **A안**을 재고 있었고,
+	#   그래서 아래 셋이 A 기준으로 쓰여 있었다 — B 확정과 함께 전부 B로 다시 썼다:
+	#     ④ 연쇄 사다리 — 런을 끊는 다운비트가 `clear`가 아니라 `clear_hit`이다
+	#     ⑮ 전멸 광택 — B는 삭제가 clear2를 안 쏘므로 3발이 아니라 **2발**이다
+	#   **어휘를 바꾸면 검사도 같이 바꿔야 한다**(R9·R18에서 이미 두 번 깨졌다).
 	await process_frame
 
 	print("=== 오디오 프로브 (시드 %d) ===" % SEED_CAMPAIGN)
@@ -542,14 +540,17 @@ func _run() -> void:
 	# ⚠축하 무대 다섯(R17)이 여기 나오는 건 정상이다 — **봇이 실제로 스테이지1을 깬다**(실측).
 	#   패스 D의 옛 주석("봇은 14수 안에 못 깬다")은 밸런스가 바뀌기 전 이야기다. 다만 패스 A는
 	#   승리 후 1초만 더 굴리므로 무대의 앞부분(스윕·글자)까지만 잡힌다 → 전체는 패스 G가 잰다.
-	var allowed: Array = ["grab", "place", "clear", "clear2", "chain", "score", "fail",
+	# ⚠B안 확정(R20)으로 판 안의 삭제음이 `clear_hit` + `clear_note` 두 어휘가 됐고, 로켓이
+	#   실제로 울린다(옛 A 경로에선 clear/clear2였다). 목록을 안 고치면 정상 동작이 FAIL로 나온다.
+	var allowed: Array = ["grab", "place", "clear2", "chain", "score", "fail",
 			"tap", "tap_go", "tap_back", "tap_off", "fanfare", "climax", "praise", "leak",
-			"sweep", "clear_hit", "letter", "chord", "logo", "fw_rise", "fw_pop"]
+			"sweep", "clear_hit", "clear_note", "rocket", "letter", "chord", "logo",
+			"fw_rise", "fw_pop"]
 	var unexpected: Array = []
 	for k in kinds_a.keys():
 		if not allowed.has(String(k)):
 			unexpected.append(k)
-	_check("⑦ 어휘는 설계표(22) 안", unexpected.is_empty(),
+	_check("⑦ 어휘는 설계표(23) 안", unexpected.is_empty(),
 			"예상 밖: %s" % str(unexpected))
 
 	# ── 패스 D: 어휘 직접 타격(fanfare 1회 상한·판 경계 리셋)
@@ -621,8 +622,8 @@ func _run() -> void:
 	var fx: Dictionary = _pass_fx()
 	print("── 창 beat: %s" % str(fx))
 	_check("⑮ 전멸 배선(_fire_climax → climax)", int(fx.get("climax", 0)) == 1, "%d발" % int(fx.get("climax", 0)))
-	_check("⑮ 전멸 = 3층(광택 2발이 뒤따름)", int(fx.get("clear2", 0)) >= 3,
-			"clear2 %d발(삭제 1 + 전멸 2)" % int(fx.get("clear2", 0)))
+	_check("⑮ 전멸 = 3층(광택 2발이 뒤따름)", int(fx.get("clear2", 0)) >= 2,
+			"clear2 %d발(전멸 3층의 2·삭제는 B안이라 광택 없음)" % int(fx.get("clear2", 0)))
 	_check("⑯ 칭찬 팝인 배선(praise_delay 만료 → praise)", int(fx.get("praise", 0)) == 1,
 			"%d발" % int(fx.get("praise", 0)))
 	_check("⑰ 비행기 픽업 배선(_apply_hit → chain)", int(fx.get("plane", 0)) == 1, "%d발" % int(fx.get("plane", 0)))

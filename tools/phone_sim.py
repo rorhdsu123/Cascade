@@ -123,6 +123,11 @@ def parse_main():
     # _sfx_bank["place"] = lo                          → 어휘 → 파형
     bank = dict((w, local[v]) for w, v in
                 re.findall(r'_sfx_bank\["(\w+)"\]\s*=\s*(\w+)', src) if v in local)
+    # 별칭 형태(`_sfx_bank["chord"] = _sfx_bank["letter"]`)도 따라간다 — 안 그러면 그 어휘가
+    #   표에서 빠지고 "못 찾은 어휘" 경고가 **가짜로** 뜬다(경고가 늑대소년이 되면 진짜를 놓친다).
+    for dst, srcw in re.findall(r'_sfx_bank\["(\w+)"\]\s*=\s*_sfx_bank\["(\w+)"\]', src):
+        if srcw in bank:
+            bank[dst] = bank[srcw]
     # ⚠**뱅크를 코드로 못 읽는 어휘가 생길 수 있다** — R18의 fw_pop은 후보 목록에서 골라
     #   `_sfx_load_fw()`가 올리므로 위 정규식에 안 걸린다. 그냥 빠뜨리면 "새 단어마다 폰 시뮬"이
     #   **조용히 안 돌아간다**(§18의 '조용한 탈락'과 같은 사고) → 후보 목록도 같이 읽고,

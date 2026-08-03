@@ -383,10 +383,6 @@ var sound_on: bool = true        # SFX 선호 — _sfx()가 소비한다(AUDIO_P
 # ⚠플테 전용: 삭제음 A/B. 0 = A(현재 칩 2층) · 1 = B(R16 타격+도레미). '7'키로 전환.
 #   §21 방법론 교훈 — **파일 A/B로는 판정이 안 났다("감이 안와"). 게임 안 키 전환만 통했다.**
 #   출고 전에 이 변수와 '7'키를 지우고 이긴 쪽을 고정할 것.
-var clear_ab: int = 1
-var _ab_label_t: float = 0.0     # 전환 직후 무엇이 켜졌는지 보여주는 라벨 수명(초)
-var _ab_label: String = ""       # 라벨 문구(A/B 전환과 로켓 재질 순환이 같은 자리를 쓴다)
-var _ab_col: Color = Color.WHITE
 var bgm_on: bool = false          # ⚠BGM 선호. R1엔 BGM이 없어 **아직 아무것도 안 한다**(AUDIO_PLAN §7).
                                   #   레퍼런스 기본값 OFF. 죽은 토글을 숨길지는 미결.
 var _gear_hover: bool = false
@@ -1215,16 +1211,10 @@ const SFX_MELODY: String = "res://sfx/melody.wav"        # 글로켄 C5 · 1.4�
 # 폭죽 발사 = **박격포 쿵**(실제 불꽃놀이 발사음, 터짐과 같은 팩). R18에서 지적받은
 #   "블라스트 로켓과 같은 파일" 문제가 여기서 끝난다 — 이제 축하 무대엔 판 안의 파형이 없다.
 const SFX_FW_LAUNCH: String = "res://sfx/fw_launch.wav"  # 0.13s · 2155Hz · 폰 −3.4dB
-# 화음 베드만 후보를 남긴다(플테 '4'키). **글로켄의 유일한 약점이 얇은 꼬리**라, 폭죽 밑에
-#   깔리는 몫은 더 두꺼운 악기가 나을 수 있다(레퍼런스는 이 화음이 끝까지 깔려 있다).
-#   ⚠기본값은 **유저가 승인한 상태 그대로**(전부 글로켄)다 — 기본을 내 제안으로 바꿔 두면
-#   승인받은 소리가 조용히 사라진다. 제안은 키 뒤에 둔다.
-const SFX_CHORD_PICKS: Array = [
-	["res://sfx/melody.wav", "1 글로켄(현재·선율과 같음)"],
-	["res://sfx/inst/i2_vibes.wav", "2 비브라폰(꼬리 두껍게)"],
-	["res://sfx/inst/i3_chime.wav", "3 핸드차임"],
-]
-var chord_pick: int = 0                 # 화음 베드 후보. '4'키가 돌린다(릴리스 빌드엔 키가 없다)
+# 화음 베드 = 선율과 **같은 글로켄**이다. 유저가 '4'키로 비브라폰·핸드차임과 비교한 뒤 그대로
+#   두기로 했다(2026-08-03) — 한 악기로 통일하는 쪽이 무대가 하나로 들린다.
+#   ⚠되살릴 때 알 것: 글로켄은 꼬리가 얇아서 폭죽 밑에 깔리는 몫이 약하다. 후보였던
+#   비브라폰·핸드차임 파형은 git C130의 `sfx/inst/`에 있다.
 
 func _sfx_build_bank() -> void:
 	var lo: AudioStream = load(SFX_LOW)
@@ -1277,7 +1267,7 @@ func _sfx_build_bank() -> void:
 	# 축하 무대(R17) — 글자는 '블록이 놓이는' 파형(place와 같다), 로고 강펀치는 삭제 타격과 같은 칩,
 	#   폭죽 터짐은 광택 파형을 −5반음 내려 쓴다(praise와 같은 자리).
 	_sfx_bank["letter"] = ml if ml != null else lo
-	_sfx_load_note()
+	_sfx_bank["chord"] = _sfx_bank["letter"]      # 화음 베드 = 선율과 같은 악기(위 주석)
 	# ⚠로고 강펀치는 **칩이 아니다**(R18). chip_low + 45ms chip_high는 A안 삭제음 그 자체라
 	#   "폭죽 터질 때 라인 터지는 소리가 들린다"로 돌아온다. 대포 한 방 = 층도 없앴다.
 	var lh: AudioStream = load(SFX_LOGO_HIT)
@@ -1285,16 +1275,6 @@ func _sfx_build_bank() -> void:
 	var fb: AudioStream = load(SFX_FW_BURST)
 	_sfx_bank["fw_pop"] = fb if fb != null else sk
 
-
-# 화음 베드 파형을 뱅크에 올린다(현재 후보). '4'키가 chord_pick을 돌리고 이걸 다시 부른다.
-#   ⚠파일이 없으면 선율과 같은 파형으로 되돌린다 = 유저가 승인한 소리(안 깨지고 얇아질 뿐).
-func _sfx_load_note() -> void:
-	var p: String = String((SFX_CHORD_PICKS[chord_pick % SFX_CHORD_PICKS.size()] as Array)[0])
-	var st: AudioStream = load(p) if ResourceLoader.exists(p) else null
-	if st == null:
-		st = load(SFX_MELODY)
-		push_warning("화음 베드 없음(%s) — 선율과 같은 파형으로 대체" % p)
-	_sfx_bank["chord"] = st
 
 # 전용 SFX 버스 + 하드 리미터를 **런타임에** 만든다 — 버스 레이아웃 리소스 파일을 안 만들므로
 #   project.godot·에셋 무변화(설계 §5의 '파일 0개'가 유지된다).
@@ -1357,21 +1337,14 @@ func _sfx(kind: String, intensity: float = 0.0) -> void:
 		return
 	var semi: int = 0
 	if kind == "clear":
-		# ── R16 B안: 1층 타격 + 줄 수만큼의 도레미 런. '7'키로 A안(아래)과 전환한다.
-		if clear_ab == 1 and _sfx_bank.has("clear_hit"):
-			_sfx_chain_step = 0
-			_sfx_last[kind] = _sfx_t
-			_sfx_clear_run(flash_lines, int(clampf(intensity, 1.0, 99.0)))
-			return
-		# 콤보 = 청소 범위 → 음정. 세기가 아니라 음높이라 볼륨을 낮춰 들어도 구분이 살아남는다.
-		semi = _sfx_semi(int(clampf(intensity, 1.0, 99.0)) - 1)
-		_sfx_chain_step = 0     # 다운비트가 연쇄 사다리를 0으로 되돌린다(종 → 뒤이어 오르는 런)
-		# **2단 사건**(레퍼런스 실측: 904Hz 타격 + 40ms 뒤 1550Hz 광택 ≈ +9반음). 낮은 파형으로
-		#   때리고 40ms 뒤 높은 파형이 따라붙어 '팡!'이 된다. 한 음짜리 삭제음은 비어 들린다.
-		#   ⚠_sfx가 아니라 큐(=_sfx_fire 직행)로 넣는다 — `chain`으로 넣으면 사다리 계단이 헛돈다.
-		#   ⚠+9반음을 안 준다 — 둘째 층 파형(1758Hz)이 **이미** 첫 층(1464Hz)보다 높다.
-		#   R9까지는 같은 파형을 썼기에 음정으로 올렸지만, 이제 올리면 2462Hz로 다시 날카로워진다.
-		_sfx_queue.append({"at": _sfx_t + 0.040, "kind": "clear2", "semi": semi})
+		# 삭제음 = **1층 타격 한 발 + 줄 수만큼의 도레미 런**(R16 채택안). 화면에서 일어난 일을
+		#   소리가 그대로 말한다: 음 개수 = 동시에 지운 줄 수, 시작 음높이 = 연속 콤보.
+		#   ⚠R16~R20 동안 '7'키로 옛 칩 2층(A안)과 전환할 수 있었는데 **B안 확정으로 지웠다**
+		#   — 출고본에 A/B가 남아 있으면 안 된다. 옛 경로는 git C124 이전에 있다.
+		_sfx_chain_step = 0
+		_sfx_last[kind] = _sfx_t
+		_sfx_clear_run(flash_lines, int(clampf(intensity, 1.0, 99.0)))
+		return
 	elif kind == "climax":
 		# 전멸 = clear의 '더 큰 판'. 음정이 아니라 **층수**로 커진다(§10 레퍼런스: 레벨 위계가 거의
 		#   없고 음색·제스처·층수로 차별화). 45ms 광택 + 135ms 상승 광택 = 꼬리가 한 번 더 올라간다.
@@ -1467,8 +1440,6 @@ func _sfx_take_voice(music: bool = false) -> AudioStreamPlayer:
 # _hap_step 바로 뒤에서 부른다 — 조기 반환(메뉴·히트스톱)보다 먼저여야 예약된 fanfare 음이 안 끊긴다.
 func _sfx_step(delta: float) -> void:
 	_sfx_t += delta
-	if _ab_label_t > 0.0:                  # A/B 라벨 수명(플테 전용)
-		_ab_label_t = maxf(0.0, _ab_label_t - delta)
 	_sfx_budget = minf(SFX_BUDGET_MAX, _sfx_budget + delta * SFX_BUDGET_REFILL)
 	if _sfx_queue.is_empty():
 		return
@@ -4543,48 +4514,6 @@ func _input(event: InputEvent) -> void:
 				queue_redraw()
 		return
 
-	# ⚠플테 전용 DEV: '5'키 = 클리어 축하 무대를 지금 재생(소리 판정용).
-	#   §21 방법론 교훈 — **파일 A/B로는 판정이 안 나고 게임 안에서 들어야 답이 나온다.** 그런데
-	#   축하 무대는 스테이지를 실제로 깨야만 볼 수 있어서 한 번 듣는 데 몇 분이 들었다 = 귀로
-	#   튜닝하는 게 사실상 불가능했다. 이 키가 그 왕복을 없앤다.
-	# ⚠**아래 세 관문(죽음 연출·무대 중 입력 삼킴·결과 팝업)보다 위에 있어야 한다.** 무대가 끝나면
-	#   결과 팝업이 열려 있고 그 분기가 먼저 return하므로, 밑에 두면 **두 번째 재생이 안 먹는다**
-	#   (실측으로 드러났다 — 한 번 듣고 매번 팝업을 닫아야 했다).
-	# ⚠**진행도는 안 건드린다** — _check_win과 달리 cleared·_save_campaign을 안 부른다.
-	#   보드를 조작하는 '8'키와 같은 급이라 릴리스 빌드에선 죽는다.
-	if event is InputEventKey and (event as InputEventKey).pressed \
-			and (event as InputEventKey).keycode == KEY_5 and OS.is_debug_build():
-		game_over = false
-		game_clear = true
-		result_t = -1.0                # 팝업 개봉 타이머를 되감는다(안 그러면 무대 위에 팝업이 남는다)
-		_sfx_fanfare_used = false      # 판당 1회 상한을 풀어야 두 번째 재생에도 아르페지오가 산다
-		_plan_clear_fx()
-		clear_show_t = -CLEAR_HOLD     # 프리롤(스윕)부터 = 실제 승리와 완전히 같은 경로
-		_fb("finish")
-		queue_redraw()
-		return
-
-	# ⚠플테 전용 DEV: '4'키 = **화음 베드** 재질 순환 + 악구 미리듣기(R20).
-	#   ⚠낱음 하나로는 판정이 안 된다 — 이 층의 값어치는 **음이 서로 겹쳐 우는 것**에 있다.
-	#   그래서 미리듣기가 무대와 같은 박자(글자 0.08초 간격 5음 → 한 음 → 화음)로 돈다.
-	if event is InputEventKey and (event as InputEventKey).pressed \
-			and (event as InputEventKey).keycode == KEY_4 and OS.is_debug_build():
-		chord_pick = (chord_pick + 1) % SFX_CHORD_PICKS.size()
-		_sfx_load_note()
-		_ab_label_t = 3.0
-		_ab_label = "화음 %s" % String((SFX_CHORD_PICKS[chord_pick] as Array)[1])
-		_ab_col = Color(0.55, 0.9, 0.6)
-		for i in range(5):
-			_sfx_queue.append({"at": _sfx_t + float(i) * CLEAR_LETTER_GAP, "kind": "letter",
-					"semi": _sfx_semi(i), "db": float(SFX_WORDS["letter"]["db"])})
-		_sfx_queue.append({"at": _sfx_t + CLEAR_L2_IN - CLEAR_LOGO_IN, "kind": "letter",
-				"semi": _sfx_semi(5), "db": float(SFX_WORDS["letter"]["db"])})
-		for step2 in CLEAR_CHORD:
-			_sfx_queue.append({"at": _sfx_t + CLEAR_L2_IN - CLEAR_LOGO_IN + CLEAR_L2_PUNCH,
-					"kind": "chord", "semi": _sfx_semi(int(step2)), "db": float(SFX_WORDS["chord"]["db"])})
-		queue_redraw()
-		return
-
 	# ── 죽음 연출 재생 중: 아무 입력이나 누르면 건너뛴다 (재도전을 반복할 땐 매번 1.6초가 짐이 된다)
 	if _death_playing():
 		var skip: bool = (event is InputEventMouseButton and (event as InputEventMouseButton).pressed) \
@@ -4663,22 +4592,6 @@ func _input(event: InputEvent) -> void:
 		# ⚠플테 전용 DEV: '9'키 = 점수 +10,000. PB 너머 심화(bf 3~6)를 자연 그라인드 없이 눈으로 보기 위함.
 		#   실제 _add_endless_score를 태워 넘김 엣지·발화·심화 파이프라인 그대로 재현.
 		#   ⚠릴리스 빌드에선 죽는다(OS.is_debug_build) — 점수를 부풀리는 키는 리더보드를 통째로 오염시킨다.
-		# ⚠플테 전용 DEV: '7'키 = 삭제음 A/B 전환 + 즉시 미리듣기(3줄 = 도레미).
-		#   §21 교훈 두 개를 한꺼번에 지킨다 — ①파일 A/B는 판정이 안 나므로 게임 안에서 바꿔 듣는다
-		#   ②미리듣기 없는 축은 "아예 소리가 안 난다"로 읽힌다(R15에서 '7'키가 정확히 그랬다).
-		#   ⚠릴리스 빌드에선 죽는다 — 출고본엔 A/B 자체가 없어야 한다.
-		if pk.pressed and pk.keycode == KEY_7 and OS.is_debug_build():
-			clear_ab = 1 - clear_ab
-			_ab_label_t = 2.0
-			_ab_label = "SFX B — 타격+도레미+로켓" if clear_ab == 1 else "SFX A — 현재(칩)"
-			_ab_col = Color(0.35, 0.85, 1.0) if clear_ab == 1 else Color(0.95, 0.75, 0.35)
-			_sfx_last.erase("clear")        # 간격 게이트를 비워 미리듣기가 씹히지 않게
-			if clear_ab == 1 and _sfx_bank.has("clear_hit"):
-				_sfx_clear_run(3, 1)
-			else:
-				_sfx("clear", 3.0)
-			queue_redraw()
-			return
 		if pk.pressed and pk.keycode == KEY_9 and endless and OS.is_debug_build():
 			_add_endless_score(10000)
 			queue_redraw()
@@ -4844,8 +4757,7 @@ func _process(delta: float) -> void:
 				_spawn_muzzle(rp["dir"], rp["idx"])
 				# R16 B안 — 여기가 무음이라 삭제음이 끝난 뒤 화면만 움직였다. 링 번호로 음정을 올려
 				#   물결이 퍼지는 걸 소리도 따라간다. gap·예산이 발수를 알아서 눌러 준다.
-				if clear_ab == 1:
-					_sfx("rocket", float(rp.get("ring", 0)))
+				_sfx("rocket", float(rp.get("ring", 0)))
 		# 유도 로켓 발사 — 거점서 곧 샐 적으로 호밍(도착 시각에 맞춰 아래 resolve_hits가 처치)
 		for sp in resolve_seeker_plan:
 			if not sp["fired"] and resolve_timer >= sp["launch"]:
@@ -8230,14 +8142,6 @@ func _draw_bottom(fnt: Font) -> void:
 			draw_string(fnt, Vector2(sr.position.x + sr.size.x * 0.5 - dw * 0.5,
 					sr.position.y + sr.size.y * 0.5 + 8.0),
 					dash, HORIZONTAL_ALIGNMENT_LEFT, -1, 22, Color(0.3, 0.3, 0.4))
-
-	# ⚠플테 전용: 삭제음 A/B 라벨. 어느 쪽이 켜졌는지 안 보이면 A/B가 성립하지 않는다(§21).
-	#   전환 직후 2초만 뜨고 사라진다 — 상시 표시는 화면을 어지럽힌다.
-	if _ab_label_t > 0.0 and OS.is_debug_build() and _ab_label != "":
-		var ab_col: Color = _ab_col
-		ab_col.a = clampf(_ab_label_t / 0.5, 0.0, 1.0)     # 마지막 0.5초에 페이드아웃
-		draw_string(fnt, Vector2(24.0, float(bot_y) + 176.0), _ab_label,
-				HORIZONTAL_ALIGNMENT_LEFT, -1, 22, ab_col)
 
 	# 입력 방식 토글 (PC 테스트용) — 눌러서 드래그/클릭 전환. 모바일에선 안 그린다(show_input_toggle).
 	if not show_input_toggle:
