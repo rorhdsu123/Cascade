@@ -1134,6 +1134,19 @@ const SFX_WORDS: Dictionary = {
 	#   ⚠tap 넷과 같은 파형이되 음정은 +2다 — 0·+7·−5·−8엔 이미 임자가 있고(중립·진입·뒤로·잠김)
 	#   같은 값을 주면 UI 소리끼리 서로를 흉내 낸다. +2도 5음계 안이라 판의 소리와 협화한다.
 	"result_cta": {"gap": 0.05, "db": -14.0, "det": 0.012, "base": 2},
+	# ── 판 진입 목표 카드(R23) ─────────────────────────────────────────────────
+	# 레퍼런스 실측(2026-07-31 녹화 · §31)이 이 자리를 **두 사건**으로 쓴다:
+	#   ①배너 등장 = 짧은 3발(온셋 간격 85ms) ②0.35초 무음 ③칩이 HUD에 안착 = 벨 한 방 + 0.9초 감쇠.
+	#   우리 연출도 정확히 같은 3박이다(APPEAR 0.28 · HOLD 0.50 · DOCK 0.35) — **홀드는 비워 둔다.**
+	# ⚠**등장은 UI 파형(pop_high)이다.** 목표 카드는 판 안의 사건이 아니라 화면이 말을 거는 순간이고,
+	#   여기에 새 음색을 주면 세계에 없던 물건이 하나 더 생긴다(§19 UI 탭 넷과 같은 판단).
+	#   단발 탭과는 **figure로** 갈린다 — 탭은 한 발, 이건 0/+4/+7 3발이다.
+	"goal_in": {"gap": 0.00, "db": -11.0, "det": 0.008},
+	# 도킹 안착만 글로켄이다 — 레퍼런스도 이 한 발만 0.9초 우는 벨이고, 우리 파형 중 그걸 할 수 있는 건
+	#   이것뿐이다(§30과 같은 이유). ⚠**+12인 이유는 `result_win`(+7)과 안 겹치려는 것**이다:
+	#   같은 악기·같은 레벨이면 판 시작이 판 끝처럼 들린다. 한 옥타브 위는 길이도 0.7초로 줄어
+	#   '툭 안착'에 맞고, 칩이 **위로** 날아가는 화면 방향과도 맞는다.
+	"goal_dock": {"gap": 0.00, "db": -12.0, "det": 0.004, "base": 12, "music": true},
 }
 const SFX_VOICES: int = 8
 # ⚠12다. 글자 6음(각 1.4초)이 아직 울리는 채로 정점 화음 4음이 얹혀 **최대 10**이 겹친다(실측) —
@@ -1199,6 +1212,9 @@ const FB_MAP: Dictionary = {
 	"result_win": {"hap": "", "sfx": "result_win"},
 	"result_lose": {"hap": "", "sfx": "result_lose"},
 	"result_cta": {"hap": "", "sfx": "result_cta"},
+	# 목표 카드(R23)도 소리만 — 판이 아직 시작 전이라 손에 닿는 사건이 없다.
+	"goal_in": {"hap": "", "sfx": "goal_in"},
+	"goal_dock": {"hap": "", "sfx": "goal_dock"},
 }
 
 # 유일한 접점. 호출부는 '무엇이 일어났나'만 말한다.
@@ -1348,6 +1364,9 @@ func _sfx_build_bank() -> void:
 	_sfx_bank["result_win"] = ml if ml != null else hi
 	_sfx_bank["result_lose"] = ml if ml != null else hi
 	_sfx_bank["result_cta"] = hi
+	# 목표 카드(R23) — 등장은 UI 파형 3발, 안착만 글로켄 한 방(레퍼런스와 같은 역할 분담).
+	_sfx_bank["goal_in"] = hi
+	_sfx_bank["goal_dock"] = ml if ml != null else hi
 
 
 # 전용 SFX 버스 + 하드 리미터를 **런타임에** 만든다 — 버스 레이아웃 리소스 파일을 안 만들므로
@@ -1426,6 +1445,15 @@ func _sfx(kind: String, intensity: float = 0.0) -> void:
 		#   R9에서 기각된 '거슬리는' 대역으로 되돌아간다. +5까지가 안전선이다.
 		_sfx_queue.append({"at": _sfx_t + 0.045, "kind": "clear2", "semi": 0})
 		_sfx_queue.append({"at": _sfx_t + 0.135, "kind": "clear2", "semi": 5})
+	elif kind == "goal_in":
+		# 목표 카드 등장 = **3발 상승 figure**(레퍼런스 온셋 간격 85ms 그대로, §31). 첫 발은 지금,
+		#   나머지 둘은 예약한다 — 카드가 떠오르는 0.28초 안에 셋이 다 들어간다.
+		#   ⚠예약은 `_sfx_fire` 직행이라 여기로 다시 안 들어온다(재귀 없음).
+		_sfx_last[kind] = _sfx_t
+		for i in range(1, 3):
+			_sfx_queue.append({"at": _sfx_t + float(i) * 0.085, "kind": kind, "semi": [0, 4, 7][i]})
+		_sfx_fire(kind, 0)
+		return
 	elif kind == "rocket":
 		semi = mini(int(clampf(intensity, 0.0, 6.0)) * 2, 12)   # 링 번호 → 음정(바깥일수록 높다)
 	# ⚠**로고 강펀치의 2층(45ms 광택)을 뺐다**(R18). clear·climax와 같은 2층 문법이었는데, 그
@@ -1788,6 +1816,7 @@ func _start_stage(idx: int) -> void:
 	mode = "play"
 	_init_game()
 	intro_t = 0.0   # 캠페인 진입에서만 인트로 카드 재생(무한·featured는 _init_game이 -1로 둠)
+	_fb("goal_in")  # 카드가 뜨는 **그 프레임**에(R23). _init_game 뒤라 _sfx_reset에 안 쓸린다
 
 # 무한모드 시작 — 스테이지 dict 없이 EndlessMode가 깊이로 스케줄. DDA off(리더보드 공정성, C52 ⑦).
 func _start_endless() -> void:
@@ -4654,6 +4683,9 @@ func _input(event: InputEvent) -> void:
 		if (event is InputEventMouseButton and (event as InputEventMouseButton).pressed) \
 				or (event is InputEventKey and (event as InputEventKey).pressed):
 			intro_t = -1.0
+			# 스킵 = 카드를 닫은 것 → 닫기 소리. **`goal_dock`은 안 낸다** — 도킹 연출을 건너뛰었으니
+			#   안착도 없었다. 소리가 화면에 없는 사건을 말하면 안 된다(§2 원칙 1).
+			_fb("tap_back")
 		return
 
 	if event is InputEventKey:
@@ -4784,6 +4816,7 @@ func _process(delta: float) -> void:
 		intro_t += delta
 		if intro_t >= INTRO_TOTAL:
 			intro_t = -1.0
+			_fb("goal_dock")   # 칩이 상단 목표 카드에 안착하는 순간 = 레퍼런스의 '도착 벨'(§31)
 		queue_redraw()
 	# 히트스톱: 게임 타이머 전부 정지, 그림만(시간감소라 항상 해제 → 데드락 없음)
 	if hitstop > 0.0:

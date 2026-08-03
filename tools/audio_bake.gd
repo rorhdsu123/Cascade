@@ -110,6 +110,16 @@ func _init() -> void:
 			[m._sfx_bank["result_lose"], int(wd["result_lose"]["base"]), float(wd["result_lose"]["db"]), 2.5],
 			[rc, int(wd["result_cta"]["base"]), float(wd["result_cta"]["db"]), 2.5 + float(m.RESULT_BTN_IN)],
 		])
+	# ⑩ 판 진입 목표 카드(R23) — **타임라인 그대로**(등장 3발 · 홀드 무음 · 안착 벨). 낱개로 들으면
+	#   이 라운드가 지킨 것(홀드 0.5초를 비워 둔 것)이 안 들린다 — 레퍼런스도 그 자리가 0.35초 무음이다.
+	var gi: AudioStreamWAV = m._sfx_bank["goal_in"]
+	_at("%s/GOAL_CARD.wav" % OUT_DIR, [
+			[gi, 0, float(wd["goal_in"]["db"]), 0.0],
+			[gi, 4, float(wd["goal_in"]["db"]), 0.085],
+			[gi, 7, float(wd["goal_in"]["db"]), 0.170],
+			[m._sfx_bank["goal_dock"], int(wd["goal_dock"]["base"]), float(wd["goal_dock"]["db"]),
+					float(m.INTRO_TOTAL)],
+		])
 	m.free()
 	quit()
 

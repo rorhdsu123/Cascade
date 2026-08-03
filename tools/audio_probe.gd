@@ -415,7 +415,9 @@ func _pass_clear() -> Dictionary:
 	g.seed_game(SEED_CAMPAIGN)
 	g._start_stage(0)
 	g.intro_t = -1.0
-	_idle(2)
+	# ⚠12프레임을 흘린다(2가 아니라) — 진입 카드의 예약 음(goal_in 2·3번째, +0.085·0.17초)이
+	#   아래 로그 초기화 **뒤에** 떨어지면 무대 로그에 섞여 '무대 안 무음'이 실제보다 작게 나온다.
+	_idle(12)
 	# 보드에 블록을 깔아 둔다 — 스윕은 **블록이 있는 행만** 울리므로 빈 판이면 0발이 정상이 되어
 	#   검사가 공허해진다. 아래 세 행 + 맨 윗행(= 스윕 종료 타격의 조건)을 채운다.
 	# ⚠**보드를 먼저 비운다.** _start_stage(0)가 남기는 판은 앞 패스와 **유저 세이브**에 따라 달라진다
@@ -499,6 +501,33 @@ func _pass_result(win: bool) -> Dictionary:
 		ring = maxf(ring, t + _dur(String(e["kind"]), int(e["semi"])))
 		ev.append({"t": t - t0, "kind": String(e["kind"])})
 	return {"open": t0, "ev": ev, "hole": hole, "cover": ring - t0}
+
+# 패스 I — 판 진입 목표 카드(R23 · §31). 인트로는 **캠페인 진입에서만** 켜지는데 다른 패스는
+#   전부 `intro_t = -1.0`으로 꺼 두고 재므로(카드가 떠 있으면 첫 클릭이 스킵으로 삼켜진다),
+#   3박(등장 3발 · 홀드 무음 · 안착 1발)이 제대로 갈리는지는 여기서만 드러난다.
+func _pass_intro(skip: bool) -> Dictionary:
+	g.sfx_log_on = true
+	g.sound_on = true
+	g._sfx_log = []
+	g._sfx_t = 0.0
+	seed(SEED_CAMPAIGN)
+	g.seed_game(SEED_CAMPAIGN)
+	var t0: float = g._sfx_t
+	g._start_stage(0)          # ← 여기서 goal_in이 나간다(호출부 배선 검사)
+	if skip:
+		_idle(15)              # 0.25초 뒤 아무 키나 = 스킵(도킹을 건너뛴다)
+		var ev0 := InputEventKey.new()
+		ev0.keycode = KEY_SPACE
+		ev0.pressed = true
+		g._input(ev0)
+	_idle(int((float(g.INTRO_TOTAL) + 0.5) * 60.0))
+	var ev: Array = []
+	for e0 in g._sfx_log:
+		var e: Dictionary = e0 as Dictionary
+		if String(e["drop"]) != "":
+			continue
+		ev.append({"t": float(e["t"]) - t0, "kind": String(e["kind"]), "semi": int(e["semi"])})
+	return {"ev": ev}
 
 func _run() -> void:
 	g = load("res://Main.tscn").instantiate()
@@ -602,12 +631,14 @@ func _run() -> void:
 			# 결과 팝업(R22) — 패스 A에는 **아직 안 나온다**(승리 후 1초만 더 굴리는데 팝업은 죽음
 			#   연출 1.6초·축하 무대 3.6초 뒤에 뜬다). 그래도 설계표에 있으니 여기 적어 둔다 —
 			#   나중에 패스 A를 더 길게 굴리면 정상 동작이 FAIL로 나오는 자리다.
-			"result_win", "result_lose", "result_cta"]
+			"result_win", "result_lose", "result_cta",
+			# 목표 카드(R23) — 이건 패스 A에도 **나온다**(캠페인 진입에서 켜지므로 봇 패스의 첫 소리다).
+			"goal_in", "goal_dock"]
 	var unexpected: Array = []
 	for k in kinds_a.keys():
 		if not allowed.has(String(k)):
 			unexpected.append(k)
-	_check("⑦ 어휘는 설계표(26) 안", unexpected.is_empty(),
+	_check("⑦ 어휘는 설계표(28) 안", unexpected.is_empty(),
 			"예상 밖: %s" % str(unexpected))
 
 	# ── 패스 D: 어휘 직접 타격(fanfare 1회 상한·판 경계 리셋)
@@ -821,6 +852,39 @@ func _run() -> void:
 		#   ⚠상한이 아니라 **하한**이고, 기준은 0.8초다: 타격 파형으로 되돌리면 0.1초쯤에서 끊기므로
 		#   여기서 즉시 터진다. 승·패가 0.93 / 1.87초로 갈리는 건 음정 차(같은 파형을 +7 / −5로 쓴다).
 		_check("㉔ 개봉 창을 소리가 ≥0.8초 덮는다", float(rs["cover"]) >= 0.8, "%.2fs" % float(rs["cover"]))
+
+	# ── 패스 I: 판 진입 목표 카드(R23 · §31)
+	var it: Dictionary = _pass_intro(false)
+	var iev: Array = it["ev"]
+	var in_semis: Array = []
+	var dock_t: float = -1.0
+	var hold_hits: Array = []
+	for e0 in iev:
+		var e4: Dictionary = e0 as Dictionary
+		var k4: String = String(e4["kind"])
+		if k4 == "goal_in":
+			in_semis.append(int(e4["semi"]))
+		elif k4 == "goal_dock":
+			dock_t = float(e4["t"])
+		# 홀드 구간(등장 끝 ~ 도킹 시작)은 **일부러 비운 자리**다(레퍼런스도 0.35초 무음).
+		if float(e4["t"]) > float(g.INTRO_APPEAR) and float(e4["t"]) < float(g.INTRO_APPEAR) + float(g.INTRO_HOLD):
+			hold_hits.append(k4)
+	print("── 목표 카드: %s · 등장 음정 %s · 안착 %.2fs(INTRO_TOTAL %.2f)"
+			% [str(iev.size()) + "발", str(in_semis), dock_t, float(g.INTRO_TOTAL)])
+	_check("㉕ 카드 등장 배선(_start_stage → goal_in 3발 상승)",
+			in_semis == [0, 4, 7], str(in_semis))
+	_check("㉕ 도킹 안착 배선(INTRO_TOTAL → goal_dock)",
+			dock_t >= 0.0 and absf(dock_t - float(g.INTRO_TOTAL)) < 0.05, "%.3fs" % dock_t)
+	# ⚠홀드는 '아직 안 붙인 자리'가 아니라 **비운 자리**다 — 나중에 여기 뭘 붙이면 이 검사가 먼저 묻는다.
+	_check("㉕ 홀드 구간(%.2fs)은 무음" % float(g.INTRO_HOLD), hold_hits.is_empty(), str(hold_hits))
+	# 스킵 — 도킹 연출을 건너뛰었으면 안착음도 없어야 한다(소리가 화면에 없는 사건을 말하면 안 된다).
+	var it2: Dictionary = _pass_intro(true)
+	var skipped: Dictionary = {}
+	for e0 in it2["ev"]:
+		var k5: String = String((e0 as Dictionary)["kind"])
+		skipped[k5] = int(skipped.get(k5, 0)) + 1
+	_check("㉖ 인트로 스킵 = 닫기음만(안착음 없음)",
+			int(skipped.get("goal_dock", 0)) == 0 and int(skipped.get("tap_back", 0)) == 1, str(skipped))
 
 	print("=== %s (실패 %d) ===" % ["PASS" if fails == 0 else "FAIL", fails])
 	quit(1 if fails > 0 else 0)
