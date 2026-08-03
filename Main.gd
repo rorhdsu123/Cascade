@@ -1205,31 +1205,26 @@ const SFX_ROCKET: String = "res://sfx/rocket.wav"          # 신스 상승 150ms
 #     → 판 안의 사건과 **의미가 다른 자리**는 파형도 달라야 한다(스윕·글자는 의미가 같아서 남긴다).
 const SFX_FW_BURST: String = "res://sfx/fw_burst.wav"   # 진짜 불꽃놀이 1.03s · 꼬리에 크래클
 const SFX_LOGO_HIT: String = "res://sfx/logo_hit.wav"   # 대포 0.53s · 0.8~2.5k 41%(레퍼런스 타격 대역)
-# 발사음 후보(플테 '6'키로 순환) — 여기만 취향이 갈린다. 진짜 박격포는 '쿵'(현실의 발사음)이고
-#   신스 riser는 '슈웅'(화면의 상승 제스처)이다. 어느 쪽이 그림에 맞는지는 귀가 정한다.
-#   ⚠D는 **현재 게임의 블라스트 로켓과 같은 파일**이다 — 비교용으로만 둔다(고르면 ②가 되돌아온다).
-# ── R19 선율 악기 후보(플테 '4'키로 순환) ─────────────────────────────────────
-# 음원 = Versilian Community Sample Library(VCSL, CC0) — 실제 악기 녹음.
-# ⚠**전부 C5 기준음으로 맞춰 넣었다**(칼림바는 C#5라 −1, 마림바는 C4라 +12 리샘플). 기준음이
-#   어긋나면 사다리가 조성 밖으로 나가 판 안의 다른 음정과 싸운다.
-# ⚠**1.4초로 잘랐다**(원본 2~7초). 안 자르면 보이스를 그만큼 물고 있어 폴리포니가 마른다.
-const SFX_NOTE_PICKS: Array = [
-	["res://sfx/inst/i1_glock.wav", "1 글로켄(반짝)"],
-	["res://sfx/inst/i2_vibes.wav", "2 비브라폰(부드럽고 길다)"],
-	["res://sfx/inst/i3_chime.wav", "3 핸드차임(맑게 퍼짐)"],
-	["res://sfx/inst/i4_kalimba.wav", "4 칼림바(따뜻·짧음)"],
-	["res://sfx/inst/i5_marimba.wav", "5 마림바(둥근 나무)"],
-	["res://sfx/inst/i6_harp.wav", "6 하프(낮고 넓게)"],
+# ── R20 확정(유저 청취 판정 2026-08-03) ────────────────────────────────────
+# 선율 = **글로켄슈필**(VCSL, CC0). 후보 여섯을 게임 안 '4'키로 돌려 고른 결과다.
+# ⚠**측정으로는 두 번째였고 귀로는 1등이었다.** 중역 비중은 레퍼런스와 가장 가깝지만(63 vs 66%)
+#   **5kHz 위가 25%**로 레퍼런스(1%)보다 훨씬 밝다 — R9에서 "거슬린다"로 기각된 그 밝기다.
+#   그런데 그때는 **판당 5~9번** 울리는 소리였고 이건 **판당 1회**다. 반복 피로가 없는 자리라
+#   반짝여도 된다 → **밝기 상한은 어휘의 빈도와 함께 판단할 것**(대역만 보면 틀린 답이 나온다).
+const SFX_MELODY: String = "res://sfx/melody.wav"        # 글로켄 C5 · 1.4초 · 폰 −0.3dB
+# 폭죽 발사 = **박격포 쿵**(실제 불꽃놀이 발사음, 터짐과 같은 팩). R18에서 지적받은
+#   "블라스트 로켓과 같은 파일" 문제가 여기서 끝난다 — 이제 축하 무대엔 판 안의 파형이 없다.
+const SFX_FW_LAUNCH: String = "res://sfx/fw_launch.wav"  # 0.13s · 2155Hz · 폰 −3.4dB
+# 화음 베드만 후보를 남긴다(플테 '4'키). **글로켄의 유일한 약점이 얇은 꼬리**라, 폭죽 밑에
+#   깔리는 몫은 더 두꺼운 악기가 나을 수 있다(레퍼런스는 이 화음이 끝까지 깔려 있다).
+#   ⚠기본값은 **유저가 승인한 상태 그대로**(전부 글로켄)다 — 기본을 내 제안으로 바꿔 두면
+#   승인받은 소리가 조용히 사라진다. 제안은 키 뒤에 둔다.
+const SFX_CHORD_PICKS: Array = [
+	["res://sfx/melody.wav", "1 글로켄(현재·선율과 같음)"],
+	["res://sfx/inst/i2_vibes.wav", "2 비브라폰(꼬리 두껍게)"],
+	["res://sfx/inst/i3_chime.wav", "3 핸드차임"],
 ]
-var note_pick: int = 0                  # 현재 악기. '4'키가 돌린다(릴리스 빌드엔 키가 없다)
-
-const SFX_RISE_PICKS: Array = [
-	["res://sfx/pick/riseA_thump.wav", "A 박격포 쿵(0.13s)"],
-	["res://sfx/pick/riseB_thump2.wav", "B 박격포 낮게(0.19s)"],
-	["res://sfx/pick/riseC_synth.wav", "C 신스 상승(0.37s)"],
-	["res://sfx/pick/riseD_current.wav", "D 현재=블라스트 로켓(비교용)"],
-]
-var rise_pick: int = 0                  # 현재 후보. '6'키가 돌린다(릴리스 빌드엔 키가 없다)
+var chord_pick: int = 0                 # 화음 베드 후보. '4'키가 돌린다(릴리스 빌드엔 키가 없다)
 
 func _sfx_build_bank() -> void:
 	var lo: AudioStream = load(SFX_LOW)
@@ -1243,6 +1238,8 @@ func _sfx_build_bank() -> void:
 	var ch: AudioStream = load(SFX_CLEAR_HIT)
 	var cn: AudioStream = load(SFX_CLEAR_NOTE)
 	var rk: AudioStream = load(SFX_ROCKET)
+	var ml: AudioStream = load(SFX_MELODY)      # 선율 = 유일한 지속음 파형(전용 보이스 풀로 간다)
+	var fl: AudioStream = load(SFX_FW_LAUNCH)
 	if ch != null and cn != null and rk != null:
 		_sfx_bank["clear_hit"] = ch
 		_sfx_bank["clear_note"] = cn
@@ -1251,7 +1248,7 @@ func _sfx_build_bank() -> void:
 		#   폭죽 발사는 블라스트 로켓과 **같은 신스**(둘 다 뭔가가 날아오르는 소리다).
 		#   ⚠이 둘은 R16 파형에 얹혀 있으므로 파일이 없으면 같이 죽는다(축하가 조용해질 뿐 안 깨진다).
 		_sfx_bank["sweep"] = cn
-		_sfx_bank["fw_rise"] = rk      # 기본값 — 아래 _sfx_load_fw()가 후보로 덮는다
+		_sfx_bank["fw_rise"] = fl if fl != null else rk
 	else:
 		push_warning("R16 삭제음 파형 없음 — '7'키 B안 비활성")
 	# 낮은 파형 = 확정·무게. 높은 파형 = 가벼움·상승.
@@ -1279,6 +1276,7 @@ func _sfx_build_bank() -> void:
 	_sfx_bank["chain"] = hi
 	# 축하 무대(R17) — 글자는 '블록이 놓이는' 파형(place와 같다), 로고 강펀치는 삭제 타격과 같은 칩,
 	#   폭죽 터짐은 광택 파형을 −5반음 내려 쓴다(praise와 같은 자리).
+	_sfx_bank["letter"] = ml if ml != null else lo
 	_sfx_load_note()
 	# ⚠로고 강펀치는 **칩이 아니다**(R18). chip_low + 45ms chip_high는 A안 삭제음 그 자체라
 	#   "폭죽 터질 때 라인 터지는 소리가 들린다"로 돌아온다. 대포 한 방 = 층도 없앴다.
@@ -1286,29 +1284,17 @@ func _sfx_build_bank() -> void:
 	_sfx_bank["logo"] = lh if lh != null else bu
 	var fb: AudioStream = load(SFX_FW_BURST)
 	_sfx_bank["fw_pop"] = fb if fb != null else sk
-	_sfx_load_fw()
 
 
-# 선율 악기를 뱅크에 올린다(현재 후보). '4'키가 note_pick을 돌리고 이걸 다시 부른다.
-#   ⚠파일이 없으면 place 파형으로 되돌린다 = R18까지의 소리(글자가 타격음으로 돌아갈 뿐 안 깨진다).
+# 화음 베드 파형을 뱅크에 올린다(현재 후보). '4'키가 chord_pick을 돌리고 이걸 다시 부른다.
+#   ⚠파일이 없으면 선율과 같은 파형으로 되돌린다 = 유저가 승인한 소리(안 깨지고 얇아질 뿐).
 func _sfx_load_note() -> void:
-	var p: String = String((SFX_NOTE_PICKS[note_pick % SFX_NOTE_PICKS.size()] as Array)[0])
+	var p: String = String((SFX_CHORD_PICKS[chord_pick % SFX_CHORD_PICKS.size()] as Array)[0])
 	var st: AudioStream = load(p) if ResourceLoader.exists(p) else null
 	if st == null:
-		st = load(SFX_LOW)
-		push_warning("선율 악기 없음(%s) — place 파형으로 대체" % p)
-	_sfx_bank["letter"] = st
+		st = load(SFX_MELODY)
+		push_warning("화음 베드 없음(%s) — 선율과 같은 파형으로 대체" % p)
 	_sfx_bank["chord"] = st
-
-# 발사음 파형을 뱅크에 올린다(현재 후보). '6'키가 rise_pick을 돌리고 이걸 다시 부른다.
-#   ⚠파일이 없으면 블라스트 로켓으로 되돌린다 — 발사가 통째로 무음이 되는 것보다 낫다.
-func _sfx_load_fw() -> void:
-	var p: String = String((SFX_RISE_PICKS[rise_pick % SFX_RISE_PICKS.size()] as Array)[0])
-	var st: AudioStream = load(p) if ResourceLoader.exists(p) else null
-	if st == null:
-		st = load(SFX_ROCKET)
-		push_warning("발사음 후보 없음(%s) — 블라스트 로켓으로 대체" % p)
-	_sfx_bank["fw_rise"] = st
 
 # 전용 SFX 버스 + 하드 리미터를 **런타임에** 만든다 — 버스 레이아웃 리소스 파일을 안 만들므로
 #   project.godot·에셋 무변화(설계 §5의 '파일 0개'가 유지된다).
@@ -4578,15 +4564,15 @@ func _input(event: InputEvent) -> void:
 		queue_redraw()
 		return
 
-	# ⚠플테 전용 DEV: '4'키 = 선율 악기 순환 + **악구 전체** 미리듣기(R19).
+	# ⚠플테 전용 DEV: '4'키 = **화음 베드** 재질 순환 + 악구 미리듣기(R20).
 	#   ⚠낱음 하나로는 판정이 안 된다 — 이 층의 값어치는 **음이 서로 겹쳐 우는 것**에 있다.
-	#   그래서 미리듣기가 무대와 같은 박자(글자 0.08초 간격 5음 → 0.22초 뒤 한 음 → 화음)로 돈다.
+	#   그래서 미리듣기가 무대와 같은 박자(글자 0.08초 간격 5음 → 한 음 → 화음)로 돈다.
 	if event is InputEventKey and (event as InputEventKey).pressed \
 			and (event as InputEventKey).keycode == KEY_4 and OS.is_debug_build():
-		note_pick = (note_pick + 1) % SFX_NOTE_PICKS.size()
+		chord_pick = (chord_pick + 1) % SFX_CHORD_PICKS.size()
 		_sfx_load_note()
 		_ab_label_t = 3.0
-		_ab_label = "악기 %s" % String((SFX_NOTE_PICKS[note_pick] as Array)[1])
+		_ab_label = "화음 %s" % String((SFX_CHORD_PICKS[chord_pick] as Array)[1])
 		_ab_col = Color(0.55, 0.9, 0.6)
 		for i in range(5):
 			_sfx_queue.append({"at": _sfx_t + float(i) * CLEAR_LETTER_GAP, "kind": "letter",
@@ -4596,28 +4582,6 @@ func _input(event: InputEvent) -> void:
 		for step2 in CLEAR_CHORD:
 			_sfx_queue.append({"at": _sfx_t + CLEAR_L2_IN - CLEAR_LOGO_IN + CLEAR_L2_PUNCH,
 					"kind": "chord", "semi": _sfx_semi(int(step2)), "db": float(SFX_WORDS["chord"]["db"])})
-		queue_redraw()
-		return
-
-	# ⚠플테 전용 DEV: '6'키 = 폭죽 **발사음** 재질 순환 + 즉시 미리듣기(R18).
-	#   §21 방법론 그대로 — 파일 폴더를 굽지 말고 **게임 안에서 바꿔 가며** 듣는다. 그리고
-	#   **모든 축에 미리듣기를 달 것**(미리듣기가 없는 축은 "아예 소리가 안 난다"로 읽힌다).
-	#   미리듣기는 **발사 → 0.40초 뒤 터짐**을 두 쌍 — 발사음만 떼어 들으면 짝이 맞는지 모른다.
-	if event is InputEventKey and (event as InputEventKey).pressed \
-			and (event as InputEventKey).keycode == KEY_6 and OS.is_debug_build():
-		rise_pick = (rise_pick + 1) % SFX_RISE_PICKS.size()
-		_sfx_load_fw()
-		_ab_label_t = 2.5
-		_ab_label = "발사음 %s" % String((SFX_RISE_PICKS[rise_pick] as Array)[1])
-		_ab_col = Color(1.0, 0.72, 0.35)
-		_sfx_last.erase("fw_rise")
-		_sfx_last.erase("fw_pop")
-		for k in range(2):
-			var at0: float = _sfx_t + float(k) * 0.5
-			_sfx_queue.append({"at": at0, "kind": "fw_rise",
-					"semi": int(CLEAR_FW_SEMI[k]), "db": float(SFX_WORDS["fw_rise"]["db"])})
-			_sfx_queue.append({"at": at0 + CLEAR_ROCKET_RISE, "kind": "fw_pop",
-					"semi": int(CLEAR_FW_SEMI[k]), "db": float(SFX_WORDS["fw_pop"]["db"])})
 		queue_redraw()
 		return
 

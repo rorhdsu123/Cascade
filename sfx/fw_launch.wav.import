@@ -2,13 +2,13 @@
 
 importer="wav"
 type="AudioStreamWAV"
-uid="uid://dlo3vmt88xyq0"
-path="res://.godot/imported/i1_glock.wav-aeafe4f0f3e809f7b47fcb9454d27673.sample"
+uid="uid://hvft4bqgsh4i"
+path="res://.godot/imported/fw_launch.wav-b3e0ec46fc2cd0c53509d3cb6a612429.sample"
 
 [deps]
 
-source_file="res://sfx/inst/i1_glock.wav"
-dest_files=["res://.godot/imported/i1_glock.wav-aeafe4f0f3e809f7b47fcb9454d27673.sample"]
+source_file="res://sfx/fw_launch.wav"
+dest_files=["res://.godot/imported/fw_launch.wav-b3e0ec46fc2cd0c53509d3cb6a612429.sample"]
 
 [params]
 

@@ -76,3 +76,18 @@ sfx/pick/fw*.wav = OpenGameArt "25 CC0 bang / firework SFX" (rubberduck)
   sfx/pick/rise*.wav        (발사음 후보 — 박격포 shot_02·shot_03 / Kenney phaserUp3 / 현재 로켓)
 ⚠**의미가 같은 인용은 남긴다**: 스윕의 clear_note·clear_hit(판 전체 줄삭제 = 진짜로 같은 사건),
   로고 글자의 pop_low(=블록이 놓이는 소리). 유저는 이 둘을 지적하지 않았다.
+
+── R19~R20 선율 층(유저 청취 판정으로 확정, 2026-08-03) ──
+melody.wav   = VCSL "Glockenspiel" / glock_medium_C5_01   — 선율·화음 · 1.4s · 폰 −0.3dB
+i2_vibes.wav = VCSL "Vibraphone(Soft Mallets)" / Vibes_soft_C5_v2   ┐ 화음 베드 후보
+i3_chime.wav = VCSL "Hand Chimes" / sus_C5_r01              ┘ (플테 '4'키)
+             출처: https://github.com/sgossner/VCSL  (CC0 1.0)
+fw_launch.wav = OpenGameArt "25 CC0 bang/firework SFX" / shot_02 — 박격포 발사 · 0.13s
+⚠**C5로 기준음을 맞춰 넣었다.** 어긋나면 사다리가 조성 밖으로 나가 판 안의 다른 음정과 싸운다.
+⚠**1.4초로 잘랐다**(원본 2~7초). 안 자르면 보이스를 그만큼 물고 있어 폴리포니가 마른다.
+⚠**글로켄은 측정 2등·귀 1등이었다**: 중역은 레퍼런스와 가장 가깝지만(63 vs 66%) 5kHz 위가 25%다
+  (레퍼런스 1%). R9에서 같은 밝기가 기각됐지만 그건 **판당 5~9번** 울리는 소리였고 이건 **판당
+  1회**다 → 밝기 상한은 대역만이 아니라 **어휘의 빈도와 함께** 판단할 것.
+기각된 선율 후보: 칼림바(크레스트 19.1 — 짧아서 사이가 빈다) · 마림바 · 하프(300~800Hz 70%,
+  폰 −5.3dB로 유일하게 경고선 근처).
+기각된 발사음 후보: shot_03(낮음) · phaserUp3(신스 상승) · 블라스트 로켓 복사본(비교용이었다).

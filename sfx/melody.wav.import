@@ -2,13 +2,13 @@
 
 importer="wav"
 type="AudioStreamWAV"
-uid="uid://cbib5u03dj36m"
-path="res://.godot/imported/riseC_synth.wav-1cc19f644695b935c468c172f8f11d06.sample"
+uid="uid://dlo3vmt88xyq0"
+path="res://.godot/imported/melody.wav-f06dbd5d23d2997dab09e673fb3e31db.sample"
 
 [deps]
 
-source_file="res://sfx/pick/riseC_synth.wav"
-dest_files=["res://.godot/imported/riseC_synth.wav-1cc19f644695b935c468c172f8f11d06.sample"]
+source_file="res://sfx/melody.wav"
+dest_files=["res://.godot/imported/melody.wav-f06dbd5d23d2997dab09e673fb3e31db.sample"]
 
 [params]
 
