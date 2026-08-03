@@ -179,6 +179,22 @@ func _run() -> void:
 	await _shot("m_enemies")
 	g.set("enemies", prev_enemies)
 
+	# ── 3.6 종이비행기 — 한 장이 **세 곳**에 쓰인다(보드 픽업 CELL*0.60 · 보유 슬롯 90×90 · 발사체).
+	#    크기 차가 커서 한 곳만 보고 판단하면 안 된다(트레이 프리뷰 LOD와 같은 성격) → 둘을 한 프레임에.
+	#    조준(armed) 상태까지 켜 슬롯 테두리 신호가 스프라이트를 안 덮는지도 같이 본다.
+	var prev_held: bool = bool(g.get("plane_held"))
+	var prev_armed: bool = bool(g.get("plane_armed"))
+	g.set("enemies", [{
+		"col": 4, "row": 1, "vis_row": 1.0, "hp": 1, "maxhp": 1,
+		"etype": "plane", "id": 9100, "step_every": 99,
+	}])
+	g.set("plane_held", true)
+	g.set("plane_armed", true)
+	await _shot("n_plane")
+	g.set("plane_armed", prev_armed)
+	g.set("plane_held", prev_held)
+	g.set("enemies", prev_enemies)
+
 	# ── 4. 거점 붕괴 — 열마다 시차를 두고 쏟아지는 블록(보드와 다른 렌더 자리)
 	g.set("core_t", 0.55)
 	await _shot("d_collapse")
@@ -190,6 +206,16 @@ func _run() -> void:
 	await _shot("e_tut")
 	g.set("tut_lock", false)
 	g.set("tut_cells", [])
+
+	# ── 5.2 튜토리얼 말풍선 — 별도 렌더 자리(보드 위 알약 판). 지시(노랑)와 손해 사건(붉은색) 2색을
+	#    한 장에 담아 둘 다 확인한다. 심사위원 전원이 신규 플레이어라 이 판이 첫인상이다(§4 P1).
+	g.set("tut_msg", "Drag a piece onto the board")
+	await _shot("e2_tut_msg")
+	g.set("tut_flash_msg", "The core took damage!")
+	g.set("tut_flash_t", 0.9)
+	await _shot("e3_tut_flash")
+	g.set("tut_flash_t", 0.0)
+	g.set("tut_msg", "")
 
 	# ── 5.5 막힘사(No room left) — 빈 칸이 아래에서 위로 메워지며 보드가 꽉 찬다.
 	#    별도 렌더 자리라 이음새를 놓치기 쉽다(실제로 1차에 놓쳤고 플테서 잡혔다).
