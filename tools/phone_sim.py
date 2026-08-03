@@ -123,15 +123,45 @@ def parse_main():
     # _sfx_bank["place"] = lo                          → 어휘 → 파형
     bank = dict((w, local[v]) for w, v in
                 re.findall(r'_sfx_bank\["(\w+)"\]\s*=\s*(\w+)', src) if v in local)
-    words = []
+    # 별칭 형태(`_sfx_bank["chord"] = _sfx_bank["letter"]`)도 따라간다 — 안 그러면 그 어휘가
+    #   표에서 빠지고 "못 찾은 어휘" 경고가 **가짜로** 뜬다(경고가 늑대소년이 되면 진짜를 놓친다).
+    for dst, srcw in re.findall(r'_sfx_bank\["(\w+)"\]\s*=\s*_sfx_bank\["(\w+)"\]', src):
+        if srcw in bank:
+            bank[dst] = bank[srcw]
+    # ⚠**뱅크를 코드로 못 읽는 어휘가 생길 수 있다** — R18의 fw_pop은 후보 목록에서 골라
+    #   `_sfx_load_fw()`가 올리므로 위 정규식에 안 걸린다. 그냥 빠뜨리면 "새 단어마다 폰 시뮬"이
+    #   **조용히 안 돌아간다**(§18의 '조용한 탈락'과 같은 사고) → 후보 목록도 같이 읽고,
+    #   그래도 못 찾은 어휘는 아래에서 경고로 띄운다.
+    # ── 후보 목록에서 오는 어휘 ──────────────────────────────────────────────
+    # ⚠**로더가 여러 개다**(R19: 발사음 + 선율 악기). 하나만 처리하게 짜 뒀더니 나머지 어휘가
+    #   표에서 조용히 빠졌다 — 그래서 이제 `func _sfx_load_*`를 **전부** 훑어서
+    #   "어느 상수 배열을, 어느 인덱스 변수로, 어느 어휘에" 꽂는지 코드에서 읽는다.
+    #   이름을 하나라도 박아 두면 다음에 또 어긋난다(§R18에서 이미 한 번 겪었다).
+    const_lists = dict((m.group(1), re.findall(r'"res://sfx/([\w/]+)\.wav"', m.group(2)))
+                       for m in re.finditer(r'const\s+(SFX_\w+_PICKS):\s*Array\s*=\s*\[(.*?)\n\]', src, re.S))
+    for fn in re.finditer(r'func (_sfx_load_\w+)\(\).*?(?=\nfunc |\Z)', src, re.S):
+        body = fn.group(0)
+        use = re.search(r'(SFX_\w+_PICKS)\[(\w+)', body)
+        words = re.findall(r'_sfx_bank\["(\w+)"\]\s*=\s*st', body)
+        if not use or not words:
+            continue
+        files = const_lists.get(use.group(1), [])
+        m0 = re.search(r'var\s+%s:\s*int\s*=\s*(\d+)' % use.group(2), src)
+        if files:
+            for w in words:
+                bank[w] = files[(int(m0.group(1)) if m0 else 0) % len(files)]
+    words, missing = [], []
     for name, body in re.findall(r'"(\w+)":\s*\{("gap".*?)\},', src):
         if name not in bank:
-            continue                       # FB_MAP 등 다른 딕셔너리의 항목
+            # SFX_WORDS 항목인데 파형을 못 찾았다 = 진짜 누락일 수 있다(FB_MAP 항목은 gap이 없다)
+            if '"db"' in body:
+                missing.append(name)
+            continue
         m = re.search(r'"base":\s*(-?\d+)', body)
         words.append((name, bank[name], int(m.group(1)) if m else 0))
-    return words
+    return words, missing
 
-WORDS = parse_main()
+WORDS, MISSING = parse_main()
 
 cache = {}
 print("어휘        파형        base   중심F    <300Hz    폰 통과")
@@ -150,3 +180,22 @@ for name, wav, semi in WORDS:
           % (name, wav, semi, centroid(spec, semi), low_share(spec, semi), d, warn))
 print("-" * 60)
 print("최악 %.1f dB · 경고선 −6.0 dB · 어휘 %d개" % (worst, len(WORDS)))
+if MISSING:
+    print("⚠파형을 못 찾은 어휘: %s — 표에서 빠졌다(배선을 확인할 것)" % ", ".join(MISSING))
+
+# 선정 대기 중인 후보들(sfx/pick/)도 같은 자로 잰다 — 고르기 전에 폰에서 사라지는 걸 걸러야 한다.
+# 선정 대기 중인 후보 폴더는 **전부** 잰다(sfx/ 아래 모든 하위 폴더) — 고르기 전에 폰에서
+#   사라지는 걸 걸러야 하고, 폴더 이름을 박아 두면 새 폴더가 조용히 빠진다.
+for sub in sorted(d for d in os.listdir(SFX) if os.path.isdir(os.path.join(SFX, d))):
+    pick_dir = os.path.join(SFX, sub)
+    names = sorted(f for f in os.listdir(pick_dir) if f.endswith(".wav"))
+    if not names:
+        continue
+    print("\n후보(sfx/%s/) — 재생 음정 0 기준" % sub)
+    print("-" * 60)
+    for fn in names:
+        x, rate = read_wav(os.path.join(pick_dir, fn))
+        spec = spectrum(x[:min(len(x), 65536)], rate)
+        d = loss_db(spec, 0)
+        print("%-22s %6.0fHz  %5.1f%%   %+5.1f dB%s"
+              % (fn[:-4], centroid(spec, 0), low_share(spec, 0), d, "  ⚠" if d < -6.0 else ""))

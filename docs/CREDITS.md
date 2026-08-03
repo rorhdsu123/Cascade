@@ -35,10 +35,11 @@
 | `chip_low` · `chip_high` | Kenney "Casino Audio" (chip-lay-3 · chips-collide-1) | [kenney.nl](https://kenney.nl/assets/casino-audio) |
 | `clear_hit` · `clear_note` | Kenney "Impact Sounds" (impactMetal_medium_004 · impactGlass_light_002) | [kenney.nl](https://kenney.nl/assets/impact-sounds) |
 | `rocket` | Kenney "Digital Audio" (phaserUp7) | [kenney.nl](https://kenney.nl/assets/digital-audio) |
-| `fw_burst` · `logo_hit` ⚠ | OpenGameArt "25 CC0 bang / firework SFX" (rubberduck) | [opengameart.org](https://opengameart.org/content/25-cc0-bang-firework-sfx) |
-| `sfx/inst/*.wav` ⚠ | VCSL (Versilian Community Sample Library) — 실악기 6종 | CC0 |
+| `fw_burst` · `logo_hit` · `fw_launch` | OpenGameArt "25 CC0 bang / firework SFX" (fw_03 · cannon_04 · shot_02, rubberduck) | [opengameart.org](https://opengameart.org/content/25-cc0-bang-firework-sfx) |
+| `melody` | VCSL (Versilian Community Sample Library) — 글로켄슈필 C5 | [github.com/sgossner/VCSL](https://github.com/sgossner/VCSL) |
 
-⚠ 표시 둘은 **`track/audio`에 있고 아직 트렁크에 병합되지 않았다**(8/7 예정). 병합 후 이 표를 확정할 것.
+**병합 완료(8/3) — 이 표가 곧 `sfx/` 폴더의 전부다.** 후보 폴더(`sfx/pick/`·`sfx/inst/`)는
+채택본만 남기고 지웠으므로 빌드에 안 들어간다.
 
 원본 그대로 쓴 파일은 하나도 없다 — 전부 `tools/sfx_prep.py`로 선행 무음 절단 · 크레스트 압축 ·
 피크 정규화를 거쳤다. **가공은 CC0가 허용하는 범위이고**, 무엇을 왜 손봤는지는 `sfx/CREDITS.txt`에 있다.
@@ -58,9 +59,7 @@
 
 1. **디자이너 UI 아트의 AI 사용 내역** — 외주 디자이너 회신 대기(8/6). 이미지 생성 AI를 썼다면
    어떤 도구로 어디까지, 안 썼으면 안 썼다고 받아야 한다. **규정상 누락이 안 되는 항목이다.**
-2. **`track/audio` 미병합분** — §3의 ⚠두 줄. 8/7 병합 직후 이 표를 확정한다.
+2. ~~`track/audio` 미병합분~~ — **완료(8/3 병합, §3 표 확정).**
 3. **영상에 음악을 얹으면 그 라이선스도 여기 적어야 한다** — 게임에는 BGM을 넣지 않기로 확정했지만,
    트레일러 편집에서 음악을 깔면 제출물 ④에 출처·라이선스 기재가 필요하다.
 
-정리 항목(라이선스와 무관): `sfx/pick/`·`sfx/inst/`는 후보 폴더라 최종 빌드 전에 채택본만
-`sfx/`로 남기고 지운다.

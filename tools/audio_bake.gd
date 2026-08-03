@@ -59,8 +59,99 @@ func _init() -> void:
 			[ui, int(wds["tap_back"].get("base", 0)), float(wds["tap_back"]["db"])],
 			[ui, int(wds["tap_off"].get("base", 0)), float(wds["tap_off"]["db"])],
 		], 0.45)
+	# ⑧ 클리어 축하 무대 전체(R17) — 낱개가 아니라 **3.9초 타임라인**을 그대로 굽는다.
+	#   왜 낱개가 아닌가: 이 라운드가 고친 건 음색이 아니라 **분포**다(무음 3.4초). 낱개를 들으면
+	#   고쳐졌는지 알 수 없고, 겹침·위계도 시간축 위에서만 판정이 된다.
+	#   ⚠**게임 안 '5'키가 정본 판정 수단이다**(§21 방법론: 파일 A/B는 소리 판정에 실패한다).
+	#   이 파일은 클리핑·위계 감사와 "무엇을 붙였나"의 기록용이다.
+	var tl: Array = []
+	var hold: float = float(m.CLEAR_HOLD)
+	var lad: Array = m.SFX_LADDER
+	var wd: Dictionary = m.SFX_WORDS
+	# 승리 아르페지오(무대시각 −hold부터 0.10초 간격 4음)
+	for k in range(4):
+		tl.append([lo, [0, 4, 7, 12][k], float(wd["fanfare"]["db"]), float(k) * 0.10])
+	# 피니시 스윕 — 8행 전부 블록이 있다고 보고(가장 붐비는 경우) 아래→위로
+	var sw: AudioStreamWAV = m._sfx_bank.get("sweep", null)
+	if sw != null:
+		for r in range(m.ROWS):
+			tl.append([sw, int(lad[m.ROWS - 1 - r]), float(wd["sweep"]["db"]), float(m.ROWS - 1 - r) * float(m.CLEAR_SWEEP_STAGGER)])
+		tl.append([m._sfx_bank["clear_hit"], 0, float(wd["clear_hit"]["db"]), float(m.ROWS - 1) * float(m.CLEAR_SWEEP_STAGGER)])
+	# 로고 조립 + 강펀치(무대시각 0부터 = 파일에선 +hold)
+	var lt: AudioStreamWAV = m._sfx_bank["letter"]
+	var n1: int = String(m.WM_L1).length()
+	for i in range(n1):
+		tl.append([lt, int(lad[i]), float(wd["letter"]["db"]), hold + float(m.CLEAR_LOGO_IN) + float(i) * float(m.CLEAR_LETTER_GAP)])
+	tl.append([lt, int(lad[n1]), float(wd["letter"]["db"]), hold + float(m.CLEAR_L2_IN)])
+	var t_pk: float = hold + float(m.CLEAR_L2_IN) + float(m.CLEAR_L2_PUNCH)
+	tl.append([m._sfx_bank["logo"], 0, float(wd["logo"]["db"]), t_pk])
+	# 정점 화음(R19) — 대포와 **같은 시각**에 앉는다. 빼먹으면 프리뷰가 게임보다 얇게 들린다.
+	for cs in m.CLEAR_CHORD:
+		tl.append([m._sfx_bank["chord"], int(lad[int(cs)]), float(wd["chord"]["db"]), t_pk])
+	tl.append([sk2, 5, float(wd["clear2"]["db"]), hold + float(m.CLEAR_L2_IN) + float(m.CLEAR_L2_PUNCH) + 0.045])
+	# 폭죽 — 발사 시각은 게임과 같은 균등 분포(랜덤 ±0.05는 뺀다: 프리뷰는 재현 가능해야 한다)
+	var fr: AudioStreamWAV = m._sfx_bank.get("fw_rise", null)
+	var fp: AudioStreamWAV = m._sfx_bank["fw_pop"]
+	for i2 in range(int(m.CLEAR_ROCKET_N)):
+		var f: float = float(i2) / float(maxi(1, int(m.CLEAR_ROCKET_N) - 1))
+		var t0: float = hold + lerpf(float(m.CLEAR_ROCKET_FIRST), float(m.CLEAR_ROCKET_LAST), f)
+		# 발사와 터짐은 **같은 음정**을 받는다(같은 발 = 같은 포탄 크기). Main.gd의 표를 그대로 읽는다.
+		var fsemi: int = int(m.CLEAR_FW_SEMI[i2 % (m.CLEAR_FW_SEMI as Array).size()])
+		if fr != null:
+			tl.append([fr, fsemi, float(wd["fw_rise"]["db"]), t0])
+		tl.append([fp, fsemi, float(wd["fw_pop"]["db"]), t0 + float(m.CLEAR_ROCKET_RISE)])
+	_at("%s/CLEAR_STAGE.wav" % OUT_DIR, tl)
 	m.free()
 	quit()
+
+# _seq의 절대시각 판 — 축하 무대처럼 간격이 불규칙한 타임라인용. [파형, 반음, dB, 시각(초)].
+func _at(path: String, notes: Array) -> void:
+	var rate: int = (notes[0][0] as AudioStreamWAV).mix_rate
+	var end_t: float = 0.0
+	for nt in notes:
+		end_t = maxf(end_t, float(nt[3]) + float((nt[0] as AudioStreamWAV).data.size() / 2) / float(rate))
+	var out_n: int = int((end_t + 0.25) * float(rate))
+	var acc := PackedFloat32Array()
+	acc.resize(out_n)
+	var pk_raw: float = 0.0
+	for nt2 in notes:
+		var src: AudioStreamWAV = nt2[0]
+		var n_src: int = src.data.size() / 2
+		var ratio: float = pow(2.0, float(nt2[1]) / 12.0)
+		var gain: float = db_to_linear(float(nt2[2]))
+		var at: int = int(float(nt2[3]) * float(rate))
+		var i: int = 0
+		while true:
+			var sp: float = float(i) * ratio
+			var si: int = int(sp)
+			if si + 1 >= n_src or at + i >= out_n:
+				break
+			var a: float = float(_s16(src.data, si)) / 32768.0
+			var b: float = float(_s16(src.data, si + 1)) / 32768.0
+			acc[at + i] += lerpf(a, b, sp - float(si)) * gain
+			i += 1
+	for i2 in range(out_n):
+		pk_raw = maxf(pk_raw, absf(acc[i2]))
+	# ⚠**정규화 전 피크를 같이 찍는다** — 게임에선 리미터가 −0.5dB에서 받는데, 프리뷰만 정규화하면
+	#   "합이 얼마나 세게 때리는가"가 파일에서 사라진다(§18의 클리핑 감사가 그래서 필요했다).
+	var g2: float = (0.85 / pk_raw) if pk_raw > 0.0001 else 1.0
+	var data := PackedByteArray()
+	data.resize(out_n * 2)
+	for i3 in range(out_n):
+		var v: int = clampi(int(round(clampf(acc[i3] * g2, -1.0, 1.0) * 32767.0)), -32768, 32767)
+		if v < 0:
+			v += 65536
+		data[i3 * 2] = v & 0xff
+		data[i3 * 2 + 1] = (v >> 8) & 0xff
+	var w := AudioStreamWAV.new()
+	w.format = AudioStreamWAV.FORMAT_16_BITS
+	w.mix_rate = rate
+	w.stereo = false
+	w.loop_mode = AudioStreamWAV.LOOP_DISABLED
+	w.data = data
+	if w.save_to_wav(path) == OK:
+		print("  %-28s %5d 샘플 (%.2fs) · 합산 피크 %+.1f dBFS(정규화 전)"
+				% [path.get_file().get_basename(), out_n, float(out_n) / float(rate), linear_to_db(pk_raw)])
 
 # 파형·음정 목록을 이어 붙여 한 파일로. 게임의 pitch_scale을 선형보간 리샘플로 흉내낸다.
 func _seq(path: String, notes: Array, step: float) -> void:
