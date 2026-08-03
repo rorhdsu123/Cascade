@@ -25,12 +25,11 @@ const IDLE_STRESS: int = 1       # 인간이 불가능한 최고 속도 = 상한
 # 단어별 물리 길이(초) — 겹침 계산용. pitch_scale이 올라가면 실제론 더 짧게 끝나므로 보수적 상한이다.
 #   ⚠UI 탭 셋은 tap과 **같은 파형**이고 base(음정)만 다르다 → 길이가 그만큼 갈린다:
 #   tap_go(+7) 0.13×2^(−7/12)≈0.09 · tap_back(−5) ≈0.18 · tap_off(−8) ≈0.21.
-const WORD_DUR: Dictionary = {"grab": 0.13, "place": 0.09, "clear": 0.16, "chain": 0.06, "score": 0.13, "fail": 0.09,
-		"tap": 0.13, "tap_go": 0.09, "tap_back": 0.18, "tap_off": 0.21, "clear2": 0.10, "fanfare": 0.16,
-		"climax": 0.16, "praise": 0.14, "leak": 0.08,   # R14 — 블라스트 창 채우기
-		# R17 클리어 축하 무대. clear_hit 0.06(금속 55ms) · clear_note 0.11(유리 106ms) · rocket 0.15.
-		"clear_hit": 0.06, "clear_note": 0.11, "rocket": 0.15,
-		"sweep": 0.11, "letter": 0.09, "logo": 0.16, "fw_rise": 0.15, "fw_pop": 0.14}
+# ⚠**손으로 적던 표를 버렸다**(R18). 파형을 바꾸면 길이가 통째로 달라지는데(폭죽 터짐은 0.10 →
+#   0.53초) 이 표는 안 따라와서, 겹침 측정이 조용히 틀린 값을 내고 있었다. 지금은 **뱅크에서 실제
+#   스트림 길이를 재고** 음정만큼 나눈다(pitch_scale이 올라가면 그만큼 짧게 끝난다).
+#   fallback은 뱅크에 없는 이름(있으면 안 되지만, 0.1초로 세면 겹침을 **과소평가**하므로 크게 잡는다).
+const WORD_DUR_FALLBACK: float = 0.20
 const MAX_VOICES: int = 8
 const MAX_FIRES_IN_1S: int = 15         # 예산 14/초 + 회복 여유 1
 const LADDER_MAX_SEMI: int = 16
@@ -121,6 +120,14 @@ func _play(max_places: int, idle: int) -> int:
 	return places
 
 # ── 로그 해석 ────────────────────────────────────────────────────────────────
+# 어휘 한 발이 실제로 몇 초 우는가 — 파형 길이 ÷ 재생 음정. 뱅크·SFX_WORDS에서 직접 읽는다.
+func _dur(kind: String, semi: int) -> float:
+	var st = g._sfx_bank.get(kind, null)
+	if st == null:
+		return WORD_DUR_FALLBACK
+	var base: int = int((g.SFX_WORDS[kind] as Dictionary).get("base", 0)) if (g.SFX_WORDS as Dictionary).has(kind) else 0
+	return float(st.get_length()) / pow(2.0, float(base + semi) / 12.0)
+
 func _analyze(log: Array) -> Dictionary:
 	var fires: Array = []
 	var drops: Dictionary = {}
@@ -145,7 +152,7 @@ func _analyze(log: Array) -> Dictionary:
 			var tj: float = float(fires[j]["t"])
 			if tj > ti:
 				break
-			if tj + float(WORD_DUR.get(String(fires[j]["kind"]), 0.1)) > ti:
+			if tj + _dur(String(fires[j]["kind"]), int(fires[j]["semi"])) > ti:
 				live += 1
 		max_voices = maxi(max_voices, live)
 		var n: int = 0

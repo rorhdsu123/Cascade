@@ -123,15 +123,26 @@ def parse_main():
     # _sfx_bank["place"] = lo                          → 어휘 → 파형
     bank = dict((w, local[v]) for w, v in
                 re.findall(r'_sfx_bank\["(\w+)"\]\s*=\s*(\w+)', src) if v in local)
-    words = []
+    # ⚠**뱅크를 코드로 못 읽는 어휘가 생길 수 있다** — R18의 fw_pop은 후보 목록에서 골라
+    #   `_sfx_load_fw()`가 올리므로 위 정규식에 안 걸린다. 그냥 빠뜨리면 "새 단어마다 폰 시뮬"이
+    #   **조용히 안 돌아간다**(§18의 '조용한 탈락'과 같은 사고) → 후보 목록도 같이 읽고,
+    #   그래도 못 찾은 어휘는 아래에서 경고로 띄운다.
+    picks = re.findall(r'\["res://sfx/(pick/\w+)\.wav",', src)
+    if picks:
+        m0 = re.search(r'var\s+fw_pick:\s*int\s*=\s*(\d+)', src)
+        bank.setdefault("fw_pop", picks[int(m0.group(1)) if m0 else 0])
+    words, missing = [], []
     for name, body in re.findall(r'"(\w+)":\s*\{("gap".*?)\},', src):
         if name not in bank:
-            continue                       # FB_MAP 등 다른 딕셔너리의 항목
+            # SFX_WORDS 항목인데 파형을 못 찾았다 = 진짜 누락일 수 있다(FB_MAP 항목은 gap이 없다)
+            if '"db"' in body:
+                missing.append(name)
+            continue
         m = re.search(r'"base":\s*(-?\d+)', body)
         words.append((name, bank[name], int(m.group(1)) if m else 0))
-    return words
+    return words, missing
 
-WORDS = parse_main()
+WORDS, MISSING = parse_main()
 
 cache = {}
 print("어휘        파형        base   중심F    <300Hz    폰 통과")
@@ -150,3 +161,19 @@ for name, wav, semi in WORDS:
           % (name, wav, semi, centroid(spec, semi), low_share(spec, semi), d, warn))
 print("-" * 60)
 print("최악 %.1f dB · 경고선 −6.0 dB · 어휘 %d개" % (worst, len(WORDS)))
+if MISSING:
+    print("⚠파형을 못 찾은 어휘: %s — 표에서 빠졌다(배선을 확인할 것)" % ", ".join(MISSING))
+
+# 선정 대기 중인 후보들(sfx/pick/)도 같은 자로 잰다 — 고르기 전에 폰에서 사라지는 걸 걸러야 한다.
+pick_dir = os.path.join(SFX, "pick")
+if os.path.isdir(pick_dir):
+    print("\n후보(sfx/pick/) — 재생 음정 0 기준")
+    print("-" * 60)
+    for fn in sorted(os.listdir(pick_dir)):
+        if not fn.endswith(".wav"):
+            continue
+        x, rate = read_wav(os.path.join(pick_dir, fn))
+        spec = spectrum(x[:min(len(x), 65536)], rate)
+        d = loss_db(spec, 0)
+        print("%-22s %6.0fHz  %5.1f%%   %+5.1f dB%s"
+              % (fn[:-4], centroid(spec, 0), low_share(spec, 0), d, "  ⚠" if d < -6.0 else ""))

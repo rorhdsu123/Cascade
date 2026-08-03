@@ -2,13 +2,13 @@
 
 importer="wav"
 type="AudioStreamWAV"
-uid="uid://dc15ldtfy17pg"
-path="res://.godot/imported/clear_note.wav-f2d364b827f4463ca01c6879c36c3c0a.sample"
+uid="uid://b3u2sg4mvb4js"
+path="res://.godot/imported/fwA_crackle.wav-ef8e8c784c87eee6ee99fdc897ea0ae1.sample"
 
 [deps]
 
-source_file="res://sfx/clear_note.wav"
-dest_files=["res://.godot/imported/clear_note.wav-f2d364b827f4463ca01c6879c36c3c0a.sample"]
+source_file="res://sfx/pick/fwA_crackle.wav"
+dest_files=["res://.godot/imported/fwA_crackle.wav-ef8e8c784c87eee6ee99fdc897ea0ae1.sample"]
 
 [params]
 

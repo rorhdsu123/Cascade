@@ -48,3 +48,21 @@ rocket.wav     = Kenney "Digital Audio" / phaserUp7.ogg               — 로켓
 ⚠유리를 2층에 쓴 이유는 **음정이 들리는 재질이어야 도레미가 읽히기 때문**이다. 동전(rpg-audio/
   handleCoins)이 "그나마 통쾌하다"로 먼저 뽑혔지만 노이즈성이라 음정을 못 날라 기각됐다
   (유저 확인 2026-08-02).
+
+── R18 폭죽 터짐(플테 중 · '6'키로 재질 순환) ──
+sfx/pick/fw*.wav = OpenGameArt "25 CC0 bang / firework SFX" (rubberduck)
+                   https://opengameart.org/content/25-cc0-bang-firework-sfx   (CC0 1.0)
+  fwA_crackle = fw_02     · fwB_mid = cannon_04 · fwC_real  = fw_03
+  fwD_short   = cannon_05 · fwE_deep = bang_05  · fwF_boom   = fw_01
+⚠**진짜 폭죽 녹음**이다. R17까지는 카지노 칩 부딪힘(chip_high)을 −5반음 내려 썼는데 그건 밝은
+  크랙이지 폭죽이 아니었다(유저: "좀더 폭죽 터지는 사운드였으면 좋겠어"). 폭죽은 크랙+몸통+크래클
+  꼬리가 **한 사건**이라 층으로 쌓을 게 아니라 그런 녹음을 써야 한다 — 예산도 층을 더 못 받는다.
+⚠전부 `tools/sfx_prep.py`로 다듬었다(리드 절단 · tanh drive 2.0으로 크레스트 24~30 → 13~18dB ·
+  피크 정규화 · 8ms 페이드아웃). **원본 그대로 넣으면 R16의 "조용하다"가 되돌아온다.**
+⚠25개 중 기계가 거른 건 다섯뿐이다(폰 통과 −6dB 초과). 나머지는 성격이 갈리는 여섯을 남겨
+  **사람이 고른다** — 거리 1위 자동 채택은 세 라운드 연속 틀렸다.
+→ 고르고 나면 진 후보 파일과 `sfx/pick/`을 지우고 이긴 것만 `sfx/`로 옮길 것.
+
+⚠**임포트 압축**: R16에 들어온 clear_hit·clear_note·rocket이 `compress/mode=2`(QOA)로 남아 있었다.
+  게임 재생은 멀쩡하지만 `AudioStreamWAV.data`가 PCM이 아니라 **bake 도구가 쓰레기 프리뷰를 만든다**
+  (§13에 적혀 있는 함정을 그 세 파일에만 안 지켰다). 전부 `compress/mode=0`으로 고쳤다.

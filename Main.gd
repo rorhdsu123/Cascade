@@ -1060,9 +1060,11 @@ const SFX_WORDS: Dictionary = {
 	# ⚠터짐을 2층(타격+광택)으로 하면 발화가 7발 더 늘어 롤링 1초가 예산을 넘는다(실측 17발 > 15).
 	#   층 대신 **음정을 발마다 흩어** 7발이 같은 소리로 안 들리게 한다.
 	"fw_rise": {"gap": 0.00, "db": -11.0, "det": 0.010},
-	# base −5 = praise와 같은 자리(5147→3850Hz). 원음대로 쓰면 R9에서 "거슬린다"로 기각된 대역이고
-	#   내리면 폰 통과도 좋아진다. 7발이 연달아 나가므로 이 어휘는 밝기를 특히 조심해야 한다.
-	"fw_pop": {"gap": 0.00, "db": -10.0, "det": 0.010, "base": -5},
+	# ⚠**R18에서 파형이 칩 광택 → 진짜 폭죽 녹음으로 바뀌었다**(유저: "좀더 폭죽 터지는 사운드").
+	#   base를 −5에서 0으로 되돌렸다 — 칩을 어둡게 쓰려던 보정이었지 이 재질엔 이유가 없다.
+	#   det도 좁혔다: 노이즈성 재질에 넓은 디튠은 음정이 아니라 **길이**를 흔들어 들린다.
+	#   db는 길이가 0.10 → 0.4~1.0초로 길어진 만큼 낮췄다(7발이 겹쳐 쌓인다).
+	"fw_pop": {"gap": 0.00, "db": -13.0, "det": 0.004},
 }
 const SFX_VOICES: int = 8
 const SFX_BUDGET_MAX: float = 14.0      # 초당 발화 상한 — 진흙 방어의 마지막 선
@@ -1171,6 +1173,23 @@ const SFX_CLEAR_NOTE: String = "res://sfx/clear_note.wav"  # 유리 106ms — 2�
 # ⚠**미검증**: 폰 스피커는 300~500Hz도 약하다. 내 폰 시뮬은 300Hz 아래만 깎으므로 이 소리의
 #   무게가 실기기에서 얼마나 남는지는 안 재 봤다 — 실기기 확인에서 얇으면 재질을 다시 봐야 한다.
 const SFX_ROCKET: String = "res://sfx/rocket.wav"          # 신스 상승 150ms · 300~800Hz 78.7%
+# ── R18 폭죽 터짐 후보(플테 '6'키로 순환) ──────────────────────────────────────
+# 유저: "좀더 폭죽 터지는 사운드였으면 좋겠어." R17의 `fw_pop`은 **카지노 칩 부딪힘을 −5반음
+#   내린 것**이었다 — 밝은 크랙이지 폭죽이 아니다. 폭죽은 ①날카로운 크랙 ②몸통 ③크래클 꼬리의
+#   **한 사건**이라 층으로 쌓을 게 아니라 그런 녹음을 써야 한다(예산도 층을 더 못 받는다).
+# 음원 = OpenGameArt "25 CC0 bang / firework SFX"(rubberduck, CC0) — **진짜 폭죽 녹음**이다.
+# ⚠기계 필터는 둘만 걸었다(§18 선정 방식): 폰 통과 −6dB 초과 탈락 · 2~5kHz 55% 초과 탈락.
+#   25개 중 5개가 폰에서 탈락했고(저역 덩어리), 남은 것 중 성격이 갈리는 여섯을 넓게 남겼다.
+#   **고르는 건 사람이다** — 거리 1위 자동 채택은 세 라운드 연속 틀렸다(§16·§17·§18).
+const SFX_FW_PICKS: Array = [
+	["res://sfx/pick/fwB_mid.wav", "B 중역(0.8~2.5k 41%)"],     # 레퍼런스 타격 대역과 가장 가깝다
+	["res://sfx/pick/fwC_real.wav", "C 진짜폭죽(1.03s)"],        # 실제 불꽃놀이 녹음, 꼬리에 크래클
+	["res://sfx/pick/fwA_crackle.wav", "A 크래클(밝음)"],        # 2~5k 46% — 반짝이는 쪽 끝
+	["res://sfx/pick/fwD_short.wav", "D 짧은 팡(0.42s)"],        # 겹침이 걱정될 때의 안전패
+	["res://sfx/pick/fwE_deep.wav", "E 낮은 팡(908Hz)"],
+	["res://sfx/pick/fwF_boom.wav", "F 붐(300~800 59%)"],        # 가장 무겁다 · 폰 −4.0dB
+]
+var fw_pick: int = 0                    # 현재 후보. '6'키가 돌린다(릴리스 빌드엔 키가 없다)
 
 func _sfx_build_bank() -> void:
 	var lo: AudioStream = load(SFX_LOW)
@@ -1222,8 +1241,18 @@ func _sfx_build_bank() -> void:
 	#   폭죽 터짐은 광택 파형을 −5반음 내려 쓴다(praise와 같은 자리).
 	_sfx_bank["letter"] = lo
 	_sfx_bank["logo"] = bu
-	_sfx_bank["fw_pop"] = sk
+	_sfx_load_fw()
 
+
+# 폭죽 터짐 파형을 뱅크에 올린다(현재 후보). '6'키가 fw_pick을 돌리고 이걸 다시 부른다.
+#   ⚠파일이 없으면 **칩 광택으로 되돌린다**(R17의 소리) — 축하가 통째로 조용해지는 것보다 낫다.
+func _sfx_load_fw() -> void:
+	var p: String = String((SFX_FW_PICKS[fw_pick % SFX_FW_PICKS.size()] as Array)[0])
+	var st: AudioStream = load(p) if ResourceLoader.exists(p) else null
+	if st == null:
+		st = load(SFX_CHIP_HIGH)
+		push_warning("폭죽 후보 없음(%s) — 칩 광택으로 대체" % p)
+	_sfx_bank["fw_pop"] = st
 
 # 전용 SFX 버스 + 하드 리미터를 **런타임에** 만든다 — 버스 레이아웃 리소스 파일을 안 만들므로
 #   project.godot·에셋 무변화(설계 §5의 '파일 0개'가 유지된다).
@@ -1308,10 +1337,17 @@ func _sfx(kind: String, intensity: float = 0.0) -> void:
 	elif kind == "logo":
 		# 로고 강펀치 = clear·climax와 같은 **2층 문법**(타격 + 45ms 광택). 이 한 방만 층이 있다.
 		_sfx_queue.append({"at": _sfx_t + 0.045, "kind": "clear2", "semi": 5})
-	elif kind == "sweep" or kind == "letter" or kind == "fw_rise" or kind == "fw_pop":
-		# 축하 무대 넷 — **계단을 호출부가 정한다**(행 높이·글자 순서·폭죽 번호가 곧 음정이다).
+	elif kind == "sweep" or kind == "letter":
+		# 축하 무대 — **계단을 호출부가 정한다**(행 높이·글자 순서가 곧 음정이다).
 		#   `chain`처럼 내부 카운터를 쓰면 화면 순서와 어긋나고, 무대엔 되돌릴 다운비트도 없다.
 		semi = _sfx_semi(int(intensity))
+	elif kind == "fw_rise":
+		semi = _sfx_semi(int(CLEAR_FW_STEPS[int(intensity) % CLEAR_FW_STEPS.size()]))
+	elif kind == "fw_pop":
+		# ⚠**터짐은 사다리를 안 탄다.** 폭죽 녹음은 노이즈성이라 음정이 안 읽히고(R16의 동전과 같은
+		#   성질), 5음계 상한(+16반음)까지 올리면 0.5초짜리가 0.2초로 줄어 **소리가 통째로 바뀐다**.
+		#   여기서 음정은 음악이 아니라 **크기(큰 폭죽/작은 폭죽)**를 말한다 → ±5반음 안에서만 흩는다.
+		semi = int(CLEAR_FW_SEMI[int(intensity) % CLEAR_FW_SEMI.size()])
 	elif kind == "chain":
 		semi = _sfx_semi(_sfx_chain_step)
 		_sfx_chain_step += 1
@@ -3782,6 +3818,9 @@ func _plan_clear_fx() -> void:
 #   들리고(레퍼런스에도 그런 상승 런은 없다, §21③) 발마다 색이 다른 화면과도 안 맞는다.
 #   ⚠난수를 안 쓰는 이유는 §5 그대로 — 연출이 randf를 더 뽑으면 회귀 골든 하류가 시프트한다.
 const CLEAR_FW_STEPS: Array = [0, 4, 2, 6, 1, 5, 3]
+# 터짐의 음정은 **음악이 아니라 크기**다(낮을수록 큰 폭죽). 폭죽 녹음은 노이즈성이라 사다리를
+#   태워 봐야 음이 안 읽히고, 크게 올리면 길이가 줄어 재질이 바뀐다 → ±5반음 안에서만 흩는다.
+const CLEAR_FW_SEMI: Array = [0, 4, -3, 2, -5, 5, -1]
 
 # ===== 축하 무대의 소리 beat (R17 · §22 B-7) =====
 # 무대는 게임 로직이 멈춘 채 _process가 타이머만 굴린다 → 소리도 **화면과 같은 타이머**에서
@@ -3809,13 +3848,14 @@ func _clear_stage_audio(was: float, now: float) -> void:
 	for rk0 in clear_rockets:
 		var rk: Dictionary = rk0 as Dictionary
 		var t0: float = float(rk["t0"])
-		var step: float = float(CLEAR_FW_STEPS[fi % CLEAR_FW_STEPS.size()])
-		fi += 1
+		# 발 번호만 넘긴다 — 그걸 음정으로 바꾸는 방식은 **어휘마다 다르다**(발사는 사다리,
+		#   터짐은 ±5반음 크기 흩기). 호출부가 반음을 계산하면 그 차이가 여기 새어 들어온다.
 		if was < t0 and now >= t0:
-			_fb("fw_rise", step)
+			_fb("fw_rise", float(fi))
 		var tb: float = t0 + CLEAR_ROCKET_RISE
 		if was < tb and now >= tb:
-			_fb("fw_pop", step)
+			_fb("fw_pop", float(fi))
+		fi += 1
 
 # 무대가 재생 중인가 — 참이면 보드를 안 그리고 결과 팝업도 미룬다
 func _clear_stage_on() -> bool:
@@ -4461,6 +4501,24 @@ func _input(event: InputEvent) -> void:
 		_plan_clear_fx()
 		clear_show_t = -CLEAR_HOLD     # 프리롤(스윕)부터 = 실제 승리와 완전히 같은 경로
 		_fb("finish")
+		queue_redraw()
+		return
+
+	# ⚠플테 전용 DEV: '6'키 = 폭죽 터짐 재질 순환 + 즉시 미리듣기(R18).
+	#   §21 방법론 그대로 — 파일 폴더를 굽지 말고 **게임 안에서 바꿔 가며** 듣는다. 그리고
+	#   **모든 축에 미리듣기를 달 것**(미리듣기가 없는 축은 "아예 소리가 안 난다"로 읽힌다).
+	#   미리듣기는 한 발이 아니라 **실제 쇼의 간격(0.14s)으로 3발** — 폭죽은 겹쳐야 폭죽이다.
+	if event is InputEventKey and (event as InputEventKey).pressed \
+			and (event as InputEventKey).keycode == KEY_6 and OS.is_debug_build():
+		fw_pick = (fw_pick + 1) % SFX_FW_PICKS.size()
+		_sfx_load_fw()
+		_ab_label_t = 2.5
+		_ab_label = "폭죽 %s" % String((SFX_FW_PICKS[fw_pick] as Array)[1])
+		_ab_col = Color(1.0, 0.72, 0.35)
+		_sfx_last.erase("fw_pop")
+		for k in range(3):
+			_sfx_queue.append({"at": _sfx_t + float(k) * 0.14, "kind": "fw_pop",
+					"semi": int(CLEAR_FW_SEMI[k]), "db": float(SFX_WORDS["fw_pop"]["db"])})
 		queue_redraw()
 		return
 

@@ -91,10 +91,13 @@ func _init() -> void:
 	for i2 in range(int(m.CLEAR_ROCKET_N)):
 		var f: float = float(i2) / float(maxi(1, int(m.CLEAR_ROCKET_N) - 1))
 		var t0: float = hold + lerpf(float(m.CLEAR_ROCKET_FIRST), float(m.CLEAR_ROCKET_LAST), f)
-		var st: int = int(lad[int(m.CLEAR_FW_STEPS[i2 % (m.CLEAR_FW_STEPS as Array).size()])])
+		# ⚠발사와 터짐은 **음정 규칙이 다르다**(사다리 vs ±5반음 크기 흩기) — Main.gd의 _sfx와
+		#   같은 표를 읽어야 프리뷰가 게임과 어긋나지 않는다.
 		if fr != null:
-			tl.append([fr, st, float(wd["fw_rise"]["db"]), t0])
-		tl.append([fp, st + int(wd["fw_pop"].get("base", 0)), float(wd["fw_pop"]["db"]), t0 + float(m.CLEAR_ROCKET_RISE)])
+			tl.append([fr, int(lad[int(m.CLEAR_FW_STEPS[i2 % (m.CLEAR_FW_STEPS as Array).size()])]),
+					float(wd["fw_rise"]["db"]), t0])
+		tl.append([fp, int(m.CLEAR_FW_SEMI[i2 % (m.CLEAR_FW_SEMI as Array).size()]),
+				float(wd["fw_pop"]["db"]), t0 + float(m.CLEAR_ROCKET_RISE)])
 	_at("%s/CLEAR_STAGE.wav" % OUT_DIR, tl)
 	m.free()
 	quit()
