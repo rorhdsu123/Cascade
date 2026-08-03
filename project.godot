@@ -16,6 +16,10 @@ config/quit_on_go_back=false
 config/features=PackedStringArray("4.6", "GL Compatibility")
 config/icon="res://icons/icon_512.png"
 
+[audio]
+
+general/default_playback_type.web=0
+
 [display]
 
 window/size/viewport_width=800
