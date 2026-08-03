@@ -83,7 +83,11 @@ func _init() -> void:
 	for i in range(n1):
 		tl.append([lt, int(lad[i]), float(wd["letter"]["db"]), hold + float(m.CLEAR_LOGO_IN) + float(i) * float(m.CLEAR_LETTER_GAP)])
 	tl.append([lt, int(lad[n1]), float(wd["letter"]["db"]), hold + float(m.CLEAR_L2_IN)])
-	tl.append([m._sfx_bank["logo"], 0, float(wd["logo"]["db"]), hold + float(m.CLEAR_L2_IN) + float(m.CLEAR_L2_PUNCH)])
+	var t_pk: float = hold + float(m.CLEAR_L2_IN) + float(m.CLEAR_L2_PUNCH)
+	tl.append([m._sfx_bank["logo"], 0, float(wd["logo"]["db"]), t_pk])
+	# 정점 화음(R19) — 대포와 **같은 시각**에 앉는다. 빼먹으면 프리뷰가 게임보다 얇게 들린다.
+	for cs in m.CLEAR_CHORD:
+		tl.append([m._sfx_bank["chord"], int(lad[int(cs)]), float(wd["chord"]["db"]), t_pk])
 	tl.append([sk2, 5, float(wd["clear2"]["db"]), hold + float(m.CLEAR_L2_IN) + float(m.CLEAR_L2_PUNCH) + 0.045])
 	# 폭죽 — 발사 시각은 게임과 같은 균등 분포(랜덤 ±0.05는 뺀다: 프리뷰는 재현 가능해야 한다)
 	var fr: AudioStreamWAV = m._sfx_bank.get("fw_rise", null)

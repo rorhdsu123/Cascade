@@ -1051,7 +1051,14 @@ const SFX_WORDS: Dictionary = {
 	# ⚠**사다리 계단을 호출부가 정한다**(intensity = 계단 번호). 행 높이·글자 순서·발 번호가
 	#   그대로 음정이 되므로 **연출 상수를 고치면 소리가 자동으로 따라온다**.
 	"sweep": {"gap": 0.00, "db": -13.0, "det": 0.004},    # 피니시 스윕 행마다 — 아래→위로 오르는 유리 런
-	"letter": {"gap": 0.00, "db": -10.0, "det": 0.006},   # 로고 글자 팝인 = 블록이 놓이는 것이니 place와 같은 파형
+	# 로고 글자 = **선율 한 음**(R19). R18까지는 place와 같은 타격 파형이었는데, 레퍼런스 실측이
+	#   그 자리를 **지속음**으로 쓴다는 걸 보여 줬다(어택 80~128ms · 180ms 뒤 잔량 30~69% ·
+	#   그 구간 크레스트 13.4dB vs 우리 22.7dB). 타격음으로는 아무리 촘촘히 놓아도 음 사이가 빈다.
+	# ⚠`music: true` = **전용 보이스 풀**로 간다. 지속음은 1.4초씩 물고 있어서 진흙 방어용 8보이스에
+	#   섞으면 타격음이 밀려나고(가장 오래된 것부터 뺏긴다) 정작 지켜야 할 삭제음이 먼저 죽는다.
+	"letter": {"gap": 0.00, "db": -12.0, "det": 0.004, "music": true},
+	# 오버슛 정점에서 한꺼번에 나는 화음(도·미·솔·도). 겹쳐 쌓이므로 낱음보다 낮게.
+	"chord": {"gap": 0.00, "db": -17.0, "det": 0.004, "music": true},
 	# CASTLE 오버슛 정점. 연출 전체에서 **강펀치는 여기 한 번뿐**이라(주석: _clear_l2_scale)
 	#   소리도 여기 한 번뿐이어야 한다 — 전부 통통 튀면 아무것도 안 튄 것과 같다.
 	# ⚠R18에서 파형이 칩(=삭제음) → **대포 한 방**으로 바뀌었고 2층도 없앴다. 층이 사라진 만큼
@@ -1069,11 +1076,20 @@ const SFX_WORDS: Dictionary = {
 	"fw_pop": {"gap": 0.00, "db": -13.0, "det": 0.004},
 }
 const SFX_VOICES: int = 8
+# ⚠12다. 글자 6음(각 1.4초)이 아직 울리는 채로 정점 화음 4음이 얹혀 **최대 10**이 겹친다(실측) —
+#   8이면 가장 오래된 음부터 잘려 나가고, 그건 조립 선율의 첫 음들이라 **화음의 뿌리가 사라진다.**
+#   ⚠이 숫자는 '진흙 상한'이 아니다(겹침이 목적인 층이다). 늘려도 SFX_VOICES=8은 그대로 8이다.
+const MUSIC_VOICES: int = 12            # 지속음 전용(위 SFX_VOICES와 **합치지 않는다** — 위 주석 참조)
 const SFX_BUDGET_MAX: float = 14.0      # 초당 발화 상한 — 진흙 방어의 마지막 선
 const SFX_BUDGET_REFILL: float = 14.0
 
 var _sfx_bank: Dictionary = {}          # kind -> AudioStreamWAV (런타임 합성)
 var _sfx_pool: Array = []               # AudioStreamPlayer × SFX_VOICES
+# 지속음 전용 풀(R19). **진흙 방어의 상한 8을 안 건드리려고** 따로 둔다 — 선율은 1.4초씩 물고
+#   있어서 같은 풀에 넣으면 삭제음이 밀려나고, 반대로 타격음이 선율을 잘라 화음이 조각난다.
+#   여기 있는 소리는 겹쳐도 진흙이 아니라 **화음**이다(그게 이 층의 목적이다).
+var _music_pool: Array = []
+var _music_rr: int = 0
 var _sfx_rr: int = 0
 var _sfx_t: float = 0.0                 # 누적 게임시간(delta 합 = 프로브가 결정적으로 재현)
 var _sfx_last: Dictionary = {}
@@ -1112,6 +1128,9 @@ const FB_MAP: Dictionary = {
 	#   열 몇 번 더 얹으면 승자독식 액추에이터가 하나의 긴 웅웅거림으로 뭉갠다(§3 = 진동의 물리).
 	"sweep": {"hap": "", "sfx": "sweep"},
 	"letter": {"hap": "", "sfx": "letter"},
+	# ⚠**여기 없으면 `_fb`가 조용히 버린다.** SFX_WORDS에만 넣고 FB_MAP을 빼먹어 화음이 0발이었다
+	#   (프로브가 잡았다). 어휘표는 '무엇이 있나'고 FB_MAP은 '누가 그걸 부르나'다 — 둘 다 있어야 운다.
+	"chord": {"hap": "", "sfx": "chord"},
 	"logo": {"hap": "", "sfx": "logo"},
 	"fw_rise": {"hap": "", "sfx": "fw_rise"},
 	"fw_pop": {"hap": "", "sfx": "fw_pop"},
@@ -1189,6 +1208,21 @@ const SFX_LOGO_HIT: String = "res://sfx/logo_hit.wav"   # 대포 0.53s · 0.8~2.
 # 발사음 후보(플테 '6'키로 순환) — 여기만 취향이 갈린다. 진짜 박격포는 '쿵'(현실의 발사음)이고
 #   신스 riser는 '슈웅'(화면의 상승 제스처)이다. 어느 쪽이 그림에 맞는지는 귀가 정한다.
 #   ⚠D는 **현재 게임의 블라스트 로켓과 같은 파일**이다 — 비교용으로만 둔다(고르면 ②가 되돌아온다).
+# ── R19 선율 악기 후보(플테 '4'키로 순환) ─────────────────────────────────────
+# 음원 = Versilian Community Sample Library(VCSL, CC0) — 실제 악기 녹음.
+# ⚠**전부 C5 기준음으로 맞춰 넣었다**(칼림바는 C#5라 −1, 마림바는 C4라 +12 리샘플). 기준음이
+#   어긋나면 사다리가 조성 밖으로 나가 판 안의 다른 음정과 싸운다.
+# ⚠**1.4초로 잘랐다**(원본 2~7초). 안 자르면 보이스를 그만큼 물고 있어 폴리포니가 마른다.
+const SFX_NOTE_PICKS: Array = [
+	["res://sfx/inst/i1_glock.wav", "1 글로켄(반짝)"],
+	["res://sfx/inst/i2_vibes.wav", "2 비브라폰(부드럽고 길다)"],
+	["res://sfx/inst/i3_chime.wav", "3 핸드차임(맑게 퍼짐)"],
+	["res://sfx/inst/i4_kalimba.wav", "4 칼림바(따뜻·짧음)"],
+	["res://sfx/inst/i5_marimba.wav", "5 마림바(둥근 나무)"],
+	["res://sfx/inst/i6_harp.wav", "6 하프(낮고 넓게)"],
+]
+var note_pick: int = 0                  # 현재 악기. '4'키가 돌린다(릴리스 빌드엔 키가 없다)
+
 const SFX_RISE_PICKS: Array = [
 	["res://sfx/pick/riseA_thump.wav", "A 박격포 쿵(0.13s)"],
 	["res://sfx/pick/riseB_thump2.wav", "B 박격포 낮게(0.19s)"],
@@ -1245,7 +1279,7 @@ func _sfx_build_bank() -> void:
 	_sfx_bank["chain"] = hi
 	# 축하 무대(R17) — 글자는 '블록이 놓이는' 파형(place와 같다), 로고 강펀치는 삭제 타격과 같은 칩,
 	#   폭죽 터짐은 광택 파형을 −5반음 내려 쓴다(praise와 같은 자리).
-	_sfx_bank["letter"] = lo
+	_sfx_load_note()
 	# ⚠로고 강펀치는 **칩이 아니다**(R18). chip_low + 45ms chip_high는 A안 삭제음 그 자체라
 	#   "폭죽 터질 때 라인 터지는 소리가 들린다"로 돌아온다. 대포 한 방 = 층도 없앴다.
 	var lh: AudioStream = load(SFX_LOGO_HIT)
@@ -1254,6 +1288,17 @@ func _sfx_build_bank() -> void:
 	_sfx_bank["fw_pop"] = fb if fb != null else sk
 	_sfx_load_fw()
 
+
+# 선율 악기를 뱅크에 올린다(현재 후보). '4'키가 note_pick을 돌리고 이걸 다시 부른다.
+#   ⚠파일이 없으면 place 파형으로 되돌린다 = R18까지의 소리(글자가 타격음으로 돌아갈 뿐 안 깨진다).
+func _sfx_load_note() -> void:
+	var p: String = String((SFX_NOTE_PICKS[note_pick % SFX_NOTE_PICKS.size()] as Array)[0])
+	var st: AudioStream = load(p) if ResourceLoader.exists(p) else null
+	if st == null:
+		st = load(SFX_LOW)
+		push_warning("선율 악기 없음(%s) — place 파형으로 대체" % p)
+	_sfx_bank["letter"] = st
+	_sfx_bank["chord"] = st
 
 # 발사음 파형을 뱅크에 올린다(현재 후보). '6'키가 rise_pick을 돌리고 이걸 다시 부른다.
 #   ⚠파일이 없으면 블라스트 로켓으로 되돌린다 — 발사가 통째로 무음이 되는 것보다 낫다.
@@ -1292,6 +1337,11 @@ func _sfx_init() -> void:
 		p.bus = bus_name
 		add_child(p)
 		_sfx_pool.append(p)
+	for _m in range(MUSIC_VOICES):
+		var mp := AudioStreamPlayer.new()
+		mp.bus = bus_name
+		add_child(mp)
+		_music_pool.append(mp)
 
 func _sfx_semi(step: int) -> int:
 	return SFX_LADDER[clampi(step, 0, SFX_LADDER.size() - 1)]
@@ -1347,7 +1397,7 @@ func _sfx(kind: String, intensity: float = 0.0) -> void:
 		semi = mini(int(clampf(intensity, 0.0, 6.0)) * 2, 12)   # 링 번호 → 음정(바깥일수록 높다)
 	# ⚠**로고 강펀치의 2층(45ms 광택)을 뺐다**(R18). clear·climax와 같은 2층 문법이었는데, 그
 	#   문법 자체가 "줄이 지워졌다"는 뜻이라 축하 무대에서 오독됐다(유저 지적). 지금은 한 방이다.
-	elif kind == "sweep" or kind == "letter":
+	elif kind == "sweep" or kind == "letter" or kind == "chord":
 		# 축하 무대 — **계단을 호출부가 정한다**(행 높이·글자 순서가 곧 음정이다).
 		#   `chain`처럼 내부 카운터를 쓰면 화면 순서와 어긋나고, 무대엔 되돌릴 다운비트도 없다.
 		semi = _sfx_semi(int(intensity))
@@ -1394,7 +1444,7 @@ func _sfx_fire(kind: String, semi: int, db_over: float = 99.0) -> bool:
 	#   7의 곱은 순환 길이를 늘리려는 것(연속 두 발이 같은 값을 안 갖게).
 	var dw: float = float((SFX_WORDS[kind] as Dictionary).get("det", 0.004))
 	var det: float = 1.0 + (float((_sfx_n * 7) % 5) - 2.0) * dw
-	var pl: AudioStreamPlayer = _sfx_take_voice()
+	var pl: AudioStreamPlayer = _sfx_take_voice(bool((SFX_WORDS[kind] as Dictionary).get("music", false)))
 	pl.stream = st2
 	# base = 단어별 기본 음정(반음). 파형이 둘뿐이므로 **음정이 어휘를 가르는 두 번째 축**이다.
 	#   사다리(semi)와 따로 두는 이유: clear·chain은 semi가 콤보/계단을 나르므로 거기에 기본값을
@@ -1407,15 +1457,25 @@ func _sfx_fire(kind: String, semi: int, db_over: float = 99.0) -> bool:
 	return true
 
 # 노는 보이스 우선, 없으면 가장 오래된 것을 뺏는다(라운드로빈 머리).
-func _sfx_take_voice() -> AudioStreamPlayer:
-	for i in range(SFX_VOICES):
-		var idx: int = (_sfx_rr + i) % SFX_VOICES
-		var p: AudioStreamPlayer = _sfx_pool[idx]
+#   music=true면 지속음 전용 풀에서 고른다 — 두 풀은 서로를 절대 안 뺏는다.
+func _sfx_take_voice(music: bool = false) -> AudioStreamPlayer:
+	var pool: Array = _music_pool if music else _sfx_pool
+	var n: int = pool.size()
+	var rr: int = _music_rr if music else _sfx_rr
+	for i in range(n):
+		var idx: int = (rr + i) % n
+		var p: AudioStreamPlayer = pool[idx]
 		if not p.playing:
-			_sfx_rr = (idx + 1) % SFX_VOICES
+			if music:
+				_music_rr = (idx + 1) % n
+			else:
+				_sfx_rr = (idx + 1) % n
 			return p
-	var v: AudioStreamPlayer = _sfx_pool[_sfx_rr]
-	_sfx_rr = (_sfx_rr + 1) % SFX_VOICES
+	var v: AudioStreamPlayer = pool[rr]
+	if music:
+		_music_rr = (rr + 1) % n
+	else:
+		_sfx_rr = (rr + 1) % n
 	return v
 
 # _hap_step 바로 뒤에서 부른다 — 조기 반환(메뉴·히트스톱)보다 먼저여야 예약된 fanfare 음이 안 끊긴다.
@@ -3828,6 +3888,9 @@ func _plan_clear_fx() -> void:
 #   따로 주면 "낮게 쏴서 높게 터지는" 물리적으로 안 맞는 짝이 생긴다.
 #   난수를 안 쓰는 이유는 §5 그대로 — 연출이 randf를 더 뽑으면 회귀 골든 하류가 시프트한다.
 const CLEAR_FW_SEMI: Array = [0, 4, -3, 2, -5, 5, -1]
+# 정점의 화음 = 사다리 계단 0·2·4·7(도·미·솔·도). 글자가 밟고 올라온 그 사다리 위에 앉는다 —
+#   다른 음을 쓰면 조립 선율과 화음이 남남이 된다.
+const CLEAR_CHORD: Array = [0, 2, 4, 7]
 
 # ===== 축하 무대의 소리 beat (R17 · §22 B-7) =====
 # 무대는 게임 로직이 멈춘 채 _process가 타이머만 굴린다 → 소리도 **화면과 같은 타이머**에서
@@ -3845,10 +3908,14 @@ func _clear_stage_audio(was: float, now: float) -> void:
 	# CASTLE 등장 = 같은 상승선의 다음 계단(줄이 바뀌어도 소리는 한 줄로 이어진다)
 	if was < CLEAR_L2_IN and now >= CLEAR_L2_IN:
 		_fb("letter", float(n1))
-	# ② 오버슛 정점 — 연출 전체에서 강펀치는 여기 한 번뿐이다. 소리도 여기 한 번뿐이다.
+	# ② 오버슛 정점 — 강펀치(대포)와 **화음 착지**가 같은 프레임에. 레퍼런스도 여기서 선율이
+	#   화음으로 앉고(§26 실측: C·C·D·E·G·C 풀보이싱) 그 화음이 폭죽 밑에 깔린 채 계속 운다.
+	#   ⚠큐가 아니라 즉발이다 — 예약은 다음 프레임(최대 16ms 뒤)에 나가 '한 방'이 갈라진다(§21⑦).
 	var pk: float = CLEAR_L2_IN + CLEAR_L2_PUNCH
 	if was < pk and now >= pk:
 		_fb("logo")
+		for step in CLEAR_CHORD:
+			_fb("chord", float(step))
 	# ③ 폭죽 — 올라감(휘슬)과 터짐(크랙)이 각자 자기 시각에. '올라감→터짐'의 예비동작이
 	#    화면에 있는데(CLEAR_ROCKET_RISE) 소리에 없으면 터짐이 허공에서 나온다.
 	var fi: int = 0
@@ -4508,6 +4575,27 @@ func _input(event: InputEvent) -> void:
 		_plan_clear_fx()
 		clear_show_t = -CLEAR_HOLD     # 프리롤(스윕)부터 = 실제 승리와 완전히 같은 경로
 		_fb("finish")
+		queue_redraw()
+		return
+
+	# ⚠플테 전용 DEV: '4'키 = 선율 악기 순환 + **악구 전체** 미리듣기(R19).
+	#   ⚠낱음 하나로는 판정이 안 된다 — 이 층의 값어치는 **음이 서로 겹쳐 우는 것**에 있다.
+	#   그래서 미리듣기가 무대와 같은 박자(글자 0.08초 간격 5음 → 0.22초 뒤 한 음 → 화음)로 돈다.
+	if event is InputEventKey and (event as InputEventKey).pressed \
+			and (event as InputEventKey).keycode == KEY_4 and OS.is_debug_build():
+		note_pick = (note_pick + 1) % SFX_NOTE_PICKS.size()
+		_sfx_load_note()
+		_ab_label_t = 3.0
+		_ab_label = "악기 %s" % String((SFX_NOTE_PICKS[note_pick] as Array)[1])
+		_ab_col = Color(0.55, 0.9, 0.6)
+		for i in range(5):
+			_sfx_queue.append({"at": _sfx_t + float(i) * CLEAR_LETTER_GAP, "kind": "letter",
+					"semi": _sfx_semi(i), "db": float(SFX_WORDS["letter"]["db"])})
+		_sfx_queue.append({"at": _sfx_t + CLEAR_L2_IN - CLEAR_LOGO_IN, "kind": "letter",
+				"semi": _sfx_semi(5), "db": float(SFX_WORDS["letter"]["db"])})
+		for step2 in CLEAR_CHORD:
+			_sfx_queue.append({"at": _sfx_t + CLEAR_L2_IN - CLEAR_LOGO_IN + CLEAR_L2_PUNCH,
+					"kind": "chord", "semi": _sfx_semi(int(step2)), "db": float(SFX_WORDS["chord"]["db"])})
 		queue_redraw()
 		return
 

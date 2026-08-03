@@ -31,6 +31,7 @@ const IDLE_STRESS: int = 1       # 인간이 불가능한 최고 속도 = 상한
 #   fallback은 뱅크에 없는 이름(있으면 안 되지만, 0.1초로 세면 겹침을 **과소평가**하므로 크게 잡는다).
 const WORD_DUR_FALLBACK: float = 0.20
 const MAX_VOICES: int = 8
+const MAX_MUSIC_VOICES: int = 12         # 지속음 전용 풀(Main.MUSIC_VOICES) — 타격 풀과 안 섞인다
 const MAX_FIRES_IN_1S: int = 15         # 예산 14/초 + 회복 여유 1
 const LADDER_MAX_SEMI: int = 16
 
@@ -120,6 +121,9 @@ func _play(max_places: int, idle: int) -> int:
 	return places
 
 # ── 로그 해석 ────────────────────────────────────────────────────────────────
+func _is_music(kind: String) -> bool:
+	return bool(((g.SFX_WORDS as Dictionary).get(kind, {}) as Dictionary).get("music", false))
+
 # 파형 지문 — 같은 소리가 다른 파일 이름으로 들어와도 같은 값이 나온다(길이 + 성긴 체크섬).
 func _fp(st) -> String:
 	var d: PackedByteArray = st.data
@@ -152,19 +156,28 @@ func _analyze(log: Array) -> Dictionary:
 		var k: String = String(e["kind"])
 		kinds[k] = int(kinds.get(k, 0)) + 1
 	# 동시 보이스 — 각 발화 시점에서 '아직 울리고 있는' 소리 수를 센다(진흙의 직접 지표).
+	# ⚠**두 풀을 따로 센다**(R19). 지속음(music)은 전용 풀에 있어서 타격음을 절대 안 뺏는다 —
+	#   합쳐 세면 화음 하나 얹을 때마다 상한을 넘긴 것처럼 보이고, 정작 진짜 위험(타격음이 서로를
+	#   잡아먹는 것)은 그 숫자 뒤에 숨는다.
 	var max_voices: int = 0
+	var max_music: int = 0
 	var max_fires: int = 0
 	var min_gap: float = 999.0
 	for i in range(fires.size()):
 		var ti: float = float(fires[i]["t"])
 		var live: int = 0
+		var livem: int = 0
 		for j in range(fires.size()):
 			var tj: float = float(fires[j]["t"])
 			if tj > ti:
 				break
 			if tj + _dur(String(fires[j]["kind"]), int(fires[j]["semi"])) > ti:
-				live += 1
+				if _is_music(String(fires[j]["kind"])):
+					livem += 1
+				else:
+					live += 1
 		max_voices = maxi(max_voices, live)
+		max_music = maxi(max_music, livem)
 		var n: int = 0
 		for j2 in range(i, fires.size()):
 			if float(fires[j2]["t"]) - ti > 1.0:
@@ -179,7 +192,7 @@ func _analyze(log: Array) -> Dictionary:
 	return {
 		"fires": fires.size(), "kinds": kinds, "drops": drops, "span": span,
 		"per_sec": (float(fires.size()) / span) if span > 0.0 else 0.0,
-		"max_voices": max_voices, "max_fires_1s": max_fires,
+		"max_voices": max_voices, "max_music": max_music, "max_fires_1s": max_fires,
 		"min_gap": (min_gap if min_gap < 999.0 else 0.0),
 	}
 
@@ -217,8 +230,8 @@ func _ladder(log: Array) -> Dictionary:
 func _report(tag: String, m: Dictionary) -> void:
 	print("── %s: 발화 %d발 / %.1f초 = 초당 %.2f · 어휘 %s · 드롭 %s"
 			% [tag, int(m["fires"]), float(m["span"]), float(m["per_sec"]), str(m["kinds"]), str(m["drops"])])
-	print("     동시 보이스 최대 %d  |  롤링 1초 최대 %d발  |  최소 간격 %.3fs"
-			% [int(m["max_voices"]), int(m["max_fires_1s"]), float(m["min_gap"])])
+	print("     동시 보이스 최대 %d(선율 %d)  |  롤링 1초 최대 %d발  |  최소 간격 %.3fs"
+			% [int(m["max_voices"]), int(m["max_music"]), int(m["max_fires_1s"]), float(m["min_gap"])])
 
 func _sig(log: Array) -> Array:
 	var out: Array = []
@@ -531,12 +544,12 @@ func _run() -> void:
 	#   승리 후 1초만 더 굴리므로 무대의 앞부분(스윕·글자)까지만 잡힌다 → 전체는 패스 G가 잰다.
 	var allowed: Array = ["grab", "place", "clear", "clear2", "chain", "score", "fail",
 			"tap", "tap_go", "tap_back", "tap_off", "fanfare", "climax", "praise", "leak",
-			"sweep", "clear_hit", "letter", "logo", "fw_rise", "fw_pop"]
+			"sweep", "clear_hit", "letter", "chord", "logo", "fw_rise", "fw_pop"]
 	var unexpected: Array = []
 	for k in kinds_a.keys():
 		if not allowed.has(String(k)):
 			unexpected.append(k)
-	_check("⑦ 어휘는 설계표(21) 안", unexpected.is_empty(),
+	_check("⑦ 어휘는 설계표(22) 안", unexpected.is_empty(),
 			"예상 밖: %s" % str(unexpected))
 
 	# ── 패스 D: 어휘 직접 타격(fanfare 1회 상한·판 경계 리셋)
@@ -629,28 +642,32 @@ func _run() -> void:
 			sweep_semis.append(int(e["semi"]))
 		elif k == "letter":
 			letter_semis.append(int(e["semi"]))
-	# 무대 안의 최대 무음 구멍 — **이번 라운드가 고치려 한 바로 그 지표**(§17③과 같은 자).
+	# 무대 안의 최대 무음 — **이번 라운드가 고치려 한 바로 그 지표**(§17③과 같은 자).
 	#   총 발화수로는 판정이 안 된다: 붐비는 자리에 더 쌓아도 총량은 오른다.
+	# ⚠**온셋 간격이 아니라 '울리는 중인 소리가 하나도 없는 시간'을 잰다**(R19에서 고쳤다).
+	#   지속음이 들어오자 옛 자가 거짓말을 하기 시작했다 — 1.4초 우는 음 뒤에 0.4초 공백이 있어도
+	#   귀에는 이어져 있는데, 발화 시각만 보면 '무음 0.4초'라고 읽었다. **재료가 바뀌면 자도 바뀐다.**
 	var stage_end: float = float(g.CLEAR_SHOW_TOTAL)
-	var prev: float = -float(g.CLEAR_HOLD)
+	var ring: float = -float(g.CLEAR_HOLD)      # 지금까지 울린 소리가 끝나는 가장 늦은 시각
 	var hole: float = 0.0
 	var hole_at: float = 0.0
 	for e0 in ev:
-		var t: float = float((e0 as Dictionary)["t"])
+		var e3: Dictionary = e0 as Dictionary
+		var t: float = float(e3["t"])
 		if t > stage_end:
 			break
-		if t - prev > hole:
-			hole = t - prev
-			hole_at = prev
-		prev = t
-	if stage_end - prev > hole:
-		hole = stage_end - prev
-		hole_at = prev
+		if t - ring > hole:
+			hole = t - ring
+			hole_at = ring
+		ring = maxf(ring, t + _dur(String(e3["kind"]), int(e3["semi"])))
+	if stage_end - ring > hole:
+		hole = stage_end - ring
+		hole_at = ring
 	var mg: Dictionary = _analyze(cs["log"])
 	print("── 축하 무대: %s" % str(cnt))
 	print("     스윕 음정 %s · 글자 음정 %s" % [str(sweep_semis), str(letter_semis)])
-	print("     최대 무음 %.2fs (무대시각 %.2f~%.2f) · 동시 보이스 %d · 롤링 1초 %d발"
-			% [hole, hole_at, hole_at + hole, int(mg["max_voices"]), int(mg["max_fires_1s"])])
+	print("     최대 무음 %.2fs (무대시각 %.2f~%.2f) · 보이스 %d/선율 %d · 롤링 1초 %d발"
+			% [hole, hole_at, hole_at + hole, int(mg["max_voices"]), int(mg["max_music"]), int(mg["max_fires_1s"])])
 	_check("⑲ 스윕 배선 = 블록 있는 행 수", int(cnt.get("sweep", 0)) == int(cs["rows"]),
 			"sweep %d발 · 행 %d" % [int(cnt.get("sweep", 0)), int(cs["rows"])])
 	var sweep_up: bool = true
@@ -688,15 +705,32 @@ func _run() -> void:
 		if st1 != null and play_fps.has(_fp(st1)):
 			quoted.append("%s(%s)" % [String(e2["kind"]), String(st1.resource_path).get_file()])
 	_check("⑳ 무대가 열린 뒤엔 삭제·로켓 파형을 안 쓴다", quoted.is_empty(), "인용: %s" % str(quoted))
+	# 선율(R19) — 글자 5 + CASTLE 1이 사다리를 오르고, 정점에서 화음 4음이 **같은 프레임에** 앉는다.
+	var chord_ts: Array = []
+	for e0 in ev:
+		if String((e0 as Dictionary)["kind"]) == "chord":
+			chord_ts.append(float((e0 as Dictionary)["t"]))
+	var same_frame: bool = chord_ts.size() == int(g.CLEAR_CHORD.size()) \
+			and (chord_ts.is_empty() or (float(chord_ts[chord_ts.size() - 1]) - float(chord_ts[0])) < 0.001)
+	_check("⑳ 정점 화음 = %d음 동시" % int(g.CLEAR_CHORD.size()), same_frame,
+			"%d음 · 시각폭 %.4fs" % [chord_ts.size(),
+			(float(chord_ts[chord_ts.size() - 1]) - float(chord_ts[0])) if chord_ts.size() > 1 else 0.0])
+	# 선율이 실제로 지속음인가 — 파형 길이로 본다(타격 파형으로 되돌아가면 여기서 잡힌다).
+	var note_len: float = 0.0
+	var nst = g._sfx_bank.get("letter", null)
+	if nst != null:
+		note_len = float(nst.get_length())
+	_check("⑳ 선율 파형이 지속음(≥0.4s)", note_len >= 0.4, "%.2fs" % note_len)
 	_check("㉑ 폭죽 = 발사·터짐 각 %d발" % int(g.CLEAR_ROCKET_N),
 			int(cnt.get("fw_rise", 0)) == int(g.CLEAR_ROCKET_N) and int(cnt.get("fw_pop", 0)) == int(g.CLEAR_ROCKET_N),
 			"발사 %d · 터짐 %d" % [int(cnt.get("fw_rise", 0)), int(cnt.get("fw_pop", 0))])
 	# 무음 상한 0.55s — 레퍼런스 삭제음 한 사건이 0.32s이므로 그 두 배를 넘으면 '끊겼다'로 들린다.
 	#   ⚠이 검사는 배선이 빠지면 즉시 크게 터진다(전엔 3.4초였다) = 회귀 감시가 목적이다.
 	_check("㉒ 무대 안 최대 무음 ≤ 0.55s", hole <= 0.55, "%.2fs @ %.2f" % [hole, hole_at])
-	_check("㉒ 무대 예산(동시 %d · 롤링 %d)" % [MAX_VOICES, MAX_FIRES_IN_1S],
-			int(mg["max_voices"]) <= MAX_VOICES and int(mg["max_fires_1s"]) <= MAX_FIRES_IN_1S,
-			"보이스 %d · 1초 %d발" % [int(mg["max_voices"]), int(mg["max_fires_1s"])])
+	_check("㉒ 무대 예산(타격 %d · 선율 %d · 롤링 %d)" % [MAX_VOICES, MAX_MUSIC_VOICES, MAX_FIRES_IN_1S],
+			int(mg["max_voices"]) <= MAX_VOICES and int(mg["max_music"]) <= MAX_MUSIC_VOICES
+					and int(mg["max_fires_1s"]) <= MAX_FIRES_IN_1S,
+			"타격 %d · 선율 %d · 1초 %d발" % [int(mg["max_voices"]), int(mg["max_music"]), int(mg["max_fires_1s"])])
 
 	print("=== %s (실패 %d) ===" % ["PASS" if fails == 0 else "FAIL", fails])
 	quit(1 if fails > 0 else 0)
