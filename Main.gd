@@ -395,6 +395,17 @@ var boss_hp: int = 0            # 보스(감시자) 스테이지 전용 — 잔�
 var boss_hp_max: int = 0
 var collected_by_type: Array = []   # 받기형 수집 — 타입별 수집 수(길이=타입 수). 각 collect_targets[i] 도달 = 그 타입 완료, 전부 완료 = 클리어.
 var gem_flights: Array = []          # 잡은 보석이 상단 카운터로 빨려가는 연출 {from,to,t,dur,gtype,color}. 도착 시 카운트+1.
+# 보석 수집은 **세 박자**다(레퍼런스 60fps 실측, AUDIO_PLAN §34): 잡히면 제자리에서 기다리고
+#   → 아주 빠르게 쏘아 올려지고 → 도착에서 카운터가 튄다. R24까지 우리는 0.42초 등속으로 둥둥
+#   떠가서 블라스트 잔해와 섞였고, "이건 보석이다"가 안 읽혔다(유저 지적 2026-08-04).
+# ⚠**총 지연은 0.42초 그대로다.** 레퍼런스 홀드는 0.58~0.70초지만, 카운트가 오르는 시각은
+#   `_check_win`이 걸려 있는 **게임 로직**이다 — 늘려 봤더니 수집판 승률이 무너졌다(회귀 실측:
+#   s4 u1 20/20 → **0/20**, 처치 14.7 → 32.5). 보석이 늦게 세어지면 그만큼 판이 길어지고
+#   `_gem_secured`가 비행 중인 것까지 확보로 세어 스폰까지 막기 때문이다.
+#   → **박자는 0.42초 안에서 나눈다**(대기 0.32 + 발사 0.10). 골든이 byte-identical로 돌아온다.
+const GEM_TOTAL: float = 0.42     # 잡힘 → 카운트. **밸런스가 이 값에 물려 있다(바꾸지 말 것)**
+const GEM_FLY: float = 0.10       # 발사~도착(레퍼런스 실측 0.08). 짧아야 '쏜다'로 읽힌다
+const GEM_HOLD: float = GEM_TOTAL - GEM_FLY   # 제자리 대기 = 0.32초
 # 보호(Protect) — 금고(vault): 도둑이 거점 도달 시 여기서 훔쳐 도망. 0이면 패(상실축, 거점사와 별개).
 #   낚아채기=grab(vault--·carrying=true·바닥 반등 후 상승), 처치 회수=vault++. 승리는 표준(웨이브 소탕, 탈출=leaked)+vault>0.
 var vault: int = 0                   # 현재 금고 잔량
@@ -1142,30 +1153,21 @@ const SFX_WORDS: Dictionary = {
 	#   여기에 새 음색을 주면 세계에 없던 물건이 하나 더 생긴다(§19 UI 탭 넷과 같은 판단).
 	#   단발 탭과는 **figure로** 갈린다 — 탭은 한 발, 이건 0/+4/+7 3발이다.
 	"goal_in": {"gap": 0.00, "db": -11.0, "det": 0.008},
-	# 도킹 안착 = **한 방이 아니라 '띠리링'**(R25에서 고쳤다). 유저 판정 "너무 종소리 같다,
-	#   레퍼런스는 띠리링이었다" → 다시 재니 레퍼런스 도착음은 **33ms 간격 13발이 0.43초 동안
-	#   트라이어드를 구르며 감쇠**하는 열차였다(§10의 'REF_gem 상승 아르페지오'와 같은 물건).
-	#   ⚠내 첫 측정이 "벨 한 방"이라 읽은 건 온셋 검출을 **파일 전체 최대치**로 정규화해서
-	#   −30dB짜리 사건이 통째로 사라졌기 때문이다(§33).
-	# ⚠**+12인 이유는 `result_win`(+7)과 안 겹치려는 것**이다: 같은 악기·같은 레벨이면 판 시작이
-	#   판 끝처럼 들린다. 한 옥타브 위는 길이도 0.7초로 줄어 롤을 쌓아도 지속음 풀이 안 넘친다.
-	"goal_dock": {"gap": 0.00, "db": -12.0, "det": 0.004, "base": 12, "music": true},
-	# ── 보석 카운터 도착(R24 · §22 B-2) ────────────────────────────────────────
-	# §17이 "레퍼런스에서 **가장 밀도 높은 소리**(REF_gem 500ms 연속 열차)가 우리는 무음"이라고
-	#   적어 둔 자리다. 잡는 순간엔 `chain`이 울리는데(_apply_hit) 0.42초 날아가 **카운터에 닿는
-	#   순간**은 조용했다 — 화면에선 숫자가 오르고 카운터가 톡 튀는(collect_pop) 바로 그 프레임이다.
-	# ⚠**파형은 `goal_dock`과 같은 글로켄이다** — 둘 다 '무언가가 상단 HUD에 날아가 안착한다'는
-	#   같은 문법이고(§31), 잡을 때의 `chain`(pop_high)과 갈려야 "잡았다 → 도착했다"가 두 사건으로
-	#   읽힌다. 같은 파형을 두 번 쓰면 메아리로 들린다.
-	# ⚠**음정이 진행도를 나른다** — 그 색의 quota를 향해 4계단(0/2/4/7)을 오른다. 마지막 보석이
-	#   가장 높아서 '다 모았다'가 귀로 온다. 화면(카운터 숫자)이 이미 말하는 것의 보강이다(§2).
-	# ⚠판당 **15발**까지 나간다(st9 = collect_targets [15]) → §4 "잦을수록 작고 짧게"가 세게 걸린다.
-	#   그래서 base +12로 올려 길이를 1.4 → 0.7초로 줄이고(지속음이 15발 쌓이면 진흙이다) 레벨도
-	#   `chain`(−7.6)보다 한참 아래로 뒀다.
-	# ⚠**gap 0이다 = 절대 안 드롭한다.** 한 블라스트에서 여러 개가 같은 프레임에 도착할 수 있는데
-	#   간격으로 눌러 버리면 화면 카운터는 +3인데 소리는 한 발이 된다 — 진행 신호를 삼키는 셈이다.
-	#   겹쳐도 5음계라 **화음**이 되고(정점 화음과 같은 이치) 지속음 전용 풀이라 삭제음을 안 뺏는다.
-	"collect": {"gap": 0.00, "db": -12.0, "det": 0.004, "base": 12, "music": true},
+	# 도킹 안착 = **보석 도착과 같은 틱 열차**다(R26에서 통일). R25에선 글로켄 8발 롤이었는데,
+	#   레퍼런스에선 이 둘이 **같은 소리**다 — 목표 칩이든 보석이든 "카운터로 들어가는 것"이라서다.
+	#   서로 다른 물건으로 만들어 두니 판 안에서 둘이 따로 놀았다(유저 판정 2026-08-04).
+	#   여기만 열차가 **두 배 길다**(6발) — 판당 1회짜리 큰 사건이고 예산도 이 창엔 여유가 있다.
+	"goal_dock": {"gap": 0.00, "db": -12.0, "det": 0.008},
+	# ── 보석 카운터 도착(R24 · R26에서 다시 씀) ───────────────────────────────
+	# 레퍼런스 실측(§34): 도착음은 **한 방이 아니라 틱 열차**다 — 32~44ms 간격으로 이어지고,
+	#   개수가 늘면 그만큼 길어지며(1개 11발/0.39초 · 3개 23발/0.77초), 음정은 앞머리에서 한 번
+	#   오른 뒤 **꼭대기를 반복하며 잦아든다.** 레벨은 블라스트보다 8~11dB 아래에 깔린다.
+	# ⚠**R24의 '진행도가 음정을 나른다'를 폐기했다.** 도착마다 다른 음이 뚝뚝 떨어져서 유저 판정이
+	#   "따로 놀고 튄다"였다. 레퍼런스는 **일부러 매번 같은 figure**를 쓴다 — 그래야 하나의 물건으로
+	#   들리고, 진행도는 화면 숫자가 이미 말한다. 정보를 하나 더 실으려다 소리를 흩어 놓은 것이다.
+	# ⚠파형도 글로켄(지속음 0.7초) → **pop_high**로 바꿨다. 레퍼런스 핑이 0.8~2.5kHz에 80~90%인데
+	#   그 자리가 정확히 이 파형이고("카운터 틱" 가족 = score와 같은 뜻), 종소리 성격이 사라진다.
+	"collect": {"gap": 0.00, "db": -13.0, "det": 0.008},
 }
 const SFX_VOICES: int = 8
 # ⚠12다. 글자 6음(각 1.4초)이 아직 울리는 채로 정점 화음 4음이 얹혀 **최대 10**이 겹친다(실측) —
@@ -1388,8 +1390,10 @@ func _sfx_build_bank() -> void:
 	_sfx_bank["result_cta"] = hi
 	# 목표 카드(R23) — 등장은 UI 파형 3발, 안착만 글로켄 한 방(레퍼런스와 같은 역할 분담).
 	_sfx_bank["goal_in"] = hi
-	_sfx_bank["goal_dock"] = ml if ml != null else hi
-	_sfx_bank["collect"] = _sfx_bank["goal_dock"]   # 보석 도착 = 목표 칩 안착과 같은 사건(R24)
+	# 안착·도착은 **같은 파형**이다(R26) — 둘 다 '카운터로 들어가는 것'이고, 레퍼런스도 한 소리다.
+	#   pop_high = 카운터 틱 가족(score와 같은 파형) · 0.8~2.5kHz = 레퍼런스 핑이 앉은 자리.
+	_sfx_bank["goal_dock"] = hi
+	_sfx_bank["collect"] = hi
 
 
 # 전용 SFX 버스 + 하드 리미터를 **런타임에** 만든다 — 버스 레이아웃 리소스 파일을 안 만들므로
@@ -1468,14 +1472,16 @@ func _sfx(kind: String, intensity: float = 0.0) -> void:
 		#   R9에서 기각된 '거슬리는' 대역으로 되돌아간다. +5까지가 안전선이다.
 		_sfx_queue.append({"at": _sfx_t + 0.045, "kind": "clear2", "semi": 0})
 		_sfx_queue.append({"at": _sfx_t + 0.135, "kind": "clear2", "semi": 5})
-	elif kind == "goal_dock":
-		# 안착 = 열차 한 줄(R25). 첫 발은 지금, 나머지는 예약 — 화면의 '툭'과 첫 발이 같은 프레임이다.
+	elif kind == "goal_dock" or kind == "collect":
+		# 열차 한 줄(R26). 첫 발은 지금, 나머지는 예약. **마지막(가장 큰) 발이 도착과 같은 프레임**에
+		#   떨어지도록 호출부가 '발사' 시점에 부른다(열차 길이 ≈ 비행 시간).
 		_sfx_last[kind] = _sfx_t
-		_sfx_dock_run()
+		var tick_n: int = TICK_N_DOCK
+		if kind == "collect":
+			# 보석 한 개 = TICK_N_GEM발, 한 개 늘 때마다 +1발(상한 TICK_N_MAX)
+			tick_n = mini(TICK_N_GEM + maxi(0, int(intensity) - 1), TICK_N_MAX)
+		_sfx_tick_run(kind, tick_n)
 		return
-	elif kind == "collect":
-		# 진행도 계단을 호출부가 넘긴다(사다리 index) — 축하 무대의 스윕·글자와 같은 문법이다.
-		semi = _sfx_semi(int(intensity))
 	elif kind == "goal_in":
 		# 목표 카드 등장 = **3발 상승 figure**(레퍼런스 온셋 간격 85ms 그대로, §31). 첫 발은 지금,
 		#   나머지 둘은 예약한다 — 카드가 떠오르는 0.28초 안에 셋이 다 들어간다.
@@ -1521,27 +1527,31 @@ func _sfx_clear_run(lines: int, combo: int) -> void:
 				"semi": mini(start + SFX_LADDER[i], 16), "db": ndb})
 	_sfx_fire("clear_hit", 0)      # 타격은 음정을 안 받는다 — 올리면 몸통이 얇아진다
 
-# 목표 칩 안착의 '띠리링'(R25). 레퍼런스 실측을 그대로 옮긴 값이다 —
-#   ①한 방이 아니라 **열차** ②음계를 오르는 게 아니라 **트라이어드를 구른다**(C–E–G–C′을 오르내림)
-#   ③뒤로 갈수록 **조용해진다**(레퍼런스 −30 → −42dB).
-# ⚠**13발을 그대로 못 쓴다.** 초당 발화 예산이 14라 13발이면 이 창의 다른 소리가 전부 굶는다
-#   → 간격을 40ms로 벌려 8발로 줄였다(0.28초). 밀도는 90%쯤 남고 예산은 반만 쓴다.
-# ⚠지속음이라 8발이 겹친다 — +12(0.70초)라서 최대 겹침이 7이고 전용 풀(12) 안이다.
-#   base를 내리면 음이 길어져 **여기서 풀이 넘친다**(그때는 발수부터 줄일 것).
-# ⚠**롤의 꼭대기를 +9로 묶었다.** 처음엔 [0,4,7,12,16,12,16,19]로 잡았는데 base(+12) 위에 얹히므로
-#   실제 최고음이 **+31 = 6.3kHz**였다 — §4가 "더 올리면 개 호루라기"라며 사다리를 16반음에서
-#   끊은 그 선을 두 배로 넘긴다. base는 '이 단어의 자리'고 semi는 '지금 몇 번째'라 **둘을 더해서**
-#   봐야 하는데, figure를 짜면서 그걸 잊었다. 지금 꼭대기는 +21 = 3.5kHz다.
-const DOCK_RUN: Array = [0, 4, 7, 9, 7, 4, 7, 9]
-const DOCK_GAP: float = 0.040
-const DOCK_FADE: float = 1.1        # 발마다 이만큼 낮아진다 = 열차가 잦아든다
+# 카운터로 들어가는 소리 = **틱 열차**(R26 · 레퍼런스 실측 §34).
+#   ①한 방이 아니라 32~44ms 간격의 연속 틱 ②음정은 앞머리에서 오르고 **꼭대기를 반복**한다
+#   ③도착으로 갈수록 커지고, 도착 뒤엔 잦아든다.
+# ⚠**개수만큼 길어지는 건 열차 길이가 아니라 호출 횟수로 낸다** — 보석 하나가 3발이고, 여러 개가
+#   겹쳐 발사되면 열차도 겹쳐 그만큼 촘촘한 한 줄이 된다(레퍼런스의 텍스처가 그것이다).
+# ⚠레퍼런스는 보석 1개에 11발인데 우리는 3발이다. 초당 발화 예산이 14라 개당 11발이면 3개만 겹쳐도
+#   그 창의 다른 소리가 전부 굶는다. 밀도가 더 필요하면 **열차를 오프라인으로 구워 1발로** 쏠 것.
+const TICK_RUN: Array = [-5, 0, 7]   # 상승 후 꼭대기 유지(레퍼런스 E5 → C6 → G6 → G6…). 5음계 안의 값이다
+const TICK_GAP: float = 0.038        # 레퍼런스 온셋 간격 32~44ms의 중앙
+const TICK_SWELL: float = 2.5        # 도착으로 갈수록 커진다(레퍼런스 −37 → −27dB)
+const TICK_FADE: float = 2.0         # 도착 뒤엔 잦아든다
+const TICK_N_GEM: int = 3            # 보석 하나 — 3발 × 38ms ≈ GEM_FLY(0.10초)라 마지막 발이 도착에 앉는다
+const TICK_N_DOCK: int = 6           # 목표 칩 = 판당 1회짜리 큰 사건이라 두 배 길게
+const TICK_N_MAX: int = 8            # 열차 상한 — 여기서 막지 않으면 한 블라스트에 보석이 몰릴 때 예산이 터진다
 
-func _sfx_dock_run() -> void:
-	var db0: float = float((SFX_WORDS["goal_dock"] as Dictionary)["db"])
-	_sfx_fire("goal_dock", int(DOCK_RUN[0]), db0)
-	for i in range(1, DOCK_RUN.size()):
-		_sfx_queue.append({"at": _sfx_t + float(i) * DOCK_GAP, "kind": "goal_dock",
-				"semi": int(DOCK_RUN[i]), "db": db0 - float(i) * DOCK_FADE})
+func _sfx_tick_run(kind: String, n: int) -> void:
+	var db0: float = float((SFX_WORDS[kind] as Dictionary)["db"])
+	var peak: int = TICK_RUN.size() - 1
+	for i in range(n):
+		var st_semi: int = int(TICK_RUN[mini(i, peak)])
+		var d: float = db0 - (float(peak - i) * TICK_SWELL if i < peak else float(i - peak) * TICK_FADE)
+		if i == 0:
+			_sfx_fire(kind, st_semi, d)
+		else:
+			_sfx_queue.append({"at": _sfx_t + float(i) * TICK_GAP, "kind": kind, "semi": st_semi, "db": d})
 
 func _sfx_fire(kind: String, semi: int, db_over: float = 99.0) -> bool:
 	if _sfx_budget < 1.0:
@@ -2913,7 +2923,11 @@ func _apply_hit(h: Dictionary) -> void:
 		var gt: int = int(e.get("gtype", 0))
 		var gcol: Color = GEM_COLORS[gt % GEM_COLORS.size()]
 		impacts.append({"pos": ep, "life": 0.20, "max": 0.20, "color": gcol, "radius": CELL * 0.42, "star": true})
-		gem_flights.append({"from": ep, "to": _collect_counter_pos(gt), "t": 0.0, "dur": 0.42, "gtype": gt, "color": gcol})
+		# ⚠**순차 엇갈림을 안 넣는다.** 같은 프레임에 여럿 잡히면 도착도 같이 온다 — 레퍼런스는
+		#   0.11초씩 벌리지만, 그러려면 카운트 시각을 미뤄야 하고 그게 곧 밸런스다(위 주석).
+		#   대신 소리가 개수를 나른다: 열차가 겹쳐 그만큼 촘촘해진다(간격 0 = 안 드롭).
+		gem_flights.append({"from": ep, "to": _collect_counter_pos(gt), "t": 0.0,
+				"dur": GEM_TOTAL, "gtype": gt, "color": gcol})
 		kill_pulse = 0.35
 		hitstop = maxf(hitstop, 0.05)
 		_fb("chain")            # 획득도 연쇄의 한 알 — 사다리를 같이 오른다
@@ -5033,10 +5047,18 @@ func _process(delta: float) -> void:
 			death_flashes.remove_at(j)
 		j -= 1
 	# 보석 비행: 상단 카운터로 빨려간다. 도착하면 그 타입 카운트+1(cap), 카운터 팝, 마지막이면 클리어 발화.
+	var g_launched: int = 0
 	var gf: int = gem_flights.size() - 1
 	while gf >= 0:
-		gem_flights[gf]["t"] += delta
-		if gem_flights[gf]["t"] >= float(gem_flights[gf]["dur"]):
+		var g_was: float = float(gem_flights[gf]["t"])
+		var g_launch: float = maxf(0.0, float(gem_flights[gf]["dur"]) - GEM_FLY)
+		gem_flights[gf]["t"] = g_was + delta
+		# **발사 프레임에 소리를 낸다**(R26). 레퍼런스는 도착 순간의 한 방이 아니라 빨려 들어가는
+		#   동작 전체를 덮는 틱 열차이고, 그 열차의 **가장 큰 마지막 발이 도착과 같은 프레임**에 온다.
+		#   → 여기서 시작해야 열차 길이(3발 × 38ms ≈ GEM_FLY)가 비행과 맞아떨어진다.
+		if g_was < g_launch and float(gem_flights[gf]["t"]) >= g_launch:
+			g_launched += 1
+		if float(gem_flights[gf]["t"]) >= float(gem_flights[gf]["dur"]):
 			var gt2: int = int(gem_flights[gf]["gtype"])
 			var tgts2: Array = st.get("collect_targets", [])
 			if not game_over and gt2 < collected_by_type.size() and gt2 < tgts2.size() and int(collected_by_type[gt2]) < int(tgts2[gt2]):
@@ -5044,19 +5066,15 @@ func _process(delta: float) -> void:
 			if gt2 < collect_pop.size():
 				collect_pop[gt2] = 0.34   # 카운터 톡 튐
 			kill_pulse = 0.35
-			# 도착 = 카운터가 오르는 그 프레임(R24 · §22 B-2). 음정은 **그 색의 진행도**를 나른다:
-			#   quota를 4계단으로 나눠 마지막 보석이 가장 높다 = '다 모았다'가 귀로 온다.
-			#   ⚠증가 **뒤에** 센다(안 그러면 마지막 보석이 한 계단 아래로 울린다).
-			var gtg: int = int(tgts2[gt2]) if gt2 < tgts2.size() else 0
-			var ggot: int = int(collected_by_type[gt2]) if gt2 < collected_by_type.size() else 0
-			var gstep: int = 0
-			if gtg > 1:
-				gstep = int(floor(float(maxi(0, ggot - 1)) / float(gtg - 1) * 3.0))
-			_fb("collect", float(gstep))
 			gem_flights.remove_at(gf)
 			if not game_clear and not game_over:
 				_check_win()              # 마지막 보석이 도착하며 클리어
 		gf -= 1
+	# ⚠**같은 프레임에 여럿 발사돼도 열차는 하나다** — 개수만큼 **길어질** 뿐이다(레퍼런스: 1개 11발 ·
+	#   3개 23발 = 한 줄이 늘어난다). 보석마다 한 줄씩 쏘면 5개일 때 15발이 0.08초에 몰려 예산을
+	#   넘고(실측 롤링 16 > 15) 그때부터는 조용히 드롭된다 = 개수가 오히려 덜 들린다.
+	if g_launched > 0:
+		_fb("collect", float(g_launched))
 	for pi in range(collect_pop.size()):
 		if collect_pop[pi] > 0.0:
 			collect_pop[pi] = maxf(0.0, collect_pop[pi] - delta)
@@ -5290,8 +5308,13 @@ func _draw() -> void:
 
 	# 보석 비행: 잡은 자리 → 상단 그 색 카운터. 가속(빨려감) + 작아짐 + 꼬리광.
 	for gfl in gem_flights:
-		var gft: float = clampf(float(gfl["t"]) / float(gfl["dur"]), 0.0, 1.0)
-		var gpos: Vector2 = (gfl["from"] as Vector2).lerp(gfl["to"] as Vector2, gft * gft)
+		# 세 박자(R26): ①제자리 대기 — 살짝 떠올라 맥동한다(잊힌 물건이 아니라 '곧 갈 것'이라는 신호)
+		#   ②가속 발사 ③도착. 대기 없이 바로 떠가면 블라스트 잔해와 섞여 보석인지 안 읽힌다.
+		var g_raw: float = float(gfl["t"])
+		var g_hold: float = maxf(0.0, float(gfl["dur"]) - GEM_FLY)
+		var gft: float = clampf((g_raw - g_hold) / maxf(0.001, float(gfl["dur"]) - g_hold), 0.0, 1.0)
+		var g_bob: float = (-4.0 - 3.0 * sin(g_raw * 9.0)) if g_raw < g_hold else 0.0
+		var gpos: Vector2 = ((gfl["from"] as Vector2) + Vector2(0.0, g_bob)).lerp(gfl["to"] as Vector2, gft * gft)
 		var gsz: float = lerpf(CELL * 0.55, CELL * 0.22, gft)
 		var gfc: Color = gfl["color"]
 		draw_circle(gpos, gsz * 0.5 + 4.0, Color(gfc.r, gfc.g, gfc.b, 0.28 * (1.0 - gft)))
