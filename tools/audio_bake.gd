@@ -101,8 +101,54 @@ func _init() -> void:
 			tl.append([fr, fsemi, float(wd["fw_rise"]["db"]), t0])
 		tl.append([fp, fsemi, float(wd["fw_pop"]["db"]), t0 + float(m.CLEAR_ROCKET_RISE)])
 	_at("%s/CLEAR_STAGE.wav" % OUT_DIR, tl)
+	# ⑨ 결과 팝업 개봉(R22) — 승·패를 **한 파일에 이어** 굽는다. 낱개로 들으면 "승은 위, 패는 아래"라는
+	#   방향이 안 들린다(§19에서 UI 탭 넷을 이어 구운 것과 같은 이유). 각 경우 = 개봉음 + 버튼 도착음.
+	var rc: AudioStreamWAV = m._sfx_bank["result_cta"]
+	_at("%s/RESULT_POPUP.wav" % OUT_DIR, [
+			[m._sfx_bank["result_win"], int(wd["result_win"]["base"]), float(wd["result_win"]["db"]), 0.0],
+			[rc, int(wd["result_cta"]["base"]), float(wd["result_cta"]["db"]), float(m.RESULT_BTN_IN)],
+			[m._sfx_bank["result_lose"], int(wd["result_lose"]["base"]), float(wd["result_lose"]["db"]), 2.5],
+			[rc, int(wd["result_cta"]["base"]), float(wd["result_cta"]["db"]), 2.5 + float(m.RESULT_BTN_IN)],
+		])
+	# ⑩ 판 진입 목표 카드(R23) — **타임라인 그대로**(등장 3발 · 홀드 무음 · 안착 벨). 낱개로 들으면
+	#   이 라운드가 지킨 것(홀드 0.5초를 비워 둔 것)이 안 들린다 — 레퍼런스도 그 자리가 0.35초 무음이다.
+	var gi: AudioStreamWAV = m._sfx_bank["goal_in"]
+	var gtl2: Array = [
+			[gi, 0, float(wd["goal_in"]["db"]), 0.0],
+			[gi, 4, float(wd["goal_in"]["db"]), 0.085],
+			[gi, 7, float(wd["goal_in"]["db"]), 0.170],
+		]
+	# 안착·도착은 **같은 틱 열차**다(R26) — Main.gd의 TICK_* 상수를 그대로 읽는다.
+	#   여기서 값을 다시 적으면 게임과 프리뷰가 조용히 갈린다(§18의 '자를 두 벌 두지 말 것').
+	var dk: AudioStreamWAV = m._sfx_bank["goal_dock"]
+	for e in _ticks(m, "goal_dock", int(m.TICK_N_GEM), float(m.INTRO_TOTAL)):
+		gtl2.append([dk, e[0], e[1], e[2]])
+	_at("%s/GOAL_CARD.wav" % OUT_DIR, gtl2)
+	# ⑪ 보석 수집(R24 · R26에서 다시 씀) — **개수만큼 열차가 길어지는지**가 판정거리다.
+	#   1개(3발) → 3개(5발) → 5개(7발, 상한)를 이어 굽는다. 레퍼런스도 한 줄이 늘어난다(1개 11발 · 3개 23발).
+	var gc: AudioStreamWAV = m._sfx_bank["collect"]
+	var gtl: Array = []
+	var g_at: float = 0.0
+	for cnt in [1, 3, 5]:
+		var n2: int = mini(int(m.TICK_N_GEM) + maxi(0, cnt - 1), int(m.TICK_N_MAX))
+		for e2 in _ticks(m, "collect", n2, g_at):
+			gtl.append([gc, e2[0], e2[1], e2[2]])
+		g_at += 0.9
+	_at("%s/GEM_COLLECT.wav" % OUT_DIR, gtl)
 	m.free()
 	quit()
+
+# 틱 열차 한 줄 → [[반음, dB, 시각], …]. **Main.gd의 _sfx_tick_run과 같은 산식**이어야 한다.
+func _ticks(m: Node, kind: String, n: int, t0: float) -> Array:
+	var run: Array = m.TICK_RUN
+	var peak: int = run.size() - 1
+	var db0: float = float((m.SFX_WORDS[kind] as Dictionary)["db"])
+	var base: int = int((m.SFX_WORDS[kind] as Dictionary).get("base", 0))
+	var out: Array = []
+	for i in range(n):
+		var d: float = db0 - (float(peak - i) * float(m.TICK_SWELL) if i < peak else float(i - peak) * float(m.TICK_FADE))
+		out.append([base + int(run[mini(i, peak)]), d, t0 + float(i) * float(m.TICK_GAP)])
+	return out
 
 # _seq의 절대시각 판 — 축하 무대처럼 간격이 불규칙한 타임라인용. [파형, 반음, dB, 시각(초)].
 func _at(path: String, notes: Array) -> void:
