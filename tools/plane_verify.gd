@@ -115,7 +115,12 @@ func _init() -> void:
 	quit()
 
 func _play(g: Node, si: int, plane_off: bool = false) -> Dictionary:
-	g.dda_enabled = false
+	# CARE=1이면 실패 케어(S1) 3패 상태로 돌린다 — 배급이 실제로 늘어나는지, 그리고 늘려도
+	#   '세상에 한 대'(불변식 ②)가 그대로인지를 본다. 기본은 off = 기존 측정과 같은 조건.
+	var care: bool = OS.get_environment("CARE") != ""
+	g.dda_enabled = care
+	if care:
+		g.fail_streak[si] = g.CARE_MAX_FAILS
 	g._start_stage(si)
 	if plane_off:
 		g.plane_cd_left = 1 << 30   # 대조군: 쿨다운이 안 끝나 픽업이 영영 안 떨어진다
