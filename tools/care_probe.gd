@@ -39,12 +39,44 @@ func _init() -> void:
 		for tok in only_env.split(","):
 			only.append(int(tok))
 
-	# 조건 목록 = [라벨, dda, fail_streak, 5바 목표비중(0=기본 풀)]
-	var conds: Array = [["base", false, 0, 0.0], ["god", true, 2, 0.0]]
+	# 조건 목록 = [라벨, dda, fail_streak, 5바 목표비중(0=기본 풀), 풀 통째 교체(비면 없음)]
+	var conds: Array = [["base", false, 0, 0.0, {}], ["god", true, 2, 0.0, {}]]
 	for s in shares:
-		conds.append(["T%d" % int(s), true, 3, float(s) / 100.0])
+		conds.append(["T%d" % int(s), true, 3, float(s) / 100.0, {}])
+	# POOLS=onboard,lean,rich → 그 프리셋을 통째로 끼운 조건을 덧붙인다. '조각을 큼직하게'가
+	#   막힘사를 줄이는지 보려면 5바 비중이 아니라 **조각 크기 분포 자체**를 바꿔 봐야 한다.
+	var SD: GDScript = load("res://stage_data.gd")
+	var preset_env: String = OS.get_environment("POOLS")
+	if preset_env != "":
+		for tok in preset_env.split(","):
+			var key: String = tok.strip_edges().to_upper()
+			var p: Dictionary = SD.get("POOL_" + key)
+			if p == null or p.is_empty():
+				print("(알 수 없는 풀: %s — 건너뜀)" % key)
+				continue
+			conds.append([key.substr(0, 5).to_lower(), true, 2, 0.0, p])
 
 	print("(seed=%d TRIALS=%d)" % [base_seed, TRIALS])
+	# FULL=1 = 승률 대신 사인별 분해. '케어가 어느 죽음을 고쳤나'를 봐야 막힘사에 듣는지 알 수 있다.
+	if OS.get_environment("FULL") != "":
+		print("판 | 조건  | 승률   | 막힘사 | 거점사 | 배치  | 선택지")
+		print("---+-------+--------+--------+--------+-------+-------")
+		for si in range(g.STAGES.size()):
+			if not only.is_empty() and not only.has(si):
+				continue
+			var bp: Dictionary = g.STAGES[si].get("pool", {})
+			for c in conds:
+				seed(base_seed + si * 1000)
+				g.seed_game(base_seed + si * 1000)
+				var pl: Dictionary = {}
+				if not (c[4] as Dictionary).is_empty():
+					pl = c[4]                       # 프리셋 통째 교체
+				elif float(c[3]) > 0.0:
+					pl = _care_pool(bp, float(c[3]))
+				var r: Dictionary = _run_full(g, si, bool(c[1]), int(c[2]), pl, TRIALS)
+				print("%2d | %-5s | %5.1f%% | %5.1f%% | %5.1f%% | %5.1f | %5.1f" % [
+					si + 1, String(c[0]), r["win"], r["stuck"], r["core"], r["places"], r["opts"]])
+		quit()
 	var head: String = "idx | 5바%  "
 	for c in conds:
 		head += "| %-6s " % String(c[0])
@@ -109,6 +141,94 @@ func _care_pool(base: Dictionary, target: float) -> Dictionary:
 	out["I5h"] = maxi(1, int(round(float(base["I5h"]) * scale)))
 	out["I5v"] = maxi(1, int(round(float(base["I5v"]) * scale)))
 	return out
+
+# 승률만 보면 케어가 '어느 죽음을 고쳤나'를 못 본다. 우리 실패 경로는 둘이고(누수사·막힘사),
+#   5바를 더 주는 개입은 줄을 늘리는 대신 조각을 크게 만들어 **막힘을 악화시킬 수 있다**.
+#   그래서 사인별·선택지 수까지 같이 낸다. opts = 매 턴 트레이 3장의 합법 배치 수 평균
+#   = '놓을 곳이 얼마나 많은가' = 유저가 말한 결정 스트레스의 대리 지표.
+func _run_full(g: Node, si: int, dda: bool, streak: int, pool: Dictionary, trials: int) -> Dictionary:
+	var wins: int = 0
+	var stuck: int = 0
+	var core: int = 0
+	var places: float = 0.0
+	var opts: float = 0.0
+	var opt_n: float = 0.0
+	for t in range(trials):
+		g.dda_enabled = dda
+		g.fail_streak[si] = streak
+		g._start_stage(si)
+		g.care_pool = pool
+		var r: Dictionary = _play_full(g)
+		if bool(r["win"]):
+			wins += 1
+		if bool(r["stuck"]):
+			stuck += 1
+		elif not bool(r["win"]):
+			core += 1
+		places += float(r["places"])
+		opts += float(r["opts"])
+		opt_n += float(r["opt_n"])
+	var n: float = float(trials)
+	return {
+		"win": 100.0 * float(wins) / n, "stuck": 100.0 * float(stuck) / n,
+		"core": 100.0 * float(core) / n, "places": places / n,
+		"opts": (opts / opt_n) if opt_n > 0.0 else 0.0,
+	}
+
+func _play_full(g: Node) -> Dictionary:
+	var guard: int = 0
+	var places: int = 0
+	var opts: float = 0.0
+	var opt_n: float = 0.0
+	while not g.game_over and not g.game_clear and guard < 3000:
+		guard += 1
+		var s: int = 0
+		while g.resolving and s < 400:
+			g._process(0.05)
+			s += 1
+		if g.game_over or g.game_clear:
+			break
+		opts += float(_legal_placements(g))
+		opt_n += 1.0
+		var mv: Dictionary = _best_move(g)
+		if mv.is_empty():
+			break
+		g.sel = mv["slot"]
+		g.hover_col = mv["col"]
+		g.hover_row = mv["row"]
+		g._place_piece()
+		places += 1
+		var s3: int = 0
+		while g.resolving and s3 < 400:
+			g._process(0.05)
+			s3 += 1
+	var s2: int = 0
+	while g.resolving and s2 < 400:
+		g._process(0.05)
+		s2 += 1
+	return {"win": g.game_clear, "stuck": g.game_over and g.stuck, "places": places,
+		"opts": opts, "opt_n": opt_n}
+
+# 지금 트레이 3장을 놓을 수 있는 자리의 총 개수. 많을수록 '고를 게 많다' = 결정 부하.
+func _legal_placements(g: Node) -> int:
+	var n: int = 0
+	for slot in range(3):
+		if g.tray[slot].is_empty():
+			continue
+		var offsets: Array = g.tray[slot]["offsets"]
+		for r in range(g.ROWS):
+			for c in range(g.COLS):
+				var ok: bool = true
+				for o in offsets:
+					var ov: Vector2i = o as Vector2i
+					var x: int = c + ov.x
+					var y: int = r + ov.y
+					if x < 0 or x >= g.COLS or y < 0 or y >= g.ROWS or g.board[y][x] != "":
+						ok = false
+						break
+				if ok:
+					n += 1
+	return n
 
 func _run(g: Node, si: int, dda: bool, streak: int, pool: Dictionary, trials: int) -> int:
 	var wins: int = 0
