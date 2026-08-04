@@ -24,16 +24,23 @@ func _init() -> void:
 	g.cleared[0] = true
 
 	print("\n── ① 계단: 연속 실패 횟수 → 케어 단계 ──")
-	# 3패 천장(유저 결정 2026-08-04). 그 위로는 더 세지지 않는다.
-	for pair in [[0, false], [1, false], [2, false], [3, true], [7, true]]:
-		var n: int = int(pair[0])
-		var want_care: bool = bool(pair[1])
+	# 두 칸 계단(2026-08-04 st12 실플레이로 교정). 조각=2패(3번째 판) / 비행기=3패 / 천장 3패.
+	#   [n패, 조각케어, 비행기케어]
+	for row in [[0, false, false], [1, false, false], [2, true, false], [3, true, true], [7, true, true]]:
+		var n: int = int(row[0])
 		g.dda_enabled = true
 		g.fail_streak[2] = n
 		g._start_stage(2)
-		var on: bool = not (g.care_pool as Dictionary).is_empty()
-		_ok(on == want_care, "%d패 → 조각 케어 %s" % [n, "ON" if want_care else "off"],
-			"실제=%s" % ("ON" if on else "off"))
+		var pool_on: bool = not (g.care_pool as Dictionary).is_empty()
+		var plane_on: bool = g.plane_cd_left == g.CARE_PLANE_FIRST_CD
+		_ok(pool_on == bool(row[1]), "%d패 → 조각 케어 %s" % [n, "ON" if bool(row[1]) else "off"],
+			"실제=%s" % ("ON" if pool_on else "off"))
+		_ok(plane_on == bool(row[2]), "%d패 → 비행기 케어 %s" % [n, "ON" if bool(row[2]) else "off"],
+			"실제=%s" % ("ON" if plane_on else "off"))
+	# 2패에서 조각만 걸리고 비행기는 아직 안 걸린다 = 계단이 실제로 두 칸이다(한 칸이면 천장이 무의미).
+	g.fail_streak[2] = 2
+	g._start_stage(2)
+	_ok(g._plane_cd() == int(g.st.get("plane_cd", 10)), "2패 단계는 비행기 재등장 간격도 원본")
 	g.fail_streak[2] = 7
 	g._start_stage(2)
 	var cd_cap: int = g.plane_cd_left

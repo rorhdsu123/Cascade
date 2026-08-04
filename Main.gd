@@ -111,8 +111,14 @@ const DDA_DEADZONE: float = 0.34  # |dda|가 이보다 작으면 무개입(무�
 const DDA_GOD_FAILS: int = 2      # 같은 스테이지 연속 실패 이 횟수부터 '갓 모드'(강한 구제)
 
 # ===== 실패 케어 (S1) — 같은 판을 연달아 진 사람을 붙잡는다 =====
-# 이탈은 난이도가 아니라 '희망 없음'에서 온다. 세 번 연속 지면 같은 화면이 세 번 똑같이 뜨고,
-#   다시하기를 누를 이유가 없어진다. 그래서 3패부터 판을 실제로 눅인다.
+# 이탈은 난이도가 아니라 '희망 없음'에서 온다. 두 번 연속 지면 같은 화면이 두 번 똑같이 뜨고,
+#   다시하기를 누를 이유가 없어진다. 그래서 2패부터 판을 실제로 눅인다.
+#
+# ⚠계단은 '진 횟수'로 읽는다 — 2패 = **3번째 판**부터 걸린다. 처음엔 조각 케어를 3패에 뒀는데
+#   실플레이 로그(st12, 2026-08-04)가 그게 한 칸 늦다는 걸 보여줬다: 두 번 지고 들어간 세 번째 판이
+#   care_level 2로 돌았고, 2단계에 있던 건 기존 갓 모드뿐이며 그 실측 효과는 +1.5pt = 사실상 없다.
+#   유저는 그 판을 허용 누수 6회 중 4회를 쓰고 겨우 이겼다. 빈 계단 위에서 버틴 것이다.
+#   ⇒ 조각 풀을 2패로 당기고 비행기를 3패에 남겨 계단을 실제로 두 칸으로 만들었다.
 # 규칙 셋 — 이걸 어기면 케어가 벌이 된다:
 #   ① 실패를 언급하지 않는다. "쉽게 해드릴까요"는 코지 코어에 수치심을 붙인다. 전용 UI를 안 만든다.
 #   ② 세이브에 각인하지 않는다. 도움받고 깬 판도 그냥 클리어다(성적표 없음, 2026-08-04 유저 결정).
@@ -120,6 +126,8 @@ const DDA_GOD_FAILS: int = 2      # 같은 스테이지 연속 실패 이 횟수
 # 레버는 조각 풀(주) + 비행기 배급(보너스) 둘뿐이다. core_hp는 기각 — HUD에 하트가 숫자로 보여서
 #   "봐주고 있다"가 바로 읽힌다. 조각 분포는 한 판 안에서 탐지가 안 된다.
 # ⚠조각 풀 완화 = '5바를 더'이지 '작은 조각을 더'가 아니다. 후자는 실측상 역효과다(_make_piece 주석).
+const CARE_POOL_FAILS: int = 2       # 조각 풀 완화가 켜지는 연속 실패 수(= 3번째 판)
+const CARE_PLANE_FAILS: int = 3      # 비행기 배급 완화가 얹히는 연속 실패 수(= 4번째 판)
 const CARE_MAX_FAILS: int = 3        # 케어 천장. 더 져도 여기서 멈춘다(끝없이 물러주면 판이 사라진다)
 const CARE_I5_SHARE: float = 0.34    # 케어 시 5바(I5h+I5v) 목표 배급 비중
 const CARE_PLANE_CD_MULT: float = 0.5   # 비행기 재등장 간격 배수
@@ -1871,7 +1879,7 @@ func _init_game() -> void:
 	#   케어가 안 걸리는 모드에서 자동으로 비워진다(_care_level이 감독에게 물어본다).
 	run_care_level = _care_level()
 	care_pool = {}
-	if run_care_level >= CARE_MAX_FAILS and st.has("pool"):
+	if run_care_level >= CARE_POOL_FAILS and st.has("pool"):
 		care_pool = _care_pool_of(st["pool"], CARE_I5_SHARE)
 	board = []
 	for _r in range(ROWS):
@@ -1993,7 +2001,7 @@ func _init_game() -> void:
 	# 케어 판은 첫 픽업을 앞당긴다. 재등장 간격만 줄이면 판 초반은 평소와 똑같아서 "달라진 게 없다"가
 	#   그대로 남는다 — 이 게임에서 케어가 유일하게 눈에 보이는 자리가 '초반에 비행기가 떴다'다.
 	#   슬롯에 공짜로 꽂아주지는 않는다: 여전히 보드에서 플레이어가 따야 한다('세상에 한 대'·귀속 유지).
-	plane_cd_left = CARE_PLANE_FIRST_CD if _care_level() >= CARE_MAX_FAILS else int(st.get("plane_cd", 10))
+	plane_cd_left = CARE_PLANE_FIRST_CD if _care_level() >= CARE_PLANE_FAILS else int(st.get("plane_cd", 10))
 	plane_flights = []
 	plane_shots = []
 	plane_pop = 0.0
@@ -2340,7 +2348,7 @@ func _care_pool_of(base: Dictionary, target: float) -> Dictionary:
 #   ⚠'세상에 한 대'는 이 값과 무관하게 유지된다 — 스폰은 보유·비행중·보드 위가 전부 빈 경우에만 돈다.
 func _plane_cd() -> int:
 	var cd: int = int(st.get("plane_cd", 10))
-	if _care_level() >= CARE_MAX_FAILS:
+	if _care_level() >= CARE_PLANE_FAILS:
 		return maxi(1, int(round(float(cd) * CARE_PLANE_CD_MULT)))
 	return cd
 
