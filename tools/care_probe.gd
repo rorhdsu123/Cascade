@@ -63,8 +63,8 @@ func _init() -> void:
 	print("(seed=%d TRIALS=%d)" % [base_seed, TRIALS])
 	# FULL=1 = 승률 대신 사인별 분해. '케어가 어느 죽음을 고쳤나'를 봐야 막힘사에 듣는지 알 수 있다.
 	if OS.get_environment("FULL") != "":
-		print("판 | 조건  | 승률   | 막힘사 | 거점사 | 배치  | 선택지")
-		print("---+-------+--------+--------+--------+-------+-------")
+		print("판 | 조건  | 승률   | 막힘사 | 거점사 | 배치  | 선택지 | 동시2 | 동시3 | 콤보")
+		print("---+-------+--------+--------+--------+-------+--------+-------+-------+-----")
 		for si in range(g.STAGES.size()):
 			if not only.is_empty() and not only.has(si):
 				continue
@@ -78,8 +78,9 @@ func _init() -> void:
 				elif float(c[3]) > 0.0:
 					pl = _care_pool(bp, float(c[3]))
 				var r: Dictionary = _run_full(g, si, bool(c[1]), int(c[2]), pl, TRIALS)
-				print("%2d | %-5s | %5.1f%% | %5.1f%% | %5.1f%% | %5.1f | %5.1f" % [
-					si + 1, String(c[0]), r["win"], r["stuck"], r["core"], r["places"], r["opts"]])
+				print("%2d | %-5s | %5.1f%% | %5.1f%% | %5.1f%% | %5.1f | %6.1f | %5.2f | %5.2f | %4.1f" % [
+					si + 1, String(c[0]), r["win"], r["stuck"], r["core"], r["places"], r["opts"],
+					r["m2"], r["m3"], r["combo"]])
 		quit()
 	var head: String = "idx | 5바%  "
 	for c in conds:
@@ -157,6 +158,9 @@ func _run_full(g: Node, si: int, dda: bool, streak: int, pool: Dictionary, trial
 	var places: float = 0.0
 	var opts: float = 0.0
 	var opt_n: float = 0.0
+	var m2: float = 0.0
+	var m3: float = 0.0
+	var combo: float = 0.0
 	for t in range(trials):
 		g.dda_enabled = dda
 		g.fail_streak[si] = streak
@@ -172,11 +176,15 @@ func _run_full(g: Node, si: int, dda: bool, streak: int, pool: Dictionary, trial
 		places += float(r["places"])
 		opts += float(r["opts"])
 		opt_n += float(r["opt_n"])
+		m2 += float(r["m2"])
+		m3 += float(r["m3"])
+		combo += float(r["combo"])
 	var n: float = float(trials)
 	return {
 		"win": 100.0 * float(wins) / n, "stuck": 100.0 * float(stuck) / n,
 		"core": 100.0 * float(core) / n, "places": places / n,
 		"opts": (opts / opt_n) if opt_n > 0.0 else 0.0,
+		"m2": m2 / n, "m3": m3 / n, "combo": combo / n,
 	}
 
 func _play_full(g: Node) -> Dictionary:
@@ -184,6 +192,10 @@ func _play_full(g: Node) -> Dictionary:
 	var places: int = 0
 	var opts: float = 0.0
 	var opt_n: float = 0.0
+	# 스펙터클 = '한 배치로 몇 줄을 한꺼번에 지웠나'. 승률·막힘사와 별개 축이고, 케어가 '팡팡 터지는
+	#   구제'인지 '조용히 이기게 해주는 구제'인지를 가르는 유일한 지표다(유저 지적, 2026-08-04).
+	var m2: int = 0
+	var m3: int = 0
 	while not g.game_over and not g.game_clear and guard < 3000:
 		guard += 1
 		var s: int = 0
@@ -200,8 +212,13 @@ func _play_full(g: Node) -> Dictionary:
 		g.sel = mv["slot"]
 		g.hover_col = mv["col"]
 		g.hover_row = mv["row"]
+		var nl: int = _lines_of(g, mv)   # 놓기 전에 센다 = 엔진 훅 없이 정확(campaign_probe와 동형)
 		g._place_piece()
 		places += 1
+		if nl >= 2:
+			m2 += 1
+		if nl >= 3:
+			m3 += 1
 		var s3: int = 0
 		while g.resolving and s3 < 400:
 			g._process(0.05)
@@ -211,7 +228,38 @@ func _play_full(g: Node) -> Dictionary:
 		g._process(0.05)
 		s2 += 1
 	return {"win": g.game_clear, "stuck": g.game_over and g.stuck, "places": places,
-		"opts": opts, "opt_n": opt_n}
+		"opts": opts, "opt_n": opt_n, "m2": m2, "m3": m3, "combo": g.run_max_combo}
+
+# 이 수가 완성시키는 행+열 수 (campaign_probe에서 복사 — 이 저장소 관례대로 인라인)
+func _lines_of(g: Node, mv: Dictionary) -> int:
+	var offsets: Array = g.tray[int(mv["slot"])]["offsets"]
+	var occ: Array = []
+	for r in range(g.ROWS):
+		var row: Array = []
+		for c in range(g.COLS):
+			row.append(g.board[r][c] != "")
+		occ.append(row)
+	for o in offsets:
+		var ov: Vector2i = o as Vector2i
+		occ[int(mv["row"]) + ov.y][int(mv["col"]) + ov.x] = true
+	var n: int = 0
+	for r in range(g.ROWS):
+		var ok: bool = true
+		for c in range(g.COLS):
+			if not occ[r][c]:
+				ok = false
+				break
+		if ok:
+			n += 1
+	for c in range(g.COLS):
+		var ok2: bool = true
+		for r in range(g.ROWS):
+			if not occ[r][c]:
+				ok2 = false
+				break
+		if ok2:
+			n += 1
+	return n
 
 # 지금 트레이 3장을 놓을 수 있는 자리의 총 개수. 많을수록 '고를 게 많다' = 결정 부하.
 func _legal_placements(g: Node) -> int:

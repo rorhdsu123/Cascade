@@ -131,6 +131,10 @@ const CARE_CLEAR_FAILS: int = 2      # 줄-완성 조각 우선 배급이 켜지
 const CARE_PLANE_FAILS: int = 3      # 비행기 배급 완화가 얹히는 연속 실패 수(= 4번째 판)
 const CARE_MAX_FAILS: int = 3        # 케어 천장. 더 져도 여기서 멈춘다(끝없이 물러주면 판이 사라진다)
 const CARE_CANDIDATES: int = 12      # 케어 중 줄-완성 조각을 찾는 재추첨 횟수(기본 DDA는 6)
+const CARE_BURST_LINES: int = 2      # 케어가 노리는 동시 삭제 줄 수 — 구제가 '팡팡 터지게' 만드는 값
+#   ⚠3은 더 나쁘다(실측 st6 N=100): 승률 64%→55% · 동시2 1.91→1.78 · 동시3 0.02→**0.00**.
+#   3줄을 낼 수 있는 조각은 보드가 이미 받쳐줄 때만 존재한다 — 배급은 그 상태를 만들 수 없고,
+#   없는 걸 찾느라 후보만 태우다 더 나쁜 조각으로 떨어진다. 배급으로 살 수 있는 건 2줄까지다.
 const CARE_PLANE_CD_MULT: float = 0.5   # 비행기 재등장 간격 배수
 const CARE_PLANE_FIRST_CD: int = 2      # 케어 판의 첫 픽업까지 배치 수 — '초반에 좋은 일이 생겼다'가 유일한 신호
 
@@ -2311,6 +2315,58 @@ func _piece_can_clear(offsets: Array) -> bool:
 				return true
 	return false
 
+# 이 조각이 **한 번에 지울 수 있는 최대 줄 수**(어느 자리에 놓든 최선값). 0 = 못 지움.
+#   _piece_can_clear의 '지울 수 있나(bool)'와 달리 '몇 줄이나'를 센다 — 케어가 스펙터클을
+#   만들려면 그 구분이 필요하다. 줄 하나짜리만 우선하면 줄이 생기는 족족 지워져서
+#   '여러 행이 한 칸씩 남은' 상태가 안 쌓인다 = 싹 터지는 맛의 재료가 계속 소비된다(S6 실측).
+# ⚠비용: 조각이 놓이는 자리의 행·열만 검사한다(전체 8+8이 아니라). 조각이 안 건드린 줄은
+#   이 수로 완성될 수 없으므로 결과는 같고, 후보를 여러 번 굴리는 뜨거운 경로가 가벼워진다.
+func _piece_max_lines(offsets: Array) -> int:
+	var best: int = 0
+	for ar in range(ROWS):
+		for ac in range(COLS):
+			var cells: Array = []
+			var ok: bool = true
+			for o in offsets:
+				var ov: Vector2i = o as Vector2i
+				var cc: Vector2i = Vector2i(ac + ov.x, ar + ov.y)
+				if cc.x < 0 or cc.x >= COLS or cc.y < 0 or cc.y >= ROWS or board[cc.y][cc.x] != "":
+					ok = false
+					break
+				cells.append(cc)
+			if not ok:
+				continue
+			var occ: Dictionary = {}
+			var trows: Dictionary = {}
+			var tcols: Dictionary = {}
+			for ci in cells:
+				var cv: Vector2i = ci as Vector2i
+				occ[cv] = true
+				trows[cv.y] = true
+				tcols[cv.x] = true
+			var n: int = 0
+			for r in trows:
+				var full_r: bool = true
+				for c in range(COLS):
+					if board[r][c] == "" and not occ.has(Vector2i(c, r)):
+						full_r = false
+						break
+				if full_r:
+					n += 1
+			for c2 in tcols:
+				var full_c: bool = true
+				for r2 in range(ROWS):
+					if board[r2][c2] == "" and not occ.has(Vector2i(c2, r2)):
+						full_c = false
+						break
+				if full_c:
+					n += 1
+			if n > best:
+				best = n
+				if best >= CARE_BURST_LINES:
+					return best     # 목표 도달 = 더 볼 필요 없음
+	return best
+
 # 이번 판에 걸리는 실패 케어 단계. 0=무개입 / 2=갓 모드(조각 재추첨) / 3=조각 풀+비행기 완화(천장).
 #   감독이 DDA를 불허하면 0 — 무한·featured는 순위·데일리 공정성이 걸려 있어 케어를 안 받는다.
 func _care_level() -> int:
@@ -2367,13 +2423,24 @@ func _make_piece() -> Dictionary:
 	#   주면 줄은 늘지만 조각이 커져 막힘사가 오히려 증가한다(실측 14.7%→23.0%, S3).
 	#   줄 완성은 **보드를 비운다** = 막힘과 누수를 동시에 고치는 유일한 방향이다.
 	if _care_level() >= CARE_CLEAR_FAILS:
-		if _piece_can_clear(first["offsets"]):
+		# ⚠'줄을 낼 수 있나'가 아니라 '몇 줄을 한꺼번에 낼 수 있나'로 고른다.
+		#   전자로 하면 케어가 승률은 올리면서 **터지는 맛을 깎는다** — 실측(st6, N=100):
+		#   승률 47%→69%인데 동시2줄 1.03→0.93 · 동시3줄 0.06→0.02로 오히려 줄었다.
+		#   줄이 생기는 족족 지워져 '여러 행이 한 칸씩 남은' 상태가 안 쌓이기 때문이다.
+		#   구제가 곧 벌처럼 느껴지는 자리 — 유저가 "겨우 깬 느낌"이라고 잡아냈다(2026-08-04).
+		var best: Dictionary = first
+		var best_lines: int = _piece_max_lines(first["offsets"])
+		if best_lines >= CARE_BURST_LINES:
 			return first
 		for _c in range(CARE_CANDIDATES - 1):
 			var cc: Dictionary = _random_piece()
-			if _piece_can_clear(cc["offsets"]):
+			var nl: int = _piece_max_lines(cc["offsets"])
+			if nl >= CARE_BURST_LINES:
 				return cc
-		return first
+			if nl > best_lines:
+				best_lines = nl
+				best = cc
+		return best     # 동시삭제 후보가 없으면 한 줄짜리라도(그것도 없으면 첫 후보)
 	var d: float = _dda_score()
 	# 구제 전용: 고전 중일 때만 개입한다. ('압도 중 → 까다로운 조각'은 폐기 — 온보딩 막힘사만 3배)
 	if d > -DDA_DEADZONE:
