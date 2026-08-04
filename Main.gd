@@ -1484,11 +1484,11 @@ func _sfx(kind: String, intensity: float = 0.0) -> void:
 		# 열차 한 줄(R26). 첫 발은 지금, 나머지는 예약. **마지막(가장 큰) 발이 도착과 같은 프레임**에
 		#   떨어지도록 호출부가 '발사' 시점에 부른다(열차 길이 ≈ 비행 시간).
 		_sfx_last[kind] = _sfx_t
-		var tick_n: int = TICK_N_DOCK
-		if kind == "collect":
-			# 보석 한 개 = TICK_N_GEM발, 한 개 늘 때마다 +1발(상한 TICK_N_MAX)
-			tick_n = mini(TICK_N_GEM + maxi(0, int(intensity) - 1), TICK_N_MAX)
-		_sfx_tick_run(kind, tick_n)
+		# 열차 길이 = **들어가는 물건의 개수**(보석이든 목표 칩이든 같은 규칙, R28).
+		#   ⚠전엔 목표 칩만 6발로 길게 뒀는데("판당 1회짜리 큰 사건이니까"), 칩이 하나뿐인 판에서는
+		#   그 길이가 근거 없는 장식이 되어 "띠리링거린다"로 들렸다(유저 판정 2026-08-04).
+		#   화면에 하나가 들어가면 소리도 하나 분량이어야 한다.
+		_sfx_tick_run(kind, mini(TICK_N_GEM + maxi(0, int(intensity) - 1), TICK_N_MAX))
 		return
 	elif kind == "goal_in":
 		# 목표 카드 등장 = **3발 상승 figure**(레퍼런스 온셋 간격 85ms 그대로, §31). 첫 발은 지금,
@@ -1547,7 +1547,6 @@ const TICK_GAP: float = 0.038        # 레퍼런스 온셋 간격 32~44ms의 중
 const TICK_SWELL: float = 2.5        # 도착으로 갈수록 커진다(레퍼런스 −37 → −27dB)
 const TICK_FADE: float = 2.0         # 도착 뒤엔 잦아든다
 const TICK_N_GEM: int = 3            # 보석 하나 — 3발 × 38ms ≈ GEM_FLY(0.10초)라 마지막 발이 도착에 앉는다
-const TICK_N_DOCK: int = 6           # 목표 칩 = 판당 1회짜리 큰 사건이라 두 배 길게
 const TICK_N_MAX: int = 8            # 열차 상한 — 여기서 막지 않으면 한 블라스트에 보석이 몰릴 때 예산이 터진다
 
 func _sfx_tick_run(kind: String, n: int) -> void:
@@ -4891,7 +4890,11 @@ func _process(delta: float) -> void:
 		intro_t += delta
 		if intro_t >= INTRO_TOTAL:
 			intro_t = -1.0
-			_fb("goal_dock")   # 칩이 상단 목표 카드에 안착하는 순간 = 레퍼런스의 '도착 벨'(§31)
+			# 안착 = 보석 도착과 **같은 열차**(§34). 길이는 들어가는 칩 개수가 정한다 —
+			#   수집판은 색마다 한 칩씩 자기 카운터로 가고, 나머지 동사는 하나다.
+			var dock_n: int = maxi(1, (st.get("collect_targets", []) as Array).size()) \
+					if bool(st.get("collect", false)) else 1
+			_fb("goal_dock", float(dock_n))
 		queue_redraw()
 	# 히트스톱: 게임 타이머 전부 정지, 그림만(시간감소라 항상 해제 → 데드락 없음)
 	if hitstop > 0.0:
@@ -6024,6 +6027,18 @@ func _fail_headline() -> String:
 		return _t("fail_near")
 	return _t("fail_far")
 
+# 인트로 칩이 날아가 안착할 자리(R28) — **HUD가 이번 프레임에 그린 '목표 수'의 실제 좌표**를 쓴다.
+#   `_goal_num_cs`는 `_draw_hud`가 동사별 분기에서 채우고(적=남은 수 · 수집=색마다 · 보호·보스=카드 중앙),
+#   `_draw_hud`가 `_draw_stage_intro`보다 먼저 도므로 같은 프레임 값이 이미 들어 있다.
+# ⚠하드코딩 (293,66)은 **어느 동사에서도 안 맞았다**(유저 지적): 적 판은 숫자가 카드 오른쪽에 있고,
+#   수집 판은 색마다 자리가 다르다. 좌표를 두 곳에 적으면 레이아웃이 바뀔 때마다 조용히 어긋난다.
+func _goal_dock_pos(i: int) -> Vector2:
+	if i >= 0 and i < _goal_num_cs.size():
+		return _goal_num_cs[i] as Vector2
+	if _goal_num_cs.size() > 0:
+		return _goal_num_cs[0] as Vector2
+	return Vector2(400.0, _hud_card_y() + HUD_CARD_H * 0.5)   # 애매하면 카드 중앙
+
 # 스테이지 인트로 카드 — 중앙 큰 팝업(이름·태그·목표)이 떠서 머물다, 상단 목표 카드(goal_r)로
 # 축소·이동하며 알파가 빠져 '녹아든다'. 텍스트는 카드 높이비로 함께 축소 → 도킹 끝에 목표 카드에 안착.
 # BlockBlast의 목표 배너(중앙 등장 → 상단 HUD 도킹) 관찰. 목표는 판마다 같지만(적 N 처치) 이름·태그·수는
@@ -6058,7 +6073,6 @@ func _draw_stage_intro(fnt: Font) -> void:
 		var ctgts: Array = st.get("collect_targets", [1])
 		var cn: int = maxi(1, ctgts.size())
 		var c_hold: Vector2 = Vector2(cx, r.position.y + r.size.y * 0.62)
-		var c_chip: Vector2 = c_hold.lerp(Vector2(293.0, 66.0), dock)
 		var ccs: float = lerpf(1.0, 0.47, dock)
 		var c_a: float = appear * (1.0 - clampf((dock - 0.72) / 0.28, 0.0, 1.0))
 		var g_icon: float = 52.0 * ccs
@@ -6072,10 +6086,14 @@ func _draw_stage_intro(fnt: Font) -> void:
 			g_ws.append(gw2)
 			g_total += gw2
 		g_total += g_gap * float(cn - 1)
-		var gx0: float = c_chip.x - g_total * 0.5
+		# ⚠**색마다 자기 카운터로 간다**(R28). 전엔 한 점으로 뭉쳐 날아가서 어느 색이 어디로 들어가는지가
+		#   안 보였다 — 수집 카드는 색 슬롯이 갈려 있으므로 도착점도 갈려야 화면과 소리가 같은 말을 한다.
+		var gx0: float = cx - g_total * 0.5
 		for gi2 in range(cn):
-			_draw_gem_icon(Vector2(gx0 + g_icon * 0.5, c_chip.y), g_icon, gi2)
-			_draw_text_outlined(fnt, Vector2(gx0 + g_icon + 8.0 * ccs, c_chip.y + float(g_fs) * 0.35), str(int(ctgts[gi2])), g_fs, Color(1.0, 0.92, 0.62, c_a))
+			var g_to: Vector2 = _goal_dock_pos(gi2)
+			var g_here: Vector2 = Vector2(gx0 + g_icon * 0.5, c_hold.y).lerp(g_to, dock)
+			_draw_gem_icon(g_here, g_icon, gi2)
+			_draw_text_outlined(fnt, Vector2(g_here.x + g_icon * 0.5 + 8.0 * ccs, g_here.y + float(g_fs) * 0.35), str(int(ctgts[gi2])), g_fs, Color(1.0, 0.92, 0.62, c_a))
 			gx0 += float(g_ws[gi2]) + g_gap
 		return
 
@@ -6083,7 +6101,7 @@ func _draw_stage_intro(fnt: Font) -> void:
 	if bool(st.get("protect", false)):
 		var pv: int = int(st.get("vault_start", vault_max))
 		var p_hold: Vector2 = Vector2(cx, r.position.y + r.size.y * 0.62)
-		var p_chip: Vector2 = p_hold.lerp(Vector2(293.0, 66.0), dock)
+		var p_chip: Vector2 = p_hold.lerp(_goal_dock_pos(0), dock)
 		var pcs: float = lerpf(1.0, 0.47, dock)
 		var p_a: float = appear * (1.0 - clampf((dock - 0.72) / 0.28, 0.0, 1.0))
 		var p_icon: float = 52.0 * pcs
@@ -6102,7 +6120,7 @@ func _draw_stage_intro(fnt: Font) -> void:
 	var num_fs: int = 60
 	var skull_s: float = 48.0
 	var chip_hold: Vector2 = Vector2(cx, r.position.y + r.size.y * 0.62)
-	var chip_end: Vector2 = Vector2(293.0, 66.0)   # 상단 목표 카드(goal_r) skull+수 그룹
+	var chip_end: Vector2 = _goal_dock_pos(0)   # 상단 목표 카드의 **남은 적 숫자** 자리(R28)
 	var chip: Vector2 = chip_hold.lerp(chip_end, dock)
 	var cs: float = lerpf(1.0, 0.47, dock)           # 60→~28 카드 크기로 축소
 	var chip_a: float = appear * (1.0 - clampf((dock - 0.72) / 0.28, 0.0, 1.0))

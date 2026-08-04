@@ -995,15 +995,17 @@ func _run() -> void:
 	# ⚠**이 검사를 두 번 다시 썼다.** R25 전엔 "안착 = 1발"을 보고 있었고 그 1발이 유저가 지적한
 	#   결함이었다. R26에선 글로켄 8발 롤을 보고 있었는데 그것도 결함이었다(보석 도착과 따로 놀았다).
 	#   → 지금은 **보석 도착과 같은 열차**인지, 그리고 폭이 `TICK_GAP`대로인지를 본다(§34).
+	# 열차 길이 = 들어가는 칩 개수(R28). 패스 I는 스테이지 1 = 적 처치판이라 **칩 하나 = TICK_N_GEM발**이다.
 	var tick_run: Array = g.TICK_RUN
+	var dock_n: int = int(g.TICK_N_GEM)
 	var want_dock: Array = []
-	for i in range(int(g.TICK_N_DOCK)):
+	for i in range(dock_n):
 		want_dock.append(int(tick_run[mini(i, tick_run.size() - 1)]))
 	var roll_span: float = (float(dock_ts[dock_ts.size() - 1]) - float(dock_ts[0])) if dock_ts.size() > 1 else 0.0
-	_check("㉕ 안착 = 틱 열차 %d발(보석 도착과 같은 figure)" % int(g.TICK_N_DOCK),
+	_check("㉕ 안착 = 틱 열차 %d발(보석 도착과 같은 figure)" % dock_n,
 			dock_semis == want_dock, "%s (기대 %s)" % [str(dock_semis), str(want_dock)])
-	_check("㉕ 열차 폭 = %d발 × %.0fms" % [int(g.TICK_N_DOCK) - 1, float(g.TICK_GAP) * 1000.0],
-			absf(roll_span - float(g.TICK_GAP) * float(int(g.TICK_N_DOCK) - 1)) < 0.03,
+	_check("㉕ 열차 폭 = %d발 × %.0fms" % [dock_n - 1, float(g.TICK_GAP) * 1000.0],
+			absf(roll_span - float(g.TICK_GAP) * float(dock_n - 1)) < 0.03,
 			"%.3fs" % roll_span)
 	_check("㉕ 홀드 구간(%.2fs)은 무음" % float(g.INTRO_HOLD), hold_hits.is_empty(), str(hold_hits))
 	# 스킵 — 도킹 연출을 건너뛰었으면 안착음도 없어야 한다(소리가 화면에 없는 사건을 말하면 안 된다).
@@ -1014,6 +1016,20 @@ func _run() -> void:
 		skipped[k5] = int(skipped.get(k5, 0)) + 1
 	_check("㉖ 인트로 스킵 = 닫기음만(안착음 없음)",
 			int(skipped.get("goal_dock", 0)) == 0 and int(skipped.get("tap_back", 0)) == 1, str(skipped))
+	# 착지점(R28) — **HUD가 이번 프레임에 그린 목표 수 자리**를 쓰는지. 하드코딩 (293,66)으로
+	#   되돌아가면 여기서 잡힌다(그 값은 어느 동사에서도 카드 안 숫자와 안 맞았다).
+	# ⚠**진짜 프레임을 그려야 한다.** `_goal_num_cs`는 `_draw_hud`가 채우는데 프로브는 `_process`만
+	#   손으로 돌리므로 그리기가 한 번도 안 일어난다 → 처음엔 선언부 기본값 (400,80)을 읽고 검사가
+	#   **조용히 초록**이었다. `queue_redraw()` + 실제 프레임 대기로 그리게 한 뒤 읽는다.
+	g.queue_redraw()
+	await process_frame
+	await process_frame
+	var dp: Vector2 = g._goal_dock_pos(0)
+	var card_y: float = g._hud_card_y()
+	_check("㉖ 도킹 착지점이 목표 카드 안(적 판 = 남은 수 자리)",
+			dp.y >= card_y and dp.y <= card_y + float(g.HUD_CARD_H) and absf(dp.x - 400.0) <= 155.0
+					and absf(dp.x - 400.0) > 1.0,
+			"(%.0f, %.0f) · 카드 y %.0f~%.0f" % [dp.x, dp.y, card_y, card_y + float(g.HUD_CARD_H)])
 	# 안착 열차가 예산·풀을 넘기지 않나 — 8발이 0.28초에 몰리는 자리라 여기가 인트로의 천장이다.
 	var mi: Dictionary = _analyze(it["ev_raw"])
 	_check("㉖ 인트로 예산(선율 %d · 롤링 %d)" % [MAX_MUSIC_VOICES, MAX_FIRES_IN_1S],
@@ -1040,6 +1056,32 @@ func _run() -> void:
 	_check("㉗ 열차 마지막 발 ≈ 도착(오차 <40ms)",
 			absf(float(gm["to_count"]) - float(gm["span"])) < 0.040,
 			"열차폭 %.3fs · 발사→카운트 %.3fs" % [float(gm["span"]), float(gm["to_count"])])
+	# 수집판은 **색마다 자기 카운터**로 간다(R28) — 한 점으로 뭉쳐 날아가면 어느 색이 어디로
+	#   들어가는지가 안 보인다. 색이 둘 이상인 판에서 x가 갈리는지 본다.
+	# ⚠여기도 실제 프레임을 그린 뒤에 읽는다(위 ㉖과 같은 함정).
+	g.queue_redraw()
+	await process_frame
+	await process_frame
+	var dxs: Array = []
+	for gt3 in range(maxi(1, (g.st.get("collect_targets", [1]) as Array).size())):
+		dxs.append((g._goal_dock_pos(gt3) as Vector2).x)
+	# ⚠1색 판만 재면 이 검사는 **공허하게 초록**이다(갈릴 게 없다) → 2색 이상인 판을 따로 찾아 잰다.
+	var midx: int = -1
+	for si2 in range((g.STAGES as Array).size()):
+		if ((g.STAGES[si2] as Dictionary).get("collect_targets", []) as Array).size() >= 2:
+			midx = si2
+			break
+	if midx >= 0:
+		g._start_stage(midx)
+		g.intro_t = -1.0
+		g.queue_redraw()
+		await process_frame
+		await process_frame
+		dxs = []
+		for gt4 in range(((g.STAGES[midx] as Dictionary)["collect_targets"] as Array).size()):
+			dxs.append((g._goal_dock_pos(gt4) as Vector2).x)
+	_check("㉗ 수집 착지점이 **색마다** 갈린다(2색 판)",
+			midx >= 0 and dxs.size() >= 2 and absf(float(dxs[0]) - float(dxs[1])) > 20.0, str(dxs))
 	# ⚠**동시에 잡히면 도착도 같이 온다** — 순차로 벌리면 카운트 시각이 밀리고 그게 곧 밸런스다
 	#   (회귀 실측: 수집판 승률 20/20 → 0/20). 개수는 소리가 나른다 = 열차가 겹쳐 촘촘해진다.
 	#   이 검사는 **총 지연이 GEM_TOTAL로 고정**돼 있는지를 지킨다(늘리면 골든이 깨진다).

@@ -121,7 +121,7 @@ func _init() -> void:
 	# 안착·도착은 **같은 틱 열차**다(R26) — Main.gd의 TICK_* 상수를 그대로 읽는다.
 	#   여기서 값을 다시 적으면 게임과 프리뷰가 조용히 갈린다(§18의 '자를 두 벌 두지 말 것').
 	var dk: AudioStreamWAV = m._sfx_bank["goal_dock"]
-	for e in _ticks(m, "goal_dock", int(m.TICK_N_DOCK), float(m.INTRO_TOTAL)):
+	for e in _ticks(m, "goal_dock", int(m.TICK_N_GEM), float(m.INTRO_TOTAL)):
 		gtl2.append([dk, e[0], e[1], e[2]])
 	_at("%s/GOAL_CARD.wav" % OUT_DIR, gtl2)
 	# ⑪ 보석 수집(R24 · R26에서 다시 씀) — **개수만큼 열차가 길어지는지**가 판정거리다.
