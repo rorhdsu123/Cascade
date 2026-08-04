@@ -114,22 +114,23 @@ const DDA_GOD_FAILS: int = 2      # 같은 스테이지 연속 실패 이 횟수
 # 이탈은 난이도가 아니라 '희망 없음'에서 온다. 두 번 연속 지면 같은 화면이 두 번 똑같이 뜨고,
 #   다시하기를 누를 이유가 없어진다. 그래서 2패부터 판을 실제로 눅인다.
 #
-# ⚠계단은 '진 횟수'로 읽는다 — 2패 = **3번째 판**부터 걸린다. 처음엔 조각 케어를 3패에 뒀는데
-#   실플레이 로그(st12, 2026-08-04)가 그게 한 칸 늦다는 걸 보여줬다: 두 번 지고 들어간 세 번째 판이
-#   care_level 2로 돌았고, 2단계에 있던 건 기존 갓 모드뿐이며 그 실측 효과는 +1.5pt = 사실상 없다.
-#   유저는 그 판을 허용 누수 6회 중 4회를 쓰고 겨우 이겼다. 빈 계단 위에서 버틴 것이다.
-#   ⇒ 조각 풀을 2패로 당기고 비행기를 3패에 남겨 계단을 실제로 두 칸으로 만들었다.
+# ⚠계단은 '진 횟수'로 읽는다 — 2패 = **3번째 판**부터 걸린다.
 # 규칙 셋 — 이걸 어기면 케어가 벌이 된다:
 #   ① 실패를 언급하지 않는다. "쉽게 해드릴까요"는 코지 코어에 수치심을 붙인다. 전용 UI를 안 만든다.
 #   ② 세이브에 각인하지 않는다. 도움받고 깬 판도 그냥 클리어다(성적표 없음, 2026-08-04 유저 결정).
 #   ③ 깨면 즉시 원복. fail_streak=0이 _check_win에 이미 있어서 다음 판은 자동으로 원 난이도다.
-# 레버는 조각 풀(주) + 비행기 배급(보너스) 둘뿐이다. core_hp는 기각 — HUD에 하트가 숫자로 보여서
-#   "봐주고 있다"가 바로 읽힌다. 조각 분포는 한 판 안에서 탐지가 안 된다.
-# ⚠조각 풀 완화 = '5바를 더'이지 '작은 조각을 더'가 아니다. 후자는 실측상 역효과다(_make_piece 주석).
-const CARE_POOL_FAILS: int = 2       # 조각 풀 완화가 켜지는 연속 실패 수(= 3번째 판)
+#
+# 레버 = 줄-완성 조각 우선 배급(주) + 비행기 배급(보너스). 기각된 레버 둘을 여기 남긴다:
+#   ✗ core_hp — HUD에 하트가 숫자로 보여 "봐주고 있다"가 바로 읽힌다.
+#   ✗ 조각 풀 5바 늘리기(S1~S2에 실제로 들어갔다가 S4에서 걷어냄) — **막힘사를 사서 낸다.**
+#     실측(st11, 시드 2벌×N=150): 5바 41%면 막힘사 14.7%→23.0%. 승률이 오르는 건 거점사를
+#     줄여서지 막힘을 고쳐서가 아니었다. 그런데 우리 유저의 죽음은 막힘사다(플테 8사망 중 7).
+#     ⇒ 승률만 재는 프로브로는 이 착각을 못 잡는다. 케어는 반드시 **사인별로** 검증할 것.
+# 줄 완성은 보드를 비운다 = 막힘사·누수사를 동시에 줄이는 유일한 방향이라 이걸 주 레버로 삼았다.
+const CARE_CLEAR_FAILS: int = 2      # 줄-완성 조각 우선 배급이 켜지는 연속 실패 수(= 3번째 판)
 const CARE_PLANE_FAILS: int = 3      # 비행기 배급 완화가 얹히는 연속 실패 수(= 4번째 판)
 const CARE_MAX_FAILS: int = 3        # 케어 천장. 더 져도 여기서 멈춘다(끝없이 물러주면 판이 사라진다)
-const CARE_I5_SHARE: float = 0.34    # 케어 시 5바(I5h+I5v) 목표 배급 비중
+const CARE_CANDIDATES: int = 12      # 케어 중 줄-완성 조각을 찾는 재추첨 횟수(기본 DDA는 6)
 const CARE_PLANE_CD_MULT: float = 0.5   # 비행기 재등장 간격 배수
 const CARE_PLANE_FIRST_CD: int = 2      # 케어 판의 첫 픽업까지 배치 수 — '초반에 좋은 일이 생겼다'가 유일한 신호
 
@@ -458,9 +459,11 @@ var dev_unlock_all: bool = false  # ⚠플테 전용: 전 스테이지 해금(�
 var persist_enabled: bool = false
 var drought: int = 0            # 연속 무클리어 배치 수 (DDA의 '고전' 신호)
 var fail_streak: Dictionary = {}  # 스테이지 인덱스 → 연속 실패 횟수 (갓 모드·케어 트리거)
-# 이번 판에 적용 중인 케어 조각 풀. **비어 있으면 개입 없음** = st["pool"] 원본 객체를 그대로 쓴다.
-#   이 '빈 딕셔너리 = 무개입' 규약이 회귀 byte-identical을 지킨다(케어 off면 추첨 경로가 물리적으로 동일).
-var care_pool: Dictionary = {}
+# 런타임 조각 풀 오버라이드 — **프로브 전용 A/B 노브**다(dda_enabled와 같은 성격). 게임 코드는
+#   이걸 절대 세우지 않고, _init_game이 판마다 비운다. tools/care_probe.gd의 POOLS= 모드가
+#   프리셋을 갈아끼워 '조각 분포가 사인별 죽음에 뭘 하나'를 재는 데 쓴다.
+#   ⚠빈 딕셔너리 = 무개입 = st["pool"] 원본 객체 그대로. 이 규약이 회귀 byte-identical을 지킨다.
+var pool_override: Dictionary = {}
 # 이 판이 시작될 때 걸린 케어 단계(계측용). fail_streak은 클리어 순간 0으로 밀리므로 그걸 읽으면
 #   '케어받고 깼다'가 통계에서 통째로 사라진다 — 판 시작 시점 값을 따로 붙들어 둔다.
 var run_care_level: int = 0
@@ -1878,9 +1881,7 @@ func _init_game() -> void:
 	#   여기 두는 이유: _start_stage·_start_endless·_start_featured가 전부 이 함수를 지나므로
 	#   케어가 안 걸리는 모드에서 자동으로 비워진다(_care_level이 감독에게 물어본다).
 	run_care_level = _care_level()
-	care_pool = {}
-	if run_care_level >= CARE_POOL_FAILS and st.has("pool"):
-		care_pool = _care_pool_of(st["pool"], CARE_I5_SHARE)
+	pool_override = {}
 	board = []
 	for _r in range(ROWS):
 		var row_arr: Array = []
@@ -2142,7 +2143,7 @@ func _random_piece() -> Dictionary:
 	#   공정성은 tier 경로와 동일: 지금 보드에 최소 1칸 놓이는 조각만 배급(강제 즉사 배제).
 	if st.has("pool"):
 		# 케어 중이면 5바를 늘린 사본에서 뽑는다. 비어 있으면 원본 객체 그대로 = 회귀 byte-identical.
-		return _pool_piece(care_pool if not care_pool.is_empty() else st["pool"])
+		return _pool_piece(pool_override if not pool_override.is_empty() else st["pool"])
 	var f: float = float(_free_cells()) / float(ROWS * COLS)
 	var p_big: float = clampf((f - 0.50) / 0.35, 0.0, 1.0) * 0.16
 	var p_mid: float = clampf((f - 0.25) / 0.30, 0.0, 1.0) * 0.60
@@ -2319,31 +2320,6 @@ func _care_level() -> int:
 		return 0
 	return mini(int(fail_streak.get(stage_idx, 0)), CARE_MAX_FAILS)
 
-# 케어 조각 풀 = 5바(I5h+I5v) 비중만 목표까지 끌어올린 사본. 나머지 조각의 상대 비율은 안 건드린다.
-#   ⚠상한이 있다. C109에서 5바가 배급의 47%가 되자 유저가 "막대만 나온다"고 눈으로 잡아냈다.
-#   32%는 안전이 증명된 지점이다(POOL_ONBOARD가 C110 교정 뒤 그 값으로 출고돼 있다).
-#   그래서 목표는 그 근처에 두고, '한 단계 위 프리셋으로 승급'(POOL_RICH=41%)은 쓰지 않는다.
-#   h:v 비율은 원본 유지 = 판마다 저작해 둔 가로/세로 성격을 뭉개지 않는다.
-func _care_pool_of(base: Dictionary, target: float) -> Dictionary:
-	if base.is_empty() or not base.has("I5h") or not base.has("I5v"):
-		return {}     # 5바가 없는 풀(온보딩 변종 등)엔 이 레버가 안 걸린다
-	var total: int = 0
-	var i5: int = 0
-	for k in base:
-		total += int(base[k])
-		if k == "I5h" or k == "I5v":
-			i5 += int(base[k])
-	if i5 <= 0 or target <= 0.0 or target >= 1.0:
-		return {}
-	var want: float = target * float(total - i5) / (1.0 - target)   # 목표 비중을 만드는 새 I5 합
-	if want <= float(i5):
-		return {}     # 이미 목표 이상 = 완화할 게 없다(그 판은 비행기 쪽으로만 케어된다)
-	var scale: float = want / float(i5)
-	var out: Dictionary = base.duplicate()
-	out["I5h"] = maxi(1, int(round(float(base["I5h"]) * scale)))
-	out["I5v"] = maxi(1, int(round(float(base["I5v"]) * scale)))
-	return out
-
 # 비행기 재등장 간격. 케어 중이면 절반 = 판당 사용 횟수가 올라간다.
 #   ⚠'세상에 한 대'는 이 값과 무관하게 유지된다 — 스폰은 보유·비행중·보드 위가 전부 빈 경우에만 돈다.
 func _plane_cd() -> int:
@@ -2382,8 +2358,23 @@ func _make_piece() -> Dictionary:
 		return _track_piece()
 	if not dda_enabled or not director.allows_dda():   # 감독이 DDA 불허(무한·featured)면 게이팅, C52 ⑦·C61
 		return _random_piece()
-	var d: float = _dda_score()
 	var first: Dictionary = _random_piece()
+	# 실패 케어(S4): 데드존을 건너뛰고 줄-완성 조각을 적극적으로 찾는다. 후보도 더 굴린다.
+	#   ⚠왜 데드존을 건너뛰나: 갓 모드는 데드존에 갇혀 거의 발동하지 않았다. _dda_score는
+	#   struggle 2(연속 실패)를 받아도 mastery가 1만 있으면 −0.34를 못 넘는다 = 케어를 켠 판에서
+	#   정작 개입이 안 일어난다. 실측(st11)에서 갓 모드 단독 효과가 +2pt에 그친 이유다.
+	#   ⚠왜 이게 조각 풀 완화보다 나은가: 우리 유저의 죽음은 막힘사다(플테 8사망 중 7). 5바를 더
+	#   주면 줄은 늘지만 조각이 커져 막힘사가 오히려 증가한다(실측 14.7%→23.0%, S3).
+	#   줄 완성은 **보드를 비운다** = 막힘과 누수를 동시에 고치는 유일한 방향이다.
+	if _care_level() >= CARE_CLEAR_FAILS:
+		if _piece_can_clear(first["offsets"]):
+			return first
+		for _c in range(CARE_CANDIDATES - 1):
+			var cc: Dictionary = _random_piece()
+			if _piece_can_clear(cc["offsets"]):
+				return cc
+		return first
+	var d: float = _dda_score()
 	# 구제 전용: 고전 중일 때만 개입한다. ('압도 중 → 까다로운 조각'은 폐기 — 온보딩 막힘사만 3배)
 	if d > -DDA_DEADZONE:
 		return first
@@ -2406,6 +2397,64 @@ func _tray_any_placeable() -> bool:
 			return true
 	return false
 
+# 트레이 3장을 **어떤 순서로든 전부** 소화할 수 있나 (S4 ①: 딜 사고 봉쇄).
+#   기존 가드는 '하나라도 놓이면 통과'였다. 그래서 한 장을 놓는 순간 나머지 둘이 갈 곳을 잃는
+#   조합이 그대로 나갔다 — 플레이어에겐 '내가 잘못 놨다'로 보이지만 실은 처음부터 출구가 없는 딜이다.
+#   막힘사가 우리 주 사인인데(플테 8사망 중 7) 그 일부는 이렇게 태어난다.
+# ⚠줄 삭제는 계산에 안 넣는다(보수적). 줄이 터지면 자리가 더 생기므로 여기서 통과한 트레이는
+#   실제로도 반드시 소화된다. 반대로 여기서 막혀도 실제론 풀릴 수 있어 재추첨이 조금 낭비될 뿐이다.
+# 노드 예산: 8×8 · 3장이면 최악 13k 조합이지만 대부분 첫 배치에서 성공한다(즉시 반환).
+const TRAY_SOLVE_BUDGET: int = 4000
+
+func _tray_all_placeable() -> bool:
+	var occ: Array = []
+	for r in range(ROWS):
+		var row: Array = []
+		for c in range(COLS):
+			row.append(board[r][c] != "")
+		occ.append(row)
+	var pieces: Array = []
+	for i in range(3):
+		if not tray[i].is_empty():
+			pieces.append(tray[i]["offsets"])
+	if pieces.is_empty():
+		return true
+	var budget: Array = [TRAY_SOLVE_BUDGET]   # 배열로 싸서 재귀에 참조로 넘긴다
+	return _tray_solve(occ, pieces, budget)
+
+func _tray_solve(occ: Array, remaining: Array, budget: Array) -> bool:
+	if remaining.is_empty():
+		return true
+	for pi in range(remaining.size()):
+		var offsets: Array = remaining[pi]
+		for r in range(ROWS):
+			for c in range(COLS):
+				if int(budget[0]) <= 0:
+					return true   # 예산 소진 = 판단 보류 → 통과시킨다(재추첨 폭주 방지, 기존 동작으로 후퇴)
+				budget[0] = int(budget[0]) - 1
+				var cells: Array = []
+				var ok: bool = true
+				for o in offsets:
+					var ov: Vector2i = o as Vector2i
+					var x: int = c + ov.x
+					var y: int = r + ov.y
+					if x < 0 or x >= COLS or y < 0 or y >= ROWS or bool(occ[y][x]):
+						ok = false
+						break
+					cells.append(Vector2i(x, y))
+				if not ok:
+					continue
+				for cv in cells:
+					occ[cv.y][cv.x] = true
+				var rest: Array = remaining.duplicate()
+				rest.remove_at(pi)
+				var solved: bool = _tray_solve(occ, rest, budget)
+				for cv2 in cells:
+					occ[cv2.y][cv2.x] = false
+				if solved:
+					return true
+	return false
+
 # 3슬롯 전부 새 랜덤 조각으로 채움, sel=0 리셋.
 # ⚠공정성: '받자마자 셋 다 못 놓는' 즉사(실측 막힘사망의 11~27%)는 플레이어 실수가 아니라 딜 사고.
 #   최소 하나는 놓을 수 있는 트레이가 나올 때까지 다시 굴린다(막힘은 이제 '스스로 몰린 결과'로만).
@@ -2423,7 +2472,16 @@ func _refill_tray() -> void:
 			tray[i] = _make_piece()
 		sel = 0
 		return
+	# 1차: 3장을 전부 소화할 수 있는 트레이를 찾는다(딜 사고 봉쇄, S4 ①).
 	for _attempt in range(24):
+		for i in range(3):
+			tray[i] = _make_piece()
+		if _tray_all_placeable():
+			sel = 0
+			return
+	# 2차: 보드가 이미 나빠서 완전 해가 없다 — 옛 기준(하나라도 놓임)으로 후퇴한다.
+	#   여기까지 오면 막힘은 딜 사고가 아니라 '스스로 몰린 결과'다. 그건 게임이 맞다.
+	for _attempt2 in range(24):
 		for i in range(3):
 			tray[i] = _make_piece()
 		if _tray_any_placeable():

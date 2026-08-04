@@ -1,10 +1,14 @@
 extends SceneTree
-# care_probe.gd — 실패 케어(연속 실패 구제)의 효과 측정. 조각 풀 완화 폭을 정하기 위한 스윕.
+# care_probe.gd — 실패 케어(연속 실패 구제)의 효과 측정.
 #
-# 재는 것: "같은 판을 연속으로 진 사람에게 5바를 더 주면 승률이 얼마나 오르나".
-#   base : DDA off · 기본 풀             = 기준선(campaign_probe와 동형 조건)
-#   god  : DDA on  · fail_streak=2       = 현행 갓 모드(줄 낼 수 있는 조각 재추첨)만
-#   T##  : DDA on  · fail_streak=3 · 케어 풀(5바 비중을 ##%로) = 제안하는 3패 케어
+#   base : DDA off · 구제 없음            = 기준선(campaign_probe와 동형 조건)
+#   god  : DDA on  · fail_streak=2       = **출고 중인 2패 케어**(줄-완성 조각 우선 배급)
+#   T##  : 거기에 5바 비중 ##%를 얹은 실험 조건(pool_override) — 기각된 레버라 참고용이다
+#   POOLS=onboard,rich,lean → 프리셋을 통째로 끼운 실험 조건
+#
+# ⚠**FULL=1로 사인별을 볼 것.** 승률만 보면 케어가 '어느 죽음을 고쳤나'를 못 본다. S3에서
+#   5바 늘리기가 거점사를 줄이고 막힘사를 늘리는 걸 승률(+)만 보다 놓칠 뻔했다 — 그런데 실유저의
+#   죽음은 막힘사였다. 우리 실패 경로가 둘인 한, 승률 한 줄은 늘 반쪽짜리 답이다.
 #
 # ⚠비행기는 이 프로브로 못 잰다. 그리디 봇은 비행기를 쏘지 않는다 = 여기 승률은 늘 비행기 OFF 값이다.
 #   plane_cd 완화의 효과는 tools/plane_verify.gd(AB=1) 경로로 따로 재야 한다.
@@ -157,7 +161,7 @@ func _run_full(g: Node, si: int, dda: bool, streak: int, pool: Dictionary, trial
 		g.dda_enabled = dda
 		g.fail_streak[si] = streak
 		g._start_stage(si)
-		g.care_pool = pool
+		g.pool_override = pool
 		var r: Dictionary = _play_full(g)
 		if bool(r["win"]):
 			wins += 1
@@ -240,7 +244,7 @@ func _run(g: Node, si: int, dda: bool, streak: int, pool: Dictionary, trials: in
 		#   실제 코드 경로(Main.care_pool)를 그대로 타므로 프로브와 게임이 어긋나지 않는다.
 		#   부작용: 첫 트레이 3장은 기본 풀로 뽑힌 뒤다 = 케어 효과가 아주 살짝 과소평가된다.
 		#   조건 전체에 똑같이 걸리므로 A/B 비교 자체는 성립한다(방향·순위 불변).
-		g.care_pool = pool
+		g.pool_override = pool
 		if _play(g):
 			wins += 1
 	return wins

@@ -25,19 +25,19 @@ func _init() -> void:
 
 	print("\n── ① 계단: 연속 실패 횟수 → 케어 단계 ──")
 	# 두 칸 계단(2026-08-04 st12 실플레이로 교정). 조각=2패(3번째 판) / 비행기=3패 / 천장 3패.
-	#   [n패, 조각케어, 비행기케어]
+	#   [n패, 줄-완성 케어, 비행기 케어]
 	for row in [[0, false, false], [1, false, false], [2, true, false], [3, true, true], [7, true, true]]:
 		var n: int = int(row[0])
 		g.dda_enabled = true
 		g.fail_streak[2] = n
 		g._start_stage(2)
-		var pool_on: bool = not (g.care_pool as Dictionary).is_empty()
+		var clear_on: bool = g._care_level() >= g.CARE_CLEAR_FAILS
 		var plane_on: bool = g.plane_cd_left == g.CARE_PLANE_FIRST_CD
-		_ok(pool_on == bool(row[1]), "%d패 → 조각 케어 %s" % [n, "ON" if bool(row[1]) else "off"],
-			"실제=%s" % ("ON" if pool_on else "off"))
+		_ok(clear_on == bool(row[1]), "%d패 → 줄-완성 케어 %s" % [n, "ON" if bool(row[1]) else "off"],
+			"실제=%s" % ("ON" if clear_on else "off"))
 		_ok(plane_on == bool(row[2]), "%d패 → 비행기 케어 %s" % [n, "ON" if bool(row[2]) else "off"],
 			"실제=%s" % ("ON" if plane_on else "off"))
-	# 2패에서 조각만 걸리고 비행기는 아직 안 걸린다 = 계단이 실제로 두 칸이다(한 칸이면 천장이 무의미).
+	# 2패에서 줄-완성만 걸리고 비행기는 아직 안 걸린다 = 계단이 실제로 두 칸이다(한 칸이면 천장이 무의미).
 	g.fail_streak[2] = 2
 	g._start_stage(2)
 	_ok(g._plane_cd() == int(g.st.get("plane_cd", 10)), "2패 단계는 비행기 재등장 간격도 원본")
@@ -53,40 +53,40 @@ func _init() -> void:
 	g.dda_enabled = false
 	g.fail_streak[2] = 5
 	g._start_stage(2)
-	_ok((g.care_pool as Dictionary).is_empty(), "dda_enabled=false면 조각 케어 off")
+	_ok(g._care_level() == 0, "dda_enabled=false면 케어 단계 0")
 	_ok(g.plane_cd_left == int(g.st.get("plane_cd", 10)), "dda_enabled=false면 비행기 배급 원본",
 		"plane_cd_left=%d" % g.plane_cd_left)
 	g.dda_enabled = true
 	g.fail_streak[-1] = 5
 	g._start_endless()
-	_ok((g.care_pool as Dictionary).is_empty(), "무한모드는 케어 없음(랭크 공정성)")
+	_ok(g._care_level() == 0, "무한모드는 케어 없음(랭크 공정성)")
+	_ok((g.pool_override as Dictionary).is_empty(), "풀 오버라이드는 게임 코드가 절대 안 세운다(프로브 전용)")
 
-	print("\n── ③ 조각 풀: 5바만 오르고 나머지 비율은 그대로 ──")
+	print("\n── ③ 배급: 트레이 3장이 어떤 순서로든 다 놓인다 ──")
+	# S4 ①. 옛 가드는 '하나라도 놓이면 통과'라 한 장을 놓는 순간 나머지가 갇히는 딜이 그대로 나갔다.
+	#   플레이어에겐 '내가 잘못 놨다'로 보이지만 실은 처음부터 출구가 없는 배급이다.
 	g.dda_enabled = true
-	g.fail_streak[2] = 3
+	g.fail_streak[2] = 0
+	var bad: int = 0
+	for t in range(300):
+		g._start_stage(2)
+		if not g._tray_all_placeable():
+			bad += 1
+	_ok(bad == 0, "빈 보드 300판의 첫 트레이가 전부 완전 소화 가능", "실패 %d판" % bad)
+	# 가드가 '통과'와 '불가'를 실제로 가르는지 — 늘 true를 돌려주는 죽은 검사가 아님을 보인다.
 	g._start_stage(2)
-	var base: Dictionary = g.st["pool"]
-	var care: Dictionary = g.care_pool
-	_ok(not care.is_empty(), "st3는 케어 풀이 생긴다(기본 27.8% < 목표)")
-	if not care.is_empty():
-		_ok(_share(care) > _share(base), "5바 비중이 올랐다 %.1f%% → %.1f%%" % [100.0 * _share(base), 100.0 * _share(care)])
-		_ok(_share(care) <= 0.40, "탐지선 아래다(≤40%%) — C109서 47%%는 유저가 눈으로 잡아냈다",
-			"실제 %.1f%%" % [100.0 * _share(care)])
-		var same: bool = true
-		var detail: String = ""
-		for k in base:
-			if k == "I5h" or k == "I5v":
-				continue
-			if int(care.get(k, -1)) != int(base[k]):
-				same = false
-				detail = "%s %d→%d" % [k, int(base[k]), int(care.get(k, -1))]
-		_ok(same, "5바 외 조각은 가중치 불변(작은 조각 늘리기는 실측상 역효과)", detail)
-		_ok(int(care["I5h"]) > int(base["I5h"]) and int(care["I5v"]) > int(base["I5v"]),
-			"가로·세로 5바가 함께 오른다(판별 성격 유지)")
-	# 이미 목표 이상인 판(st2=POOL_RICH 41.2%)은 조각 케어가 안 걸린다 — 비행기 쪽으로만 케어된다.
-	g.fail_streak[1] = 3
-	g._start_stage(1)
-	_ok((g.care_pool as Dictionary).is_empty(), "이미 5바가 많은 판(RICH)은 조각 케어 없음")
+	for r in range(g.ROWS):
+		for c in range(g.COLS):
+			if not (r == 0 and c == 0):
+				g.board[r][c] = "R"      # 한 칸만 비운 보드
+	g.tray[0] = {"type": "I5h", "color": "R", "offsets": g.PIECES["I5h"].duplicate()}
+	g.tray[1] = {}
+	g.tray[2] = {}
+	_ok(not g._tray_all_placeable(), "한 칸만 남은 보드에 5바는 불가로 판정된다")
+	g.board[0][0] = ""
+	g.board[0][1] = ""
+	g.tray[0] = {"type": "D2h", "color": "R", "offsets": g.PIECES["D2h"].duplicate()}
+	_ok(g._tray_all_placeable(), "두 칸 남은 보드에 2칸 조각은 가능으로 판정된다")
 
 	print("\n── ④ 비행기: 배급만 늘고 '세상에 한 대'는 그대로 ──")
 	g.fail_streak[2] = 0
@@ -101,8 +101,8 @@ func _init() -> void:
 	# 수집·튜토리얼 판엔 비행기가 아예 없다 → 케어는 조각 풀로만 걸린다(레버 하나로 전 판을 못 덮는다).
 	g.fail_streak[4] = 3
 	g._start_stage(4)
-	_ok(not g._plane_allowed(), "수집 판은 비행기 없음 = 조각 풀이 그 판의 유일한 케어")
-	_ok(not (g.care_pool as Dictionary).is_empty(), "그 판도 조각 케어는 받는다")
+	_ok(not g._plane_allowed(), "수집 판은 비행기 없음 = 줄-완성 케어가 그 판의 유일한 레버")
+	_ok(g._care_level() >= g.CARE_CLEAR_FAILS, "그 판도 줄-완성 케어는 받는다")
 
 	print("\n── ⑤ 회계: 부활·클리어가 카운터를 바르게 되돌린다 ──")
 	g.fail_streak[2] = 1
@@ -119,7 +119,7 @@ func _init() -> void:
 	_ok(int(g.run_care_level) == 3, "클리어로 카운터가 밀려도 판 시작 시 케어 단계는 남는다",
 		"run_care_level=%d" % int(g.run_care_level))
 	g._start_stage(2)
-	_ok((g.care_pool as Dictionary).is_empty(), "클리어 뒤 재진입은 케어 없음(즉시 복귀)")
+	_ok(g._care_level() == 0, "클리어 뒤 재진입은 케어 없음(즉시 복귀)")
 	_ok(int(g.run_care_level) == 0, "그 다음 판의 계측값도 0으로 돌아온다")
 	# 무한(stage_idx=-1)은 같은 딕셔너리를 스크래치로 쓴다 — 캠페인 칸을 밀어내면 안 된다.
 	g._start_endless()
@@ -158,7 +158,7 @@ func _persist(S: GDScript) -> void:
 	_ok(bool(b.cleared.get(0, false)), "진행도(cleared)는 그대로 읽힌다")
 	b.dda_enabled = true
 	b._start_stage(2)
-	_ok(not (b.care_pool as Dictionary).is_empty(), "돌아온 유저가 첫 판부터 케어를 받는다")
+	_ok(b._care_level() >= b.CARE_CLEAR_FAILS, "돌아온 유저가 첫 판부터 케어를 받는다")
 
 	# 옛 세이브(4바이트) 호환 — 케어 도입 전 파일을 읽어도 죽지 않고 연속 실패 0에서 시작한다.
 	var f := FileAccess.open("user://campaign.save", FileAccess.WRITE)
@@ -172,12 +172,3 @@ func _persist(S: GDScript) -> void:
 	c._load_campaign()
 	_ok(bool(c.cleared.get(0, false)) and int(c.fail_streak.get(2, 0)) == 0,
 		"옛 4바이트 세이브도 읽힌다(진행도 유지·연속실패 0)")
-
-func _share(w: Dictionary) -> float:
-	var total: int = 0
-	var i5: int = 0
-	for k in w:
-		total += int(w[k])
-		if k == "I5h" or k == "I5v":
-			i5 += int(w[k])
-	return 0.0 if total <= 0 else float(i5) / float(total)
