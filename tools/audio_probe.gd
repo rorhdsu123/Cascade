@@ -1026,10 +1026,12 @@ func _run() -> void:
 	await process_frame
 	var dp: Vector2 = g._goal_dock_pos(0)
 	var card_y: float = g._hud_card_y()
-	_check("㉖ 도킹 착지점이 목표 카드 안(적 판 = 남은 수 자리)",
-			dp.y >= card_y and dp.y <= card_y + float(g.HUD_CARD_H) and absf(dp.x - 400.0) <= 155.0
-					and absf(dp.x - 400.0) > 1.0,
-			"(%.0f, %.0f) · 카드 y %.0f~%.0f" % [dp.x, dp.y, card_y, card_y + float(g.HUD_CARD_H)])
+	# 적 판은 **카드 중앙**으로 들어간다(유저 결정). 하드코딩 (293,66)으로 되돌아가면 여기서 잡힌다.
+	var cc: Vector2 = g._goal_card_center()
+	_check("㉖ 적 판 도킹 착지점 = 목표 카드 중앙",
+			cc.is_equal_approx(Vector2(400.0, card_y + float(g.HUD_CARD_H) * 0.5))
+					and dp.y >= card_y and dp.y <= card_y + float(g.HUD_CARD_H),
+			"중앙 (%.0f, %.0f) · 카드 수 자리 (%.0f, %.0f)" % [cc.x, cc.y, dp.x, dp.y])
 	# 안착 열차가 예산·풀을 넘기지 않나 — 8발이 0.28초에 몰리는 자리라 여기가 인트로의 천장이다.
 	var mi: Dictionary = _analyze(it["ev_raw"])
 	_check("㉖ 인트로 예산(선율 %d · 롤링 %d)" % [MAX_MUSIC_VOICES, MAX_FIRES_IN_1S],

@@ -6032,6 +6032,9 @@ func _fail_headline() -> String:
 #   `_draw_hud`가 `_draw_stage_intro`보다 먼저 도므로 같은 프레임 값이 이미 들어 있다.
 # ⚠하드코딩 (293,66)은 **어느 동사에서도 안 맞았다**(유저 지적): 적 판은 숫자가 카드 오른쪽에 있고,
 #   수집 판은 색마다 자리가 다르다. 좌표를 두 곳에 적으면 레이아웃이 바뀔 때마다 조용히 어긋난다.
+func _goal_card_center() -> Vector2:
+	return Vector2(400.0, _hud_card_y() + HUD_CARD_H * 0.5)
+
 func _goal_dock_pos(i: int) -> Vector2:
 	if i >= 0 and i < _goal_num_cs.size():
 		return _goal_num_cs[i] as Vector2
@@ -6120,7 +6123,10 @@ func _draw_stage_intro(fnt: Font) -> void:
 	var num_fs: int = 60
 	var skull_s: float = 48.0
 	var chip_hold: Vector2 = Vector2(cx, r.position.y + r.size.y * 0.62)
-	var chip_end: Vector2 = _goal_dock_pos(0)   # 상단 목표 카드의 **남은 적 숫자** 자리(R28)
+	# ⚠적 판은 **숫자가 아니라 카드 중앙**으로 들어간다(유저 결정 2026-08-04). 숫자 자리로 넣어 보니
+	#   💀+수 그룹이 카드 오른쪽에 치우쳐 있어서 칩이 옆으로 빠지는 것처럼 보였다.
+	#   수집판만 색마다 갈라진다 — 거기선 어느 색이 어디로 가는지가 정보이기 때문이다.
+	var chip_end: Vector2 = _goal_card_center()
 	var chip: Vector2 = chip_hold.lerp(chip_end, dock)
 	var cs: float = lerpf(1.0, 0.47, dock)           # 60→~28 카드 크기로 축소
 	var chip_a: float = appear * (1.0 - clampf((dock - 0.72) / 0.28, 0.0, 1.0))
