@@ -168,9 +168,13 @@ const STAGES: Array = [
 	},
 	{
 		# tank HP를 콤보3(240) 구간에 앉힌다: base 44~50 × 4.5 = 198~227 → 콤보2(180)로는 안 뚫림.
+		# core_hp 2→5(S5): **캠페인 최대 절벽이었다** — 앞판(폭탄 도입 80.3%)에서 20.6%로 한 판에 60pt가
+		#   빠졌고, 죽음의 89/120이 거점사였다. 허용 누수 1회는 클라이맥스(당시 hp2)와 같은 조임인데
+		#   이 판은 act-2 중반이다. C96이 옆 판(st6)에서 지운 것과 **똑같은 비단조 톱니가 여기 남아 있었다.**
+		#   무릎 실측(N=120): hp2 20.8% / 3 30.0% / 4 40.8% / **5 60.0%** / 6 61.7% → 5에서 포화.
 		"name": "st5_name", "tag": "st5_tag",
 		"plane_cd": 21,
-		"total": 44, "core_hp": 2, "base_hp": 44, "hp_ramp": 0.3, "tank_mult": 4.5,
+		"total": 44, "core_hp": 5, "base_hp": 44, "hp_ramp": 0.3, "tank_mult": 4.5,
 		"spawn_every": 2, "step_every": 3, "onboard": 3, "floor": 5, "surge_at": 0.80,
 		"weights": {"basic": 40, "fast": 0, "tank": 55, "swarm": 5, "split": 0}, "pool": POOL_STD,
 	},
@@ -178,9 +182,11 @@ const STAGES: Array = [
 		# 복습판(전 4종 혼합). core_hp 3(C96): hp2=거점사벽 30%로 클라이맥스(st8, 21%)와 동률이라 스파이크 —
 		#   클라이맥스 잠식·비단조 톱니 제거. sim 무릎: hp2→3 +15pt, 3→4 0(패배가 누수사→막힘으로 이동, core_hp 무효).
 		#   복습판은 클라이맥스보다 확실히 위여야 깔때기가 산다. tank_mult/혼합은 성격이라 불변, 누수 여유만.
+		# core_hp 3→5(S5): 앞판 절벽을 편 뒤 이 판이 새 절벽이 됐다(27.7%). 곡선 목표 52% 맞춤.
+		#   무릎 실측(N=120): hp3 33.3% / 4 38.3% / **5 50.8%** / 6 60.0%.
 		"name": "st6_name", "tag": "st6_tag",
 		"plane_cd": 16,
-		"total": 48, "core_hp": 3, "base_hp": 46, "hp_ramp": 0.4, "tank_mult": 4.2,
+		"total": 48, "core_hp": 5, "base_hp": 46, "hp_ramp": 0.4, "tank_mult": 4.2,
 		"spawn_every": 2, "step_every": 3, "onboard": 2, "floor": 6, "surge_at": 0.78,
 		"weights": {"basic": 20, "fast": 35, "tank": 25, "swarm": 20, "split": 0}, "pool": POOL_STD,
 	},
@@ -192,9 +198,12 @@ const STAGES: Array = [
 		# core_hp 3 = 새 위협을 배울 한 칸 여유(다음 스테이지에서 2로 조인다).
 		# ⚠도입은 climax보다 물러야 한다: total·base_hp를 S5/S6 최댓값에서 내리고 split 40%로 격리 —
 		#   split 55%+total52+hp48은 sim서 도입이 climax만큼 가혹(23→10 절벽). 새 기전만 변수로 세운다.
+		# core_hp 3→4(S5): 무릎 실측(N=120) hp3 36.6% / **4 55.0%** / 5 65.8%. 목표 48%엔 4가 가깝다
+		#   (3은 11pt 미달). 결과적으로 복습판(50.8%)과 거의 동률인데, 새 기전 도입판이 복습판보다
+		#   물러야 한다는 저작 의도(위 ⚠주석)와 어긋나지 않는다 — 둘 다 클라이맥스보다 확실히 위다.
 		"name": "st7_name", "tag": "st7_tag",
 		"plane_cd": 24,
-		"total": 48, "core_hp": 3, "base_hp": 44, "hp_ramp": 0.35, "tank_mult": 4.2,
+		"total": 48, "core_hp": 4, "base_hp": 44, "hp_ramp": 0.35, "tank_mult": 4.2,
 		"spawn_every": 2, "step_every": 3, "onboard": 3, "floor": 6, "surge_at": 0.80,
 		"weights": {"basic": 60, "fast": 0, "tank": 0, "swarm": 0, "split": 40}, "pool": POOL_STD,
 	},
@@ -202,9 +211,11 @@ const STAGES: Array = [
 		# act-3 클라이맥스 = 전 로스터 + 분열 + core_hp 2 (S1 '첫 방어선'과 수미상관 '최종 방어선').
 		# 분열은 방어축 레버(거점사 지배)라 청소 처리량을 굶기는 tank/fast/swarm 위에 겹쳐 얹힌다.
 		# split 25%(수확 시작점) — 100%가 아니라, 다른 위협과 섞여야 '전부 온다'가 성립.
+		# core_hp 2→4(S5): 클라이맥스는 캠페인 최저점이 맞지만 16.3%는 벽이다(거점사 79.7% 지배).
+		#   무릎 실측(N=120): hp2 16.3% / 3 22.5% / **4 33.3%** / 5 39.2%. 목표 35% = 여전히 최저점.
 		"name": "st8_name", "tag": "st8_tag",
 		"plane_cd": 19,
-		"total": 56, "core_hp": 2, "base_hp": 50, "hp_ramp": 0.4, "tank_mult": 4.2,
+		"total": 56, "core_hp": 4, "base_hp": 50, "hp_ramp": 0.4, "tank_mult": 4.2,
 		"spawn_every": 2, "step_every": 3, "onboard": 2, "floor": 6, "surge_at": 0.78,
 		"weights": {"basic": 15, "fast": 25, "tank": 20, "swarm": 15, "split": 25}, "pool": POOL_STD,
 	},
@@ -237,9 +248,11 @@ const STAGES: Array = [
 	#   새 결정: R1(제때 닿나)·R2(어느 걸 먼저)와 달리, "연쇄를 끊는 linchpin(임박한 하나)을 먼저 해체해 도미노를 막아라".
 	#   폭탄 밀도↑(뭉쳐서 연쇄 성립)·spawn_every 2로 인접 유도. 연쇄가 -HP를 곱하니 core_hp 여유(연쇄 못 끊으면 급사).
 	{
+		# core_hp 7→8(S5): 36.6%로 후반 곡선에서 홀로 낮았다. 무릎 실측(N=120): hp7 36.6% /
+		#   **8 45.8%** / 9 47.5% → 8에서 포화. 연쇄 폭탄이 -HP를 곱하니 여유 한 칸이 크게 먹는다.
 		"name": "st13_name", "tag": "st13_tag", "bomb_fuse": 8, "bomb_dmg": 2, "bomb_chain": true,
 		"plane_cd": 23,
-		"total": 32, "core_hp": 7, "base_hp": 30, "hp_ramp": 0.2, "tank_mult": 2.5,
+		"total": 32, "core_hp": 8, "base_hp": 30, "hp_ramp": 0.2, "tank_mult": 2.5,
 		"spawn_every": 2, "step_every": 3, "onboard": 3, "floor": 3, "surge_at": 0.80,
 		"weights": {"basic": 62, "bomb": 38}, "pool": POOL_STD,
 	},
