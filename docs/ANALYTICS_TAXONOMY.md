@@ -91,15 +91,20 @@
 | 이벤트 | 파라미터 | 목적 지표 |
 |---|---|---|
 | `stage_selected` | `stage_id`, `is_locked_preview` | 선택화면 행동 |
-| `stage_cleared` | `stage_id`, `goal_type`, `duration_ms`, `max_combo`, `dda_assist_count`, `care_level` | 스테이지별 클리어율·구제(DDA) 의존도 |
-| `stage_failed` | `stage_id`, `cause`, `attempt_n`, `care_level` | **스테이지별 벽**(어디서 이탈·재도전 몇 번) |
+| `stage_cleared` | `stage_id`, `goal_type`, `duration_ms`, `max_combo`, `dda_assist_count`, `care_level`, `multi2`, `multi3` | 스테이지별 클리어율·구제(DDA) 의존도 |
+| `stage_failed` | `stage_id`, `cause`, `attempt_n`, `care_level`, `multi2`, `multi3` | **스테이지별 벽**(어디서 이탈·재도전 몇 번) |
+| `frontier_reached` | `last_stage_id` | 마지막 스테이지→무한 깔때기 전환율 |
+| `gem_collected` | `stage_id`, `gem_color`, `progress`(현/quota) | 수집형 목표 페이싱(줍기 난이도) |
 
 `care_level` = 판 시작 시점의 실패 케어 단계(0=무개입 / 3=조각 풀+비행기 완화, S1). 케어는 화면에
 아무 흔적을 안 남기는 조용한 기능이라 **이 필드가 유일한 관측 수단**이다. 두 가지를 본다:
 ①`stage_cleared`에서 care_level>0 비율 = 케어가 붙잡아 준 사람의 몫, ②`stage_failed`에서
 care_level=3인데도 진 판 = 완화 폭이 모자란 스테이지.
-| `frontier_reached` | `last_stage_id` | 마지막 스테이지→무한 깔때기 전환율 |
-| `gem_collected` | `stage_id`, `gem_color`, `progress`(현/quota) | 수집형 목표 페이싱(줍기 난이도) |
+
+`multi2`/`multi3` = 한 배치로 2줄·3줄 이상을 **동시에** 지운 횟수. `max_combo`(연속 배치로
+이어감)와 **다른 축**이고, 유저가 말하는 '팡팡 터지는 맛'은 이쪽이다. 봇 프로브엔 있었는데
+실플레이 로그엔 없어서 "케어를 켰는데 화면에서 실제로 싹 터졌나"를 확인할 수단이 없었다
+(2026-08-05 S6 판정 때 막힘). 콤보만 보면 케어가 잘 도는 것처럼 보이는데 체감은 아닐 수 있다.
 
 ### 3-6. 무한 (EndlessMode)
 | 이벤트 | 파라미터 | 목적 지표 |

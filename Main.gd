@@ -375,6 +375,8 @@ const AD_SEAM_TIMEOUT: float = 6.0
 const AD_ONBOARD_CLEARS: int = 5
 var _ad_seam_t: float = -1.0    # >=0 = 대기 중(경과 초). -1 = 유휴      # 부활 광고 요청 중 — 결과 팝업이 대기 상태를 그리고 다른 버튼을 막는다
 var run_max_combo: int = 0         # 이번 판 최대 콤보(계측 combo_peak — 봇 ~7 대비 사람은?). _init_game서 리셋
+var run_multi2: int = 0            # 이번 판 '한 배치로 2줄 이상' 횟수 = 스펙터클 축(콤보와 별개)
+var run_multi3: int = 0            # 3줄 이상
 var _revive_offer_open: bool = false  # 부활 제안이 떠 있고 아직 수락/거절 안 됨 → 이탈 시 revive_declined 1회
 var endless_prev_best: int = 0     # 런 시작 시점의 베스트(결과 팝업 델타 표시용)
 var endless_new_best: bool = false # 이번 런이 신기록인가(결과 팝업 배지)
@@ -1705,7 +1707,8 @@ func _track_run_fail(cause: String) -> void:
 		_analytics.log_event("stage_failed", {
 			"stage_id": stage_idx + 1, "cause": cause,
 			"attempt_n": int(fail_streak.get(stage_idx, 0)),   # _end_turn서 이미 +1 된 값 = 이번이 몇 번째 실패
-			"care_level": run_care_level,   # 케어를 받고도 졌나 = 완화 폭이 모자란 판을 찾는 단서
+			"care_level": run_care_level,
+			"multi2": run_multi2, "multi3": run_multi3,   # 케어를 받고도 안 터졌나 = S6 판정의 유일한 실플레이 근거   # 케어를 받고도 졌나 = 완화 폭이 모자란 판을 찾는 단서
 		})
 	else:
 		_track_endless_end(cause)
@@ -1731,6 +1734,7 @@ func _track_stage_clear() -> void:
 		"stage_id": stage_idx + 1, "goal_type": _analytics_goal(),
 		"duration_ms": _analytics.run_duration_ms(), "max_combo": run_max_combo,
 		"kills": killed, "leaked": leaked, "did_revive": revive_used,
+		"multi2": run_multi2, "multi3": run_multi3,   # 스펙터클 축 — '팡팡 터졌나'(콤보와 별개)
 		# 케어(S1) 의존도 — '깬 판 중 몇 %가 구제를 받았나'. 이게 없으면 케어가 실제로 발동하는지,
 		#   발동해서 통했는지를 영영 알 수 없다(조용한 기능이라 화면엔 흔적이 안 남는다).
 		"care_level": run_care_level,
@@ -1930,6 +1934,8 @@ func _init_game() -> void:
 	combo_miss = 0
 	drought = 0
 	run_max_combo = 0        # 계측: 이번 판 최대 콤보(combo_peak)
+	run_multi2 = 0
+	run_multi3 = 0
 	_revive_offer_open = false
 	game_over = false
 	game_clear = false
@@ -4573,6 +4579,14 @@ func _place_piece() -> void:
 		if tut_phase == 2:
 			tut_clears += 1              # 박자2 안전밸브 카운터(_end_turn서 판정)
 		run_max_combo = maxi(run_max_combo, combo)   # 계측: 판당 최대 콤보(종료 시 combo_peak로 1회 발화)
+		# 계측: '한 배치로 몇 줄을 동시에' — 콤보(연속 배치)와 **다른 축**이고, 유저가 말하는
+		#   '팡팡 터지는 맛'은 이쪽이다. 봇 프로브엔 있었는데 실플레이 로그엔 없어서
+		#   "화면에서 실제로 싹 터졌나"를 확인할 수단이 없었다(2026-08-05 케어 판정 때 막힘).
+		var nlines: int = rows.size() + cols.size()
+		if nlines >= 2:
+			run_multi2 += 1
+		if nlines >= 3:
+			run_multi3 += 1
 		_analytics.first_line_cleared()              # 세션 첫 줄만 기록(첫 도파민까지 시간) — 서비스가 1회 게이팅
 		_begin_resolve(rows, cols)   # 공격 재생 → 끝나면 _finish_resolve→_end_turn
 	else:
