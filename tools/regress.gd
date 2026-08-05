@@ -54,7 +54,10 @@ func _init() -> void:
 	var S: GDScript = load("res://Main.gd")
 	var g: Node = S.new()
 	root.add_child(g)
-	g.dda_enabled = false
+	# ⚠_ready가 persist_enabled를 켠다. 안 끄면 이 하네스의 전승이 **실유저 진행도에 각인된다** —
+	#   실제로 겪은 사고다(14판 전승 → campaign.save에 16383). S1부터는 실패도 저장하므로 위험이 더 크다.
+	g.set("persist_enabled", false)
+	g.dda_enabled = false   # 실패 케어(S1)도 이 스위치에 물려 있다 → 회귀는 케어 없는 순수 난이도를 잰다
 	g.seed_game(int(sd) if sd != "" else 20260718)   # 게임 스트림 시드(코스메틱 전역 RNG와 분리)
 	print("── REGRESS (seed=%s N=%d) ──" % [sd if sd != "" else "20260718", N])
 	for pass_i in range(2):

@@ -110,6 +110,34 @@ const DDA_CANDIDATES: int = 6     # 후보 조각 수(많을수록 개입이 세
 const DDA_DEADZONE: float = 0.34  # |dda|가 이보다 작으면 무개입(무작위)
 const DDA_GOD_FAILS: int = 2      # 같은 스테이지 연속 실패 이 횟수부터 '갓 모드'(강한 구제)
 
+# ===== 실패 케어 (S1) — 같은 판을 연달아 진 사람을 붙잡는다 =====
+# 이탈은 난이도가 아니라 '희망 없음'에서 온다. 두 번 연속 지면 같은 화면이 두 번 똑같이 뜨고,
+#   다시하기를 누를 이유가 없어진다. 그래서 2패부터 판을 실제로 눅인다.
+#
+# ⚠계단은 '진 횟수'로 읽는다 — 2패 = **3번째 판**부터 걸린다.
+# 규칙 셋 — 이걸 어기면 케어가 벌이 된다:
+#   ① 실패를 언급하지 않는다. "쉽게 해드릴까요"는 코지 코어에 수치심을 붙인다. 전용 UI를 안 만든다.
+#   ② 세이브에 각인하지 않는다. 도움받고 깬 판도 그냥 클리어다(성적표 없음, 2026-08-04 유저 결정).
+#   ③ 깨면 즉시 원복. fail_streak=0이 _check_win에 이미 있어서 다음 판은 자동으로 원 난이도다.
+#
+# 레버 = 줄-완성 조각 우선 배급(주) + 비행기 배급(보너스). 기각된 레버 둘을 여기 남긴다:
+#   ✗ core_hp — HUD에 하트가 숫자로 보여 "봐주고 있다"가 바로 읽힌다.
+#   ✗ 조각 풀 5바 늘리기(S1~S2에 실제로 들어갔다가 S4에서 걷어냄) — **막힘사를 사서 낸다.**
+#     실측(st11, 시드 2벌×N=150): 5바 41%면 막힘사 14.7%→23.0%. 승률이 오르는 건 거점사를
+#     줄여서지 막힘을 고쳐서가 아니었다. 그런데 우리 유저의 죽음은 막힘사다(플테 8사망 중 7).
+#     ⇒ 승률만 재는 프로브로는 이 착각을 못 잡는다. 케어는 반드시 **사인별로** 검증할 것.
+# 줄 완성은 보드를 비운다 = 막힘사·누수사를 동시에 줄이는 유일한 방향이라 이걸 주 레버로 삼았다.
+const CARE_CLEAR_FAILS: int = 2      # 줄-완성 조각 우선 배급이 켜지는 연속 실패 수(= 3번째 판)
+const CARE_PLANE_FAILS: int = 3      # 비행기 배급 완화가 얹히는 연속 실패 수(= 4번째 판)
+const CARE_MAX_FAILS: int = 3        # 케어 천장. 더 져도 여기서 멈춘다(끝없이 물러주면 판이 사라진다)
+const CARE_CANDIDATES: int = 12      # 케어 중 줄-완성 조각을 찾는 재추첨 횟수(기본 DDA는 6)
+const CARE_BURST_LINES: int = 2      # 케어가 노리는 동시 삭제 줄 수 — 구제가 '팡팡 터지게' 만드는 값
+#   ⚠3은 더 나쁘다(실측 st6 N=100): 승률 64%→55% · 동시2 1.91→1.78 · 동시3 0.02→**0.00**.
+#   3줄을 낼 수 있는 조각은 보드가 이미 받쳐줄 때만 존재한다 — 배급은 그 상태를 만들 수 없고,
+#   없는 걸 찾느라 후보만 태우다 더 나쁜 조각으로 떨어진다. 배급으로 살 수 있는 건 2줄까지다.
+const CARE_PLANE_CD_MULT: float = 0.5   # 비행기 재등장 간격 배수
+const CARE_PLANE_FIRST_CD: int = 2      # 케어 판의 첫 픽업까지 배치 수 — '초반에 좋은 일이 생겼다'가 유일한 신호
+
 # ===== 스테이지 데이터 (stage_data.gd로 분리) =====
 # 캠페인 판 정본 + POOL 프리셋은 res://stage_data.gd에 있다(저작 섬, 병렬 충돌 감소).
 # 여기선 별칭 const만 재노출 → 기존 참조(STAGES, g.STAGES, main.STAGES)와 외부 툴 전부 무변경.
@@ -359,6 +387,8 @@ const AD_SEAM_TIMEOUT: float = 6.0
 const AD_ONBOARD_CLEARS: int = 5
 var _ad_seam_t: float = -1.0    # >=0 = 대기 중(경과 초). -1 = 유휴      # 부활 광고 요청 중 — 결과 팝업이 대기 상태를 그리고 다른 버튼을 막는다
 var run_max_combo: int = 0         # 이번 판 최대 콤보(계측 combo_peak — 봇 ~7 대비 사람은?). _init_game서 리셋
+var run_multi2: int = 0            # 이번 판 '한 배치로 2줄 이상' 횟수 = 스펙터클 축(콤보와 별개)
+var run_multi3: int = 0            # 3줄 이상
 var _revive_offer_open: bool = false  # 부활 제안이 떠 있고 아직 수락/거절 안 됨 → 이탈 시 revive_declined 1회
 var endless_prev_best: int = 0     # 런 시작 시점의 베스트(결과 팝업 델타 표시용)
 var endless_new_best: bool = false # 이번 런이 신기록인가(결과 팝업 배지)
@@ -457,7 +487,15 @@ var dev_unlock_all: bool = false  # ⚠플테 전용: 전 스테이지 해금(�
 #   _ready를 타므로 그대로 통과한다(창 모드 필수 — [[godot-pixel-verify-needs-window]]).
 var persist_enabled: bool = false
 var drought: int = 0            # 연속 무클리어 배치 수 (DDA의 '고전' 신호)
-var fail_streak: Dictionary = {}  # 스테이지 인덱스 → 연속 실패 횟수 (갓 모드 트리거, 세션 한정)
+var fail_streak: Dictionary = {}  # 스테이지 인덱스 → 연속 실패 횟수 (갓 모드·케어 트리거)
+# 런타임 조각 풀 오버라이드 — **프로브 전용 A/B 노브**다(dda_enabled와 같은 성격). 게임 코드는
+#   이걸 절대 세우지 않고, _init_game이 판마다 비운다. tools/care_probe.gd의 POOLS= 모드가
+#   프리셋을 갈아끼워 '조각 분포가 사인별 죽음에 뭘 하나'를 재는 데 쓴다.
+#   ⚠빈 딕셔너리 = 무개입 = st["pool"] 원본 객체 그대로. 이 규약이 회귀 byte-identical을 지킨다.
+var pool_override: Dictionary = {}
+# 이 판이 시작될 때 걸린 케어 단계(계측용). fail_streak은 클리어 순간 0으로 밀리므로 그걸 읽으면
+#   '케어받고 깼다'가 통계에서 통째로 사라진다 — 판 시작 시점 값을 따로 붙들어 둔다.
+var run_care_level: int = 0
 var game_over: bool = false
 var game_clear: bool = false
 var stuck: bool = false
@@ -1663,7 +1701,14 @@ func _sfx_note(kind: String, semi: int, drop: String) -> void:
 
 # 캠페인 진행도 영속(user://). cleared 딕셔너리를 스테이지 비트마스크(비트 i = 스테이지 i 클리어)로 저장.
 # ≤32스테이지면 32비트 하나에 담겨 store_32로 고정 4바이트 — 부분쓰기 내성이 가변길이보다 낫다.
-# dev_unlock_all(플테 '0'키)은 cleared를 안 건드리므로 저장에 새지 않는다. fail_streak(DDA)는 세션 한정 유지.
+# dev_unlock_all(플테 '0'키)은 cleared를 안 건드리므로 저장에 새지 않는다.
+#
+# 뒤에 연속 실패(S1 케어 트리거)를 12바이트로 덧붙인다: [마스크][스테이지][횟수].
+#   ⚠세션 한정이던 걸 디스크로 올린 이유 = 정작 제일 위험한 유저가 케어를 못 받고 있었다.
+#   지고 앱을 끈 사람이 돌아오면 카운터가 0으로 리셋돼, 다시 두 번을 져야 도움이 붙었다.
+#   케어가 필요한 바로 그 사람에게만 정확히 꺼져 있는 구조였다.
+# 한 쌍만 저장한다. 캠페인은 순차 진행이라 반복해 붙는 판은 프런티어 하나뿐 = 여러 칸이 필요 없다.
+#   가변 길이를 피해 고정 12바이트로 두는 것이 부분쓰기 내성에도 낫다(위와 같은 이유).
 const CAMPAIGN_SAVE: String = "user://campaign.save"
 
 func _load_campaign() -> void:
@@ -1678,7 +1723,33 @@ func _load_campaign() -> void:
 		for i in range(STAGES.size()):
 			if (mask & (1 << i)) != 0:
 				cleared[i] = true
+	# 12바이트 미만 = 케어 도입 전에 쓰인 옛 세이브 → 연속 실패 0에서 시작(진행도는 위에서 이미 읽었다).
+	if f.get_length() >= 12:
+		var si: int = f.get_32()
+		var n: int = f.get_32()
+		if si >= 0 and si < STAGES.size() and n > 0:
+			fail_streak[si] = mini(n, CARE_MAX_FAILS)   # 손상·조작 내성: 천장 위로는 못 올라간다
 	f.close()
+
+# 연속 실패 +1 → 즉시 영속. 실패 직후는 앱이 닫힐 확률이 가장 높은 순간이라 여기서 안 쓰면
+#   케어를 디스크에 올린 의미가 없다(클리어 때만 쓰던 기존 호출로는 실패가 한 번도 안 남는다).
+func _bump_fail_streak() -> void:
+	fail_streak[stage_idx] = int(fail_streak.get(stage_idx, 0)) + 1
+	if stage_idx < 0:
+		return   # 무한·featured는 stage_idx=-1을 스크래치 키로 같이 쓴다 → 디스크엔 안 올린다
+	_save_campaign()
+
+# 부활은 그 죽음을 없던 일로 만든다 → 연속 실패도 되돌린다.
+#   안 되돌리면 한 번의 시도가 2패로 세져서(죽음 → 부활 → 재사망) 케어가 한 계단 일찍 켜진다
+#   = 광고를 본 사람이 더 빨리 봐줌을 받는 왜곡. 회계 불변식과 같은 종류의 문제다.
+func _undo_fail_streak() -> void:
+	if stage_idx < 0:
+		return
+	var n: int = int(fail_streak.get(stage_idx, 0))
+	if n <= 0:
+		return
+	fail_streak[stage_idx] = n - 1
+	_save_campaign()
 
 # 플테 도구(진행도 초기화 버튼)를 노출할 빌드인가.
 #   디버그 빌드 + 사이드로드 플테 빌드에서만 참이다. 후자는 export preset "Android"의
@@ -1708,9 +1779,22 @@ func _save_campaign() -> void:
 	for i in range(STAGES.size()):
 		if bool(cleared.get(i, false)):
 			mask |= (1 << i)
+	# 연속 실패는 '가장 많이 진 판' 한 쌍만 남긴다. stage_idx를 안 쓰는 이유 = 이 함수는 진행도 초기화
+	#   같은 곳에서도 불려서 그때의 stage_idx가 현재 판이라는 보장이 없다. 값에서 직접 고른다.
+	var worst_i: int = -1
+	var worst_n: int = 0
+	for k in fail_streak:
+		if int(k) < 0:
+			continue          # 무한·featured의 스크래치 키(-1) — 캠페인 칸을 밀어내면 안 된다
+		var n: int = int(fail_streak[k])
+		if n > worst_n:
+			worst_n = n
+			worst_i = int(k)
 	var f := FileAccess.open(CAMPAIGN_SAVE, FileAccess.WRITE)
 	if f != null:
 		f.store_32(mask)
+		f.store_32(worst_i)
+		f.store_32(worst_n)
 		f.close()
 
 # ===== 계측 (Phase V W1 — 정본: ANALYTICS_TAXONOMY.md) =====
@@ -1776,6 +1860,8 @@ func _track_run_fail(cause: String) -> void:
 		_analytics.log_event("stage_failed", {
 			"stage_id": stage_idx + 1, "cause": cause,
 			"attempt_n": int(fail_streak.get(stage_idx, 0)),   # _end_turn서 이미 +1 된 값 = 이번이 몇 번째 실패
+			"care_level": run_care_level,
+			"multi2": run_multi2, "multi3": run_multi3,   # 케어를 받고도 안 터졌나 = S6 판정의 유일한 실플레이 근거   # 케어를 받고도 졌나 = 완화 폭이 모자란 판을 찾는 단서
 		})
 	else:
 		_track_endless_end(cause)
@@ -1801,6 +1887,10 @@ func _track_stage_clear() -> void:
 		"stage_id": stage_idx + 1, "goal_type": _analytics_goal(),
 		"duration_ms": _analytics.run_duration_ms(), "max_combo": run_max_combo,
 		"kills": killed, "leaked": leaked, "did_revive": revive_used,
+		"multi2": run_multi2, "multi3": run_multi3,   # 스펙터클 축 — '팡팡 터졌나'(콤보와 별개)
+		# 케어(S1) 의존도 — '깬 판 중 몇 %가 구제를 받았나'. 이게 없으면 케어가 실제로 발동하는지,
+		#   발동해서 통했는지를 영영 알 수 없다(조용한 기능이라 화면엔 흔적이 안 남는다).
+		"care_level": run_care_level,
 	})
 	_analytics.run_end(run_max_combo)
 
@@ -1949,6 +2039,11 @@ func _today_seed() -> int:
 	return int(d["year"]) * 10000 + int(d["month"]) * 100 + int(d["day"])
 
 func _init_game() -> void:
+	# 실패 케어를 판 경계에서 한 번만 확정한다(판 중간에 난이도가 흔들리면 플레이어가 알아챈다).
+	#   여기 두는 이유: _start_stage·_start_endless·_start_featured가 전부 이 함수를 지나므로
+	#   케어가 안 걸리는 모드에서 자동으로 비워진다(_care_level이 감독에게 물어본다).
+	run_care_level = _care_level()
+	pool_override = {}
 	board = []
 	for _r in range(ROWS):
 		var row_arr: Array = []
@@ -1993,6 +2088,8 @@ func _init_game() -> void:
 	combo_miss = 0
 	drought = 0
 	run_max_combo = 0        # 계측: 이번 판 최대 콤보(combo_peak)
+	run_multi2 = 0
+	run_multi3 = 0
 	_revive_offer_open = false
 	game_over = false
 	game_clear = false
@@ -2066,7 +2163,10 @@ func _init_game() -> void:
 	resolve_seeker_plan = []
 	seekers = []
 	plane_held = false
-	plane_cd_left = int(st.get("plane_cd", 10))
+	# 케어 판은 첫 픽업을 앞당긴다. 재등장 간격만 줄이면 판 초반은 평소와 똑같아서 "달라진 게 없다"가
+	#   그대로 남는다 — 이 게임에서 케어가 유일하게 눈에 보이는 자리가 '초반에 비행기가 떴다'다.
+	#   슬롯에 공짜로 꽂아주지는 않는다: 여전히 보드에서 플레이어가 따야 한다('세상에 한 대'·귀속 유지).
+	plane_cd_left = CARE_PLANE_FIRST_CD if _care_level() >= CARE_PLANE_FAILS else int(st.get("plane_cd", 10))
 	plane_flights = []
 	plane_shots = []
 	plane_pop = 0.0
@@ -2206,7 +2306,8 @@ func _random_piece() -> Dictionary:
 	#   0%→50% 섞으면 승률 5%→84%로 단조 상승, core_hp가 그 위에 겹쳐 얹힘(2D 난이도면).
 	#   공정성은 tier 경로와 동일: 지금 보드에 최소 1칸 놓이는 조각만 배급(강제 즉사 배제).
 	if st.has("pool"):
-		return _pool_piece(st["pool"])
+		# 케어 중이면 5바를 늘린 사본에서 뽑는다. 비어 있으면 원본 객체 그대로 = 회귀 byte-identical.
+		return _pool_piece(pool_override if not pool_override.is_empty() else st["pool"])
 	var f: float = float(_free_cells()) / float(ROWS * COLS)
 	var p_big: float = clampf((f - 0.50) / 0.35, 0.0, 1.0) * 0.16
 	var p_mid: float = clampf((f - 0.25) / 0.30, 0.0, 1.0) * 0.60
@@ -2374,6 +2475,75 @@ func _piece_can_clear(offsets: Array) -> bool:
 				return true
 	return false
 
+# 이 조각이 **한 번에 지울 수 있는 최대 줄 수**(어느 자리에 놓든 최선값). 0 = 못 지움.
+#   _piece_can_clear의 '지울 수 있나(bool)'와 달리 '몇 줄이나'를 센다 — 케어가 스펙터클을
+#   만들려면 그 구분이 필요하다. 줄 하나짜리만 우선하면 줄이 생기는 족족 지워져서
+#   '여러 행이 한 칸씩 남은' 상태가 안 쌓인다 = 싹 터지는 맛의 재료가 계속 소비된다(S6 실측).
+# ⚠비용: 조각이 놓이는 자리의 행·열만 검사한다(전체 8+8이 아니라). 조각이 안 건드린 줄은
+#   이 수로 완성될 수 없으므로 결과는 같고, 후보를 여러 번 굴리는 뜨거운 경로가 가벼워진다.
+func _piece_max_lines(offsets: Array) -> int:
+	var best: int = 0
+	for ar in range(ROWS):
+		for ac in range(COLS):
+			var cells: Array = []
+			var ok: bool = true
+			for o in offsets:
+				var ov: Vector2i = o as Vector2i
+				var cc: Vector2i = Vector2i(ac + ov.x, ar + ov.y)
+				if cc.x < 0 or cc.x >= COLS or cc.y < 0 or cc.y >= ROWS or board[cc.y][cc.x] != "":
+					ok = false
+					break
+				cells.append(cc)
+			if not ok:
+				continue
+			var occ: Dictionary = {}
+			var trows: Dictionary = {}
+			var tcols: Dictionary = {}
+			for ci in cells:
+				var cv: Vector2i = ci as Vector2i
+				occ[cv] = true
+				trows[cv.y] = true
+				tcols[cv.x] = true
+			var n: int = 0
+			for r in trows:
+				var full_r: bool = true
+				for c in range(COLS):
+					if board[r][c] == "" and not occ.has(Vector2i(c, r)):
+						full_r = false
+						break
+				if full_r:
+					n += 1
+			for c2 in tcols:
+				var full_c: bool = true
+				for r2 in range(ROWS):
+					if board[r2][c2] == "" and not occ.has(Vector2i(c2, r2)):
+						full_c = false
+						break
+				if full_c:
+					n += 1
+			if n > best:
+				best = n
+				if best >= CARE_BURST_LINES:
+					return best     # 목표 도달 = 더 볼 필요 없음
+	return best
+
+# 이번 판에 걸리는 실패 케어 단계. 0=무개입 / 2=갓 모드(조각 재추첨) / 3=조각 풀+비행기 완화(천장).
+#   감독이 DDA를 불허하면 0 — 무한·featured는 순위·데일리 공정성이 걸려 있어 케어를 안 받는다.
+func _care_level() -> int:
+	# dda_enabled = 하네스·시뮬이 이미 다 쓰고 있는 '구제 끄기' 스위치. 케어도 구제라 같은 스위치에 문다
+	#   → regress·sim·campaign_probe가 별도 조치 없이 자동으로 케어 없는 순수 난이도를 잰다.
+	if not dda_enabled or not director.allows_dda():
+		return 0
+	return mini(int(fail_streak.get(stage_idx, 0)), CARE_MAX_FAILS)
+
+# 비행기 재등장 간격. 케어 중이면 절반 = 판당 사용 횟수가 올라간다.
+#   ⚠'세상에 한 대'는 이 값과 무관하게 유지된다 — 스폰은 보유·비행중·보드 위가 전부 빈 경우에만 돈다.
+func _plane_cd() -> int:
+	var cd: int = int(st.get("plane_cd", 10))
+	if _care_level() >= CARE_PLANE_FAILS:
+		return maxi(1, int(round(float(cd) * CARE_PLANE_CD_MULT)))
+	return cd
+
 # 플레이어 상태 → −1(고전) ~ +1(압도)
 # TODO(감독): DDA 로직·god모드는 스테이지 전용(fail_streak[stage_idx]). 무한모드 도입 시
 #   director.difficulty_bias(ctx)로 래핑해 모드별 난이도 보정을 분리할 것. 지금은 Main 유지(최저 위험).
@@ -2404,8 +2574,34 @@ func _make_piece() -> Dictionary:
 		return _track_piece()
 	if not dda_enabled or not director.allows_dda():   # 감독이 DDA 불허(무한·featured)면 게이팅, C52 ⑦·C61
 		return _random_piece()
-	var d: float = _dda_score()
 	var first: Dictionary = _random_piece()
+	# 실패 케어(S4): 데드존을 건너뛰고 줄-완성 조각을 적극적으로 찾는다. 후보도 더 굴린다.
+	#   ⚠왜 데드존을 건너뛰나: 갓 모드는 데드존에 갇혀 거의 발동하지 않았다. _dda_score는
+	#   struggle 2(연속 실패)를 받아도 mastery가 1만 있으면 −0.34를 못 넘는다 = 케어를 켠 판에서
+	#   정작 개입이 안 일어난다. 실측(st11)에서 갓 모드 단독 효과가 +2pt에 그친 이유다.
+	#   ⚠왜 이게 조각 풀 완화보다 나은가: 우리 유저의 죽음은 막힘사다(플테 8사망 중 7). 5바를 더
+	#   주면 줄은 늘지만 조각이 커져 막힘사가 오히려 증가한다(실측 14.7%→23.0%, S3).
+	#   줄 완성은 **보드를 비운다** = 막힘과 누수를 동시에 고치는 유일한 방향이다.
+	if _care_level() >= CARE_CLEAR_FAILS:
+		# ⚠'줄을 낼 수 있나'가 아니라 '몇 줄을 한꺼번에 낼 수 있나'로 고른다.
+		#   전자로 하면 케어가 승률은 올리면서 **터지는 맛을 깎는다** — 실측(st6, N=100):
+		#   승률 47%→69%인데 동시2줄 1.03→0.93 · 동시3줄 0.06→0.02로 오히려 줄었다.
+		#   줄이 생기는 족족 지워져 '여러 행이 한 칸씩 남은' 상태가 안 쌓이기 때문이다.
+		#   구제가 곧 벌처럼 느껴지는 자리 — 유저가 "겨우 깬 느낌"이라고 잡아냈다(2026-08-04).
+		var best: Dictionary = first
+		var best_lines: int = _piece_max_lines(first["offsets"])
+		if best_lines >= CARE_BURST_LINES:
+			return first
+		for _c in range(CARE_CANDIDATES - 1):
+			var cc: Dictionary = _random_piece()
+			var nl: int = _piece_max_lines(cc["offsets"])
+			if nl >= CARE_BURST_LINES:
+				return cc
+			if nl > best_lines:
+				best_lines = nl
+				best = cc
+		return best     # 동시삭제 후보가 없으면 한 줄짜리라도(그것도 없으면 첫 후보)
+	var d: float = _dda_score()
 	# 구제 전용: 고전 중일 때만 개입한다. ('압도 중 → 까다로운 조각'은 폐기 — 온보딩 막힘사만 3배)
 	if d > -DDA_DEADZONE:
 		return first
@@ -2428,6 +2624,64 @@ func _tray_any_placeable() -> bool:
 			return true
 	return false
 
+# 트레이 3장을 **어떤 순서로든 전부** 소화할 수 있나 (S4 ①: 딜 사고 봉쇄).
+#   기존 가드는 '하나라도 놓이면 통과'였다. 그래서 한 장을 놓는 순간 나머지 둘이 갈 곳을 잃는
+#   조합이 그대로 나갔다 — 플레이어에겐 '내가 잘못 놨다'로 보이지만 실은 처음부터 출구가 없는 딜이다.
+#   막힘사가 우리 주 사인인데(플테 8사망 중 7) 그 일부는 이렇게 태어난다.
+# ⚠줄 삭제는 계산에 안 넣는다(보수적). 줄이 터지면 자리가 더 생기므로 여기서 통과한 트레이는
+#   실제로도 반드시 소화된다. 반대로 여기서 막혀도 실제론 풀릴 수 있어 재추첨이 조금 낭비될 뿐이다.
+# 노드 예산: 8×8 · 3장이면 최악 13k 조합이지만 대부분 첫 배치에서 성공한다(즉시 반환).
+const TRAY_SOLVE_BUDGET: int = 4000
+
+func _tray_all_placeable() -> bool:
+	var occ: Array = []
+	for r in range(ROWS):
+		var row: Array = []
+		for c in range(COLS):
+			row.append(board[r][c] != "")
+		occ.append(row)
+	var pieces: Array = []
+	for i in range(3):
+		if not tray[i].is_empty():
+			pieces.append(tray[i]["offsets"])
+	if pieces.is_empty():
+		return true
+	var budget: Array = [TRAY_SOLVE_BUDGET]   # 배열로 싸서 재귀에 참조로 넘긴다
+	return _tray_solve(occ, pieces, budget)
+
+func _tray_solve(occ: Array, remaining: Array, budget: Array) -> bool:
+	if remaining.is_empty():
+		return true
+	for pi in range(remaining.size()):
+		var offsets: Array = remaining[pi]
+		for r in range(ROWS):
+			for c in range(COLS):
+				if int(budget[0]) <= 0:
+					return true   # 예산 소진 = 판단 보류 → 통과시킨다(재추첨 폭주 방지, 기존 동작으로 후퇴)
+				budget[0] = int(budget[0]) - 1
+				var cells: Array = []
+				var ok: bool = true
+				for o in offsets:
+					var ov: Vector2i = o as Vector2i
+					var x: int = c + ov.x
+					var y: int = r + ov.y
+					if x < 0 or x >= COLS or y < 0 or y >= ROWS or bool(occ[y][x]):
+						ok = false
+						break
+					cells.append(Vector2i(x, y))
+				if not ok:
+					continue
+				for cv in cells:
+					occ[cv.y][cv.x] = true
+				var rest: Array = remaining.duplicate()
+				rest.remove_at(pi)
+				var solved: bool = _tray_solve(occ, rest, budget)
+				for cv2 in cells:
+					occ[cv2.y][cv2.x] = false
+				if solved:
+					return true
+	return false
+
 # 3슬롯 전부 새 랜덤 조각으로 채움, sel=0 리셋.
 # ⚠공정성: '받자마자 셋 다 못 놓는' 즉사(실측 막힘사망의 11~27%)는 플레이어 실수가 아니라 딜 사고.
 #   최소 하나는 놓을 수 있는 트레이가 나올 때까지 다시 굴린다(막힘은 이제 '스스로 몰린 결과'로만).
@@ -2445,7 +2699,16 @@ func _refill_tray() -> void:
 			tray[i] = _make_piece()
 		sel = 0
 		return
+	# 1차: 3장을 전부 소화할 수 있는 트레이를 찾는다(딜 사고 봉쇄, S4 ①).
 	for _attempt in range(24):
+		for i in range(3):
+			tray[i] = _make_piece()
+		if _tray_all_placeable():
+			sel = 0
+			return
+	# 2차: 보드가 이미 나빠서 완전 해가 없다 — 옛 기준(하나라도 놓임)으로 후퇴한다.
+	#   여기까지 오면 막힘은 딜 사고가 아니라 '스스로 몰린 결과'다. 그건 게임이 맞다.
+	for _attempt2 in range(24):
 		for i in range(3):
 			tray[i] = _make_piece()
 		if _tray_any_placeable():
@@ -3244,7 +3507,7 @@ func _end_turn() -> void:
 		game_over = true
 		_fb("fail")             # 거점사 — 판이 닫혔다(하강)
 		pending_core_dead = false
-		fail_streak[stage_idx] = int(fail_streak.get(stage_idx, 0)) + 1   # 연속 실패 → 갓 모드 근접
+		_bump_fail_streak()      # 연속 실패 +1 → 갓 모드(2패)·케어(3패) 근접. 디스크에도 남는다.
 		# 폭탄사(비행 중 합계 하트가 죽인 경우)면 붕괴 연출을 하트 착지까지 미룬다 = "하트 꽂힘 → 죽음" 순서.
 		var by_bomb: bool = false
 		for be in boom_queue:
@@ -3262,7 +3525,7 @@ func _end_turn() -> void:
 		game_over = true
 		_fb("fail")             # 금고 전소(상실축 패배)
 		pending_vault_dead = false
-		fail_streak[stage_idx] = int(fail_streak.get(stage_idx, 0)) + 1
+		_bump_fail_streak()
 		_begin_core_death()   # TODO(렌더): 금고-전소 전용 연출로 분기(현재는 거점 붕괴 재사용)
 		_track_run_fail("vault_lost")   # Protect 동사의 고유 패배(상실축) — 거점사와 섞이면 동사 평가가 안 됨
 		return
@@ -3273,7 +3536,7 @@ func _end_turn() -> void:
 		_fb("fail")             # 막힘사 — 놓을 자리가 없다
 		stuck = true
 		_begin_stuck_death()
-		fail_streak[stage_idx] = int(fail_streak.get(stage_idx, 0)) + 1
+		_bump_fail_streak()
 		_track_run_fail("stuck")
 
 # 감시자 머리 설치 — head_cols × head_rows 슬래브를 board 상단에 "H"로 심는다. boss_hp = 그 셀 수.
@@ -3630,7 +3893,7 @@ func advance_step() -> void:
 	#   plane_cd는 실측(tools/plane_rate_probe.gd)으로 판당 사용 횟수를 맞춘 값이다.
 	if _plane_allowed():
 		if plane_held or not plane_flights.is_empty() or _plane_on_board():
-			plane_cd_left = int(st.get("plane_cd", 10))
+			plane_cd_left = _plane_cd()   # 케어 중이면 절반(_plane_cd) — 이 갱신은 '세상에 한 대'와 무관하다
 		elif plane_cd_left > 0:
 			plane_cd_left -= 1
 		else:
@@ -3867,8 +4130,10 @@ func _check_win() -> void:
 	if director.is_cleared(_director_ctx()):
 		game_clear = true
 		cleared[stage_idx] = true
+		# ⚠순서 주의: 초기화가 저장보다 먼저다. 뒤집으면 이긴 판의 연속 실패가 디스크에 남아
+		#   다음에 그 판을 다시 열 때 케어가 켜진 채로 시작한다(도움받아 깬 사람이 영영 케어를 못 벗음).
+		fail_streak[stage_idx] = 0     # 깼으니 갓 모드·케어 해제 → 다음 판은 원 난이도(유저 결정: 즉시 복귀)
 		_save_campaign()               # 진행도 즉시 영속 — 앱을 닫아도 해금 유지
-		fail_streak[stage_idx] = 0     # 깼으니 갓 모드 해제
 		clear_show_t = -CLEAR_HOLD     # 프리롤부터 — 판을 켠 채 승리 여운을 보여준 뒤 무대가 열린다
 		_plan_clear_fx()               # 폭죽 계획. 색종이는 CLEAR_CONFETTI_AT까지 미룬다(_process)
 		_fb("finish")                  # 판이 끝났다 = 진동 3박 + 소리 아르페지오(판당 1회)
@@ -4491,6 +4756,14 @@ func _place_piece() -> void:
 		if tut_phase == 2:
 			tut_clears += 1              # 박자2 안전밸브 카운터(_end_turn서 판정)
 		run_max_combo = maxi(run_max_combo, combo)   # 계측: 판당 최대 콤보(종료 시 combo_peak로 1회 발화)
+		# 계측: '한 배치로 몇 줄을 동시에' — 콤보(연속 배치)와 **다른 축**이고, 유저가 말하는
+		#   '팡팡 터지는 맛'은 이쪽이다. 봇 프로브엔 있었는데 실플레이 로그엔 없어서
+		#   "화면에서 실제로 싹 터졌나"를 확인할 수단이 없었다(2026-08-05 케어 판정 때 막힘).
+		var nlines: int = rows.size() + cols.size()
+		if nlines >= 2:
+			run_multi2 += 1
+		if nlines >= 3:
+			run_multi3 += 1
 		_analytics.first_line_cleared()              # 세션 첫 줄만 기록(첫 도파민까지 시간) — 서비스가 1회 게이팅
 		_begin_resolve(rows, cols)   # 공격 재생 → 끝나면 _finish_resolve→_end_turn
 	else:
@@ -5788,6 +6061,7 @@ func _revive(method: String = "ad_reward") -> void:
 	_revive_offer_open = false
 	_analytics.log_event("revive_taken", {"cause": "stuck" if was_stuck else "core_death", "method": method})
 	revive_used = true
+	_undo_fail_streak()       # 이 죽음은 없던 일 — 케어 계단을 부활로 앞당기지 않는다
 	game_over = false
 	stuck = false
 	pending_core_dead = false
