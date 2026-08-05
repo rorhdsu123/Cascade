@@ -205,6 +205,18 @@ const C_CELL := Color("#111122")
 const C_GRID := Color(0.28, 0.28, 0.38, 0.55)
 const C_HUD  := Color(0.06, 0.06, 0.12)
 const C_GOLD := Color("#ffd700")
+
+# ── 패널 잉크 = '판 위에 얹는 글자·선' ──────────────────────────────────────
+# 납품 패널(art/ui/panel.png)이 **밝은 크림 톤**이다(디자이너 확정 2026-08-04). 의뢰서는 원래
+#   다크 톤을 요청했는데 밝은 쪽으로 왔고, 어두운 게임 화면 위에 뜨는 카드로는 그쪽이 낫다고 보고 받았다.
+#   패널은 **코드가 틴트하지 않는 부품**(색을 그림이 갖는다)이라, 바뀌는 건 그림이 아니라 **그 위의 잉크**다.
+# ⚠폴백(패널 텍스처가 없을 때)은 여전히 다크 사각형을 그린다 → 그 경로에선 예전 밝은 글자가 맞다.
+#   그래서 색을 상수 하나로 못 박지 않고 _ink()가 두 벌을 들고 다닌다. 아트를 빼도 화면이 안 깨진다.
+const C_INK_TITLE := Color("#42506a")   # 제목·헤드라인 (디자이너 지정값)
+const C_INK_BODY  := Color("#5c6982")   # 본문·라벨·캡션 (디자이너 지정값)
+const C_INK_GOLD  := Color("#b0800f")   # 밝은 판 위의 금색 — C_GOLD는 크림 위에서 거의 안 읽힌다
+const C_INK_WIN   := Color("#1e7a3c")   # 성공 수치(초록) — 밝은 판용으로 내린 명도
+const C_INK_LOSE  := Color("#bf3a2b")   # 실패 수치(빨강) — 위와 같은 이유
 const C_BORD := Color(0.24, 0.24, 0.38)
 
 # 적 타입별 대표 색 (한눈 구분)
@@ -584,6 +596,11 @@ var game_seed: int = 0   # 현재 게임 시드(featured 트랙 index-addressed 
 #   끌 수 없고, 채도 높은 평면 색은 손실 압축에서 밴딩이 잘 보인다(§8).
 const BLOCK_TEX_PATH: String = "res://art/block.png"
 const BLOCK_TEX_MIN_PX: float = 24.0   # 이보다 작게 그릴 땐 텍스처 대신 사각형(트레이 프리뷰 17px)
+# 셀 안쪽으로 얼마나 밀어 그리는가 = **블록 사이 간격의 절반**. 0인 이유: 간격을 그림이 쥔다.
+#   납품 블록은 180 캔버스에 본체 168(가장자리 투명 6px씩) → 90px 셀에서 간격 6px이 그림에서 나온다.
+#   ⚠여기에 값을 넣으면 그림 여백과 **두 겹으로** 들어가 간격이 사양(12px 파일)의 두 배 넘게 벌어진다
+#   (자리지킴이 시절엔 그림에 여백이 없어 이 값이 유일한 간격이었다 — 5.0이 그 잔재였다).
+const BLOCK_PAD: float = 0.0
 var block_tex: Texture2D = null
 var _glow: BlockGlowLayer = null       # 가산 덧칠 전용 자식(백열). 아래 클래스 정의 참조
 
@@ -620,12 +637,12 @@ const UI_TEX_DIR: String = "res://art/ui/"
 const UI_TEX_SCALE: float = 2.0   # 납품 배율(§5). 텍스처 px ÷ 이 값 = 화면 px
 const UI_9S: Dictionary = {
 	# 이름          : [좌, 상, 우, 하] — 텍스처 픽셀
-	"panel":         [56, 56, 56, 56],   # 결과 팝업 = 설정 모달 공용 본체(다크 톤, 틴트 안 함)
+	"panel":         [24, 24, 24, 24],   # 결과 팝업 = 설정 모달 공용 본체(밝은 크림, 틴트 안 함 → 잉크는 C_INK_*)
 	# 상단 강조바 — 흰/회색조로 받아 코드가 accent를 입힌다.
 	# ⚠**패널과 같은 캔버스·같은 마진**의 레이어 한 장이다(8px 띠 한 조각이 아니다). 띠로 받으면
 	#   각진 양끝이 패널 라운드 밖으로 삐져나온다 — 자리지킴이로 실제로 그랬다. 같은 캔버스면
 	#   모서리가 정의상 일치하고, 바 높이·라운드를 그림이 쥔다.
-	"panel_bar":     [56, 56, 56, 56],
+	"panel_bar":     [24, 24, 24, 24],
 	"btn_lg":        [48, 48, 48, 56],   # 큰 버튼 기본
 	"btn_lg_press":  [48, 48, 48, 56],   # 눌림
 	"btn_lg_off":    [48, 48, 48, 56],   # 비활성
@@ -2519,6 +2536,11 @@ func _sync_hover_from_drag() -> void:
 func _add_floater(pos: Vector2, text: String, color: Color, life: float, size: int = 22, pop: bool = false) -> void:
 	floaters.append({"pos": pos, "text": text, "color": color, "life": life, "max": life, "size": size, "pop": pop})
 
+# 글자 + 외곽선. 같은 글자를 8방향 ±2px로 덧그리고 그 위에 채운다.
+# ⚠**외곽선은 글자보다 어두울 때만 쓸 것.** 채움과 명도가 비슷하면 획이 사방 2px씩 두꺼워질 뿐이라
+#   34px쯤에서 o·e·u의 속공간이 막혀 글자가 덩어리로 뭉갠다(금색 버튼의 'Continue'가 실제로 그랬다).
+#   밝은 바탕 위 **어두운 글자**는 바탕과의 명도차가 이미 충분하다 → C_NO_OUT을 넘겨 외곽선을 끈다.
+const C_NO_OUT: Color = Color(0.0, 0.0, 0.0, 0.0)
 func _draw_text_outlined(fnt: Font, pos: Vector2, text: String, size: int, fill: Color, outline: Color = Color(0.0, 0.0, 0.0, 0.9)) -> void:
 	var offs: Array = [
 		Vector2(-2, 0), Vector2(2, 0), Vector2(0, -2), Vector2(0, 2),
@@ -2526,6 +2548,9 @@ func _draw_text_outlined(fnt: Font, pos: Vector2, text: String, size: int, fill:
 	]
 	var o_col: Color = outline
 	o_col.a = outline.a * fill.a
+	if o_col.a <= 0.0:
+		draw_string(fnt, pos, text, HORIZONTAL_ALIGNMENT_LEFT, -1, size, fill)
+		return
 	for off in offs:
 		draw_string(fnt, pos + (off as Vector2), text,
 				HORIZONTAL_ALIGNMENT_LEFT, -1, size, o_col)
@@ -3959,6 +3984,17 @@ var clear_rockets: Array = []          # [{x, apex, t0, col, seed}] 클리어 �
 const RESULT_CLEAR_CARD: bool = false
 # **주 CTA는 상태와 무관하게 같은 자리·같은 크기.** 방금 이겼든 방금 죽었든 엄지가 다시 조준하지
 #   않게. 부활 가능 상태만 버튼이 3개라 부(재도전)·고스트(홈)가 아래로 붙지만 주 버튼은 여기 고정.
+# ── 결과 팝업 세로 리듬(패널 위 기준 오프셋) ─────────────────────────────
+# 예전엔 +84/+124/+176/+222가 손으로 박혀 있었고, 실측 여백이 25/10/33/23/46이었다.
+#   문제는 크기가 아니라 **묶임이 안 읽힌다는 것**이었다 — 캡션↔숫자(23)와 문단 사이(33)가
+#   거의 같아서 넷이 그냥 나열됐다. 짝 안쪽은 붙이고 문단 사이는 떼는 한 벌로 바꾼다:
+#     짝 안쪽 4 · 같은 문단 20 · 문단 사이 34 · 내용↔CTA 40(항상 가장 큼)
+# ⚠주CTA는 전 상태 같은 자리(RESULT_CTA)라 못 움직인다 → 내용을 그 위 띠 안에서 배치한다.
+const RES_Y_HEAD: float = 86.0     # 헤드라인 베이스라인
+const RES_Y_REASON: float = 122.0  # 사유 한 줄 (헤드라인과 한 묶음 = 8 간격)
+const RES_Y_CAP: float = 175.0     # 성적 캡션 (여기서 문단이 갈린다 = 34 간격)
+const RES_Y_ROW: float = 203.0     # 아이콘+숫자 행 **중심** (캡션과 한 묶음 = 6 간격)
+const RES_Y_BIGNUM: float = 218.0  # 무한 최고점 숫자 베이스라인(아이콘 없는 행)
 const RESULT_CTA: Rect2 = Rect2(180.0, 530.0, 440.0, 112.0)
 const RESULT_HOME: Rect2 = Rect2(280.0, 672.0, 240.0, 46.0)
 # 상자 있는 상태(실패·부활·무한)의 패널 폭. 주 CTA가 440이라 460이면 좌우 여백이 10px뿐이어서
@@ -4127,11 +4163,11 @@ func _draw_wm_line(f: Font, text: String, size: int, baseline: float, cols: Arra
 			continue
 		var piv: Vector2 = Vector2(xs[i] + cw * 0.5, baseline - float(size) * 0.32 + float(WM_BOB[i % WM_BOB.size()]) * bob_amp)
 		# 그룹 스케일은 피벗 자체를 중심으로 끌어당긴다 → 글자들이 서로 벌어지며 락업이 커진다
-		draw_set_transform(gc + (piv - gc) * gs, deg_to_rad(float(WM_TILT[i % WM_TILT.size()])), Vector2(lsc, lsc))
+		_xf(gc + (piv - gc) * gs, deg_to_rad(float(WM_TILT[i % WM_TILT.size()])), Vector2(lsc, lsc))
 		var base: Vector2 = Vector2(xs[i], baseline) - piv
 		draw_string_outline(f, base + Vector2(0.0, float(dep) + 10.0), ch, HORIZONTAL_ALIGNMENT_LEFT, -1, size, blob_o, Color(C_WM_BLOB_D.r, C_WM_BLOB_D.g, C_WM_BLOB_D.b, a))
 		draw_string_outline(f, base + Vector2(0.0, float(dep)), ch, HORIZONTAL_ALIGNMENT_LEFT, -1, size, blob_i, Color(C_WM_BLOB.r, C_WM_BLOB.g, C_WM_BLOB.b, a))
-		draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
+		_xf(Vector2.ZERO, 0.0, Vector2.ONE)
 
 	# 패스2 — 압출 몸통(깊이 램프) → 윗면 림라이트 → 면. 단색 한 겹이면 옆면이 판자로 보인다.
 	for i2 in range(text.length()):
@@ -4142,7 +4178,7 @@ func _draw_wm_line(f: Font, text: String, size: int, baseline: float, cols: Arra
 		if a <= 0.002 or lsc <= 0.002:
 			continue
 		var piv2: Vector2 = Vector2(xs[i2] + cw2 * 0.5, baseline - float(size) * 0.32 + float(WM_BOB[i2 % WM_BOB.size()]) * bob_amp)
-		draw_set_transform(gc + (piv2 - gc) * gs, deg_to_rad(float(WM_TILT[i2 % WM_TILT.size()])), Vector2(lsc, lsc))
+		_xf(gc + (piv2 - gc) * gs, deg_to_rad(float(WM_TILT[i2 % WM_TILT.size()])), Vector2(lsc, lsc))
 		var base2: Vector2 = Vector2(xs[i2], baseline) - piv2
 		var col: Color = cols[i2 % cols.size()]
 		for d in range(dep, 0, -1):
@@ -4152,7 +4188,7 @@ func _draw_wm_line(f: Font, text: String, size: int, baseline: float, cols: Arra
 		var rim: Color = col.lightened(0.55)
 		draw_string(f, base2 + Vector2(0.0, -float(size) * 0.022), ch2, HORIZONTAL_ALIGNMENT_LEFT, -1, size, Color(rim.r, rim.g, rim.b, a))
 		draw_string(f, base2, ch2, HORIZONTAL_ALIGNMENT_LEFT, -1, size, Color(col.r, col.g, col.b, a))
-		draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
+		_xf(Vector2.ZERO, 0.0, Vector2.ONE)
 
 # 로켓(상승) → 폭죽(작렬). 시각은 계획표에 박혀 있어 프레임률과 무관하게 같은 리듬으로 재생된다.
 func _draw_clear_fireworks(t: float) -> void:
@@ -5239,6 +5275,9 @@ func _process(delta: float) -> void:
 
 # ===== 그리기 =====
 func _draw() -> void:
+	# 눌림 스케일 스택은 프레임마다 새로 시작한다 — 어딘가 begin/end 짝이 어긋나도 다음 프레임으로 안 샌다.
+	_xf_stack.clear()
+	_xf_cur = Transform2D.IDENTITY
 	var fnt: Font = _font if _font != null else ThemeDB.fallback_font
 	# 가산 큐는 매 프레임 새로 쌓는다. 자식은 부모 뒤에 그려지므로, 여기서 dirty만 찍어두면
 	#   아래에서 채워진 큐를 같은 프레임에 소비한다(아래 화면 분기들이 일찍 return해도 안전).
@@ -5249,16 +5288,16 @@ func _draw() -> void:
 	if mode == "menu":
 		# 배경은 전체를 덮고, 콘텐츠만 세로 중앙으로 내린다(입력도 같은 오프셋으로 되돌림).
 		draw_rect(Rect2(-20, -20, VW_BASE + 40.0, vh + 40.0), C_BG)
-		draw_set_transform(Vector2(0.0, _ui_dy()))
+		_xf(Vector2(0.0, _ui_dy()))
 		_draw_menu(fnt)
-		draw_set_transform(Vector2.ZERO)
+		_xf(Vector2.ZERO)
 		return
 
 	if mode == "select":
 		draw_rect(Rect2(-20, -20, VW_BASE + 40.0, vh + 40.0), C_BG)
-		draw_set_transform(Vector2(0.0, _ui_dy()))
+		_xf(Vector2(0.0, _ui_dy()))
 		_draw_select(fnt)
-		draw_set_transform(Vector2.ZERO)
+		_xf(Vector2.ZERO)
 		return
 
 	if mode == "leaderboard":
@@ -5266,16 +5305,16 @@ func _draw() -> void:
 		#   (구: 840×1040 고정 배경 + 오프셋 없음 → 긴 화면에서 하단이 미도색으로 남고,
 		#    허브에서 넘어올 때 레이아웃이 위로 점프했다.)
 		draw_rect(Rect2(-20, -20, VW_BASE + 40.0, vh + 40.0), C_BG)
-		draw_set_transform(Vector2(0.0, _ui_dy()))
+		_xf(Vector2(0.0, _ui_dy()))
 		_draw_leaderboard(fnt)
-		draw_set_transform(Vector2.ZERO)
+		_xf(Vector2.ZERO)
 		return
 
 	draw_ofs = Vector2.ZERO
 	if shake_timer > 0.0:
 		var mag: float = SHAKE_AMP * (shake_timer / SHAKE_DUR)
 		draw_ofs = Vector2(randf_range(-mag, mag), randf_range(-mag, mag))
-		draw_set_transform(draw_ofs)
+		_xf(draw_ofs)
 	# 가산 레이어는 **자식**이라 부모의 흔들림 변환을 안 받는다 — 같은 오프셋을 노드 위치로 걸어 준다.
 	#   안 걸면 화면이 흔들리는 동안 백열·피격 플래시만 제자리에 남아 실루엣이 어긋난다.
 	if _glow != null:
@@ -5647,12 +5686,12 @@ func _draw_pb_sticker(fnt: Font) -> void:
 	var lw: float = fnt.get_string_size(label, HORIZONTAL_ALIGNMENT_LEFT, -1, sfs).x
 	var sw: float = lw + 34.0
 	var sh: float = 40.0
-	draw_set_transform(Vector2(cx, 30.0 + safe_top), -0.12 + wob, Vector2(ss, ss))   # 카드 상단 걸치게, ~-7°
+	_xf(Vector2(cx, 30.0 + safe_top), -0.12 + wob, Vector2(ss, ss))   # 카드 상단 걸치게, ~-7°
 	draw_rect(Rect2(-sw * 0.5 + 2.0, -sh * 0.5 + 3.0, sw, sh), Color(0.0, 0.0, 0.0, 0.22 * a))   # 그림자
 	draw_rect(Rect2(-sw * 0.5, -sh * 0.5, sw, sh), Color(0.82, 0.58, 0.06, a))                   # 골드 테두리
 	draw_rect(Rect2(-sw * 0.5 + 3.0, -sh * 0.5 + 3.0, sw - 6.0, sh - 6.0), Color(1.0, 0.86, 0.3, a))  # 크림 속
 	draw_string(fnt, Vector2(-lw * 0.5, sfs * 0.36), label, HORIZONTAL_ALIGNMENT_LEFT, -1, sfs, Color(0.3, 0.15, 0.0, a))
-	draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
+	_xf(Vector2.ZERO, 0.0, Vector2.ONE)
 
 # ===== 결과 팝업 =====
 # 화면을 통째로 덮는 텍스트 나열이 아니라, 어두워진 게임 위에 뜨는 '카드'.
@@ -5678,7 +5717,9 @@ func _result_layout() -> Dictionary:
 		# 3버튼 상태 — 주(광고)는 공통 자리, 부(재도전)·고스트(홈)만 아래로 붙는다. 패널은 그만큼 길어진다.
 		return {
 			"revivable": true,
-			"panel": Rect2(RESULT_PANEL_X, 234.0 + dy, RESULT_PANEL_W, 560.0),
+			# ⚠위선을 실패 팝업(264)과 맞췄다 — 버튼이 하나 늘어난다고 헤드라인이 위로 튀면
+			#   광고 대기↔부활 사이에서 카드가 들썩인다. 늘어나는 만큼 아래로만 길어진다.
+			"panel": Rect2(RESULT_PANEL_X, 264.0 + dy, RESULT_PANEL_W, 530.0),
 			"cont": cta,                                                # 주: 광고 이어하기
 			"retry": Rect2(275.0, 660.0 + dy, 250.0, 52.0),             # 부: 재도전
 			"home": Rect2(290.0, 730.0 + dy, 220.0, 40.0),              # 고스트: 홈
@@ -5914,7 +5955,7 @@ func _settings_click(pos: Vector2, lay: Dictionary) -> void:
 func _draw_toggle(r: Rect2, on: bool, hot: bool) -> void:
 	var mid_y: float = r.position.y + r.size.y * 0.5
 	var rad: float = r.size.y * 0.5
-	var base: Color = Color(0.28, 0.64, 0.36) if on else Color(0.19, 0.20, 0.29)
+	var base: Color = Color(0.28, 0.64, 0.36) if on else _ink(Color(0.19, 0.20, 0.29), Color(0.74, 0.76, 0.82))
 	if hot:
 		base = base.lightened(0.10)
 	draw_rect(Rect2(r.position.x + rad, r.position.y, r.size.x - 2.0 * rad, r.size.y), base)
@@ -5926,10 +5967,12 @@ func _draw_toggle(r: Rect2, on: bool, hot: bool) -> void:
 # 모달 안 작은 액션 버튼(홈=회색빛 유틸 / 다시하기=초록 '진행'). 결과팝업 버튼 언어 계승.
 func _draw_mini_button(fnt: Font, r: Rect2, label: String, hot: bool, accent: Color, ink: Color) -> void:
 	var base: Color = accent.lightened(0.12) if hot else accent
+	_btn_press_begin(r, hot)
 	_draw_btn_box(r, base, accent.darkened(0.5), accent.darkened(0.35), 5.0, 0.14, 3.0,
 			BTN_PRESS if hot else BTN_NORMAL, true)
 	var lw: float = fnt.get_string_size(label, HORIZONTAL_ALIGNMENT_LEFT, -1, 24).x
 	_draw_text_outlined(fnt, Vector2(r.position.x + r.size.x * 0.5 - lw * 0.5, r.position.y + r.size.y * 0.5 + 9.0), label, 24, ink)
+	_btn_press_end()
 
 # 기어 아이콘 — 이(teeth) 8개 + 링 + 중심점. 작은 크기라 형태로만 '설정'을 말한다.
 func _draw_gear_icon(c: Vector2, rad: float, col: Color) -> void:
@@ -5947,41 +5990,47 @@ func _draw_settings(fnt: Font) -> void:
 	var p: Rect2 = lay["panel"]
 	# 스크림 — 뒤 판을 눌러 모달임을 알린다(결과팝업과 동일 톤)
 	draw_rect(Rect2(-20, -20, VW_BASE + 40.0, vh + 40.0), Color(0.0, 0.0, 0.0, 0.68))
-	# 패널(다크) — 그림자 + 본체 + 상단 강조바 + 테두리. 결과 팝업과 같은 부품(_draw_panel_box)이다.
+	# 패널 — 그림자 + 본체 + 상단 강조바 + 테두리. 결과 팝업과 같은 부품(_draw_panel_box)이다.
 	var accent: Color = Color(0.55, 0.58, 0.72)
 	_draw_panel_box(p, Color(0.11, 0.11, 0.18), accent)
+	_ink_light = ui_9s.has("panel")   # 납품 패널=밝은 크림 → 이 아래 글자·선을 어두운 쪽으로 뒤집는다
 	var cx: float = p.position.x + p.size.x * 0.5
 	var lx: float = lay["label_x"]
 
 	# 제목 + X 닫기
 	var title: String = _t("settings")
 	var tw: float = fnt.get_string_size(title, HORIZONTAL_ALIGNMENT_LEFT, -1, 34).x
-	_draw_text_outlined(fnt, Vector2(cx - tw * 0.5, lay["title_y"]), title, 34, Color(0.92, 0.92, 0.98))
+	_draw_text_outlined(fnt, Vector2(cx - tw * 0.5, lay["title_y"]), title, 34,
+			_ink(Color(0.92, 0.92, 0.98), C_INK_TITLE), _ink_out())
 	var cb: Rect2 = lay["close"]
 	var cc: Vector2 = cb.position + cb.size * 0.5
-	var xcol: Color = Color.WHITE if _set_close_hover else Color(0.65, 0.67, 0.78)
+	var xcol: Color = _ink(Color.WHITE, C_INK_TITLE) if _set_close_hover else _ink(Color(0.65, 0.67, 0.78), C_INK_BODY)
+	_btn_press_begin(cb, _set_close_hover)
 	draw_line(cc + Vector2(-9, -9), cc + Vector2(9, 9), xcol, 4.0)
 	draw_line(cc + Vector2(9, -9), cc + Vector2(-9, 9), xcol, 4.0)
+	_btn_press_end()
 
 	# 토글 행: 소리 · 진동
-	_draw_text_outlined(fnt, Vector2(lx, float(lay["r1"]) + 9.0), _t("sound"), 26, Color(0.86, 0.87, 0.95))
+	_draw_text_outlined(fnt, Vector2(lx, float(lay["r1"]) + 9.0), _t("sound"), 26, _ink(Color(0.86, 0.87, 0.95), C_INK_BODY), _ink_out())
 	_draw_toggle(lay["sound_tog"], sound_on, _set_sound_hover)
-	_draw_text_outlined(fnt, Vector2(lx, float(lay["r2"]) + 9.0), _t("haptic"), 26, Color(0.86, 0.87, 0.95))
+	_draw_text_outlined(fnt, Vector2(lx, float(lay["r2"]) + 9.0), _t("haptic"), 26, _ink(Color(0.86, 0.87, 0.95), C_INK_BODY), _ink_out())
 	_draw_toggle(lay["haptic_tog"], haptic_on, _set_haptic_hover)
 
 	# 구분선
-	draw_line(Vector2(lx, lay["divider_y"]), Vector2(p.position.x + p.size.x - 36.0, lay["divider_y"]), Color(1.0, 1.0, 1.0, 0.10), 2.0)
+	draw_line(Vector2(lx, lay["divider_y"]), Vector2(p.position.x + p.size.x - 36.0, lay["divider_y"]),
+			_ink(Color(1.0, 1.0, 1.0, 0.10), Color(0.26, 0.32, 0.42, 0.22)), 2.0)
 
 	# 액션 행: 홈(메뉴로) · 다시하기(재시작)
-	_draw_text_outlined(fnt, Vector2(lx, float(lay["r3"]) + 9.0), _t("home"), 26, Color(0.86, 0.87, 0.95))
+	_draw_text_outlined(fnt, Vector2(lx, float(lay["r3"]) + 9.0), _t("home"), 26, _ink(Color(0.86, 0.87, 0.95), C_INK_BODY), _ink_out())
 	_draw_mini_button(fnt, lay["home_btn"], _t("go_home"), _set_home_hover, Color(0.30, 0.33, 0.44), Color(0.92, 0.93, 1.0))
-	_draw_text_outlined(fnt, Vector2(lx, float(lay["r4"]) + 9.0), _t("restart_label"), 26, Color(0.86, 0.87, 0.95))
+	_draw_text_outlined(fnt, Vector2(lx, float(lay["r4"]) + 9.0), _t("restart_label"), 26, _ink(Color(0.86, 0.87, 0.95), C_INK_BODY), _ink_out())
 	_draw_mini_button(fnt, lay["replay_btn"], _t("restart"), _set_replay_hover, Color(0.34, 0.72, 0.26), Color(0.98, 1.0, 0.94))
 
 	# 개인정보 옵션 — 필요한 지역에서만(EEA/UK). 홈과 같은 회색빛 유틸 언어를 쓴다(진행 버튼 아님).
 	if bool(lay["privacy_on"]):
-		_draw_text_outlined(fnt, Vector2(lx, float(lay["r5"]) + 9.0), _t("privacy_label"), 26, Color(0.86, 0.87, 0.95))
+		_draw_text_outlined(fnt, Vector2(lx, float(lay["r5"]) + 9.0), _t("privacy_label"), 26, _ink(Color(0.86, 0.87, 0.95), C_INK_BODY), _ink_out())
 		_draw_mini_button(fnt, lay["privacy_btn"], _t("privacy_btn"), _set_privacy_hover, Color(0.30, 0.33, 0.44), Color(0.92, 0.93, 1.0))
+	_ink_light = false
 
 # 재생 삼각형(▶) — '광고 영상을 본다'는 뜻. 오른쪽을 향한 정삼각형.
 func _draw_play_icon(c: Vector2, r: float, col: Color) -> void:
@@ -6146,7 +6195,7 @@ func _draw_result_collect(fnt: Font, p: Rect2, cx: float) -> void:
 	var cap: String = _t("result_gems")
 	var cap_fs: int = 18
 	var cw: float = fnt.get_string_size(cap, HORIZONTAL_ALIGNMENT_LEFT, -1, cap_fs).x
-	_draw_text_outlined(fnt, Vector2(cx - cw * 0.5, p.position.y + 176.0), cap, cap_fs, Color(0.95, 0.85, 0.5))
+	_draw_text_outlined(fnt, Vector2(cx - cw * 0.5, p.position.y + RES_Y_CAP), cap, cap_fs, _ink(Color(0.95, 0.85, 0.5), C_INK_BODY), _ink_out())
 	var tgts: Array = st.get("collect_targets", [1])
 	var n: int = maxi(1, tgts.size())
 	var icon_s: float = 38.0
@@ -6162,13 +6211,13 @@ func _draw_result_collect(fnt: Font, p: Rect2, cx: float) -> void:
 		total_w += w
 	total_w += gap * float(n - 1)
 	var x: float = cx - total_w * 0.5
-	var row_y: float = p.position.y + 222.0
+	var row_y: float = p.position.y + RES_Y_ROW
 	for i in range(n):
 		var got2: int = int(collected_by_type[i]) if i < collected_by_type.size() else 0
 		var rem2: int = maxi(0, int(tgts[i]) - got2)
 		_draw_gem_icon(Vector2(x + icon_s * 0.5, row_y), icon_s, i)
-		var col: Color = Color(0.55, 0.95, 0.65) if rem2 <= 0 else Color(1.0, 0.55, 0.5)
-		_draw_text_outlined(fnt, Vector2(x + icon_s + 8.0, row_y + 16.0), str(rem2), num_fs, col)
+		var col: Color = _ink(Color(0.55, 0.95, 0.65), C_INK_WIN) if rem2 <= 0 else _ink(Color(1.0, 0.55, 0.5), C_INK_LOSE)
+		_draw_text_outlined(fnt, Vector2(x + icon_s + 8.0, row_y + 16.0), str(rem2), num_fs, col, _ink_out())
 		x += float(widths[i]) + gap
 
 # 보호 결과 — 지킨 금고를 핍 열로(채움=지킴 금 다이아, 빈=뺏김). 게임 중 금고 카드와 같은 언어.
@@ -6177,13 +6226,13 @@ func _draw_result_protect(fnt: Font, p: Rect2, cx: float) -> void:
 	var cap: String = _t("result_vault")
 	var cap_fs: int = 18
 	var cw: float = fnt.get_string_size(cap, HORIZONTAL_ALIGNMENT_LEFT, -1, cap_fs).x
-	_draw_text_outlined(fnt, Vector2(cx - cw * 0.5, p.position.y + 176.0), cap, cap_fs, Color(0.95, 0.85, 0.5))
+	_draw_text_outlined(fnt, Vector2(cx - cw * 0.5, p.position.y + RES_Y_CAP), cap, cap_fs, _ink(Color(0.95, 0.85, 0.5), C_INK_BODY), _ink_out())
 	var vm: int = maxi(1, vault_max)
 	var pip_s: float = clampf(230.0 / float(vm) - 8.0, 12.0, 34.0)
 	var gap: float = 8.0
 	var row_w: float = pip_s * float(vm) + gap * float(vm - 1)
 	var x: float = cx - row_w * 0.5
-	var row_y: float = p.position.y + 220.0
+	var row_y: float = p.position.y + RES_Y_ROW
 	for i in range(vm):
 		var px: float = x + pip_s * 0.5
 		if i < vault:
@@ -6198,8 +6247,8 @@ func _draw_result_protect(fnt: Font, p: Rect2, cx: float) -> void:
 	var cnt: String = "%d / %d" % [vault, vault_max]
 	var c_fs: int = 22
 	var c_w: float = fnt.get_string_size(cnt, HORIZONTAL_ALIGNMENT_LEFT, -1, c_fs).x
-	var c_col: Color = Color(0.55, 0.95, 0.65) if vault > 0 else Color(1.0, 0.5, 0.5)
-	_draw_text_outlined(fnt, Vector2(cx - c_w * 0.5, row_y + 34.0), cnt, c_fs, c_col)
+	var c_col: Color = _ink(Color(0.55, 0.95, 0.65), C_INK_WIN) if vault > 0 else _ink(Color(1.0, 0.5, 0.5), C_INK_LOSE)
+	_draw_text_outlined(fnt, Vector2(cx - c_w * 0.5, row_y + 34.0), cnt, c_fs, c_col, _ink_out())
 
 func _draw_result(fnt: Font) -> void:
 	# 스크림 — 팝업 뒤의 보드를 '멈춘 배경'으로 눌러둔다(모달 표시).
@@ -6214,19 +6263,25 @@ func _draw_result(fnt: Font) -> void:
 	var rt: float = result_t if result_t >= 0.0 else 999.0
 	var pc: Vector2 = p.position + p.size * 0.5
 	var csc: float = _ease_out_back(clampf(rt / RESULT_CARD_POP, 0.0, 1.0))
-	draw_set_transform(pc * (1.0 - csc), 0.0, Vector2(csc, csc))
+	_xf(pc * (1.0 - csc), 0.0, Vector2(csc, csc))
 	var accent: Color = C_GOLD if game_clear else Color(0.85, 0.35, 0.35)
 	# 상자 — 클리어만 끌 수 있다(RESULT_CLEAR_CARD). 위치 계산은 상자를 안 그려도 layout 사각형을
 	#   그대로 쓰므로 버튼 히트테스트·개봉 순서는 전혀 안 바뀐다.
 	var boxless: bool = game_clear and not director.scores() and not RESULT_CLEAR_CARD
 	if not boxless:
 		_draw_panel_box(p, Color(0.13, 0.13, 0.2), accent)   # 설정 모달과 같은 부품 — 상단 강조바 색만 갈린다
+	_ink_light = ui_9s.has("panel") and not boxless   # 상자 없는 클리어는 암막 무대 위 = 밝은 글자 그대로
 
 	if rt < RESULT_CONTENT_IN:
-		draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
+		_xf(Vector2.ZERO, 0.0, Vector2.ONE)
+		_ink_light = false
 		return                      # ① 아직 카드만 — 내용은 다음 박자에
 
 	var cx: float = p.position.x + p.size.x * 0.5
+	# 판정 한 줄만 디스플레이 폰트(Baloo2 ExtraBold)로 간다 — 판이 끝나는 순간의 글자라
+	#   여기가 이 폰트를 쓸 자리다. 사유·캡션까지 넘기면 카드가 통째로 굵어져 위계가 다시 평평해진다.
+	#   ⚠라틴 전용이라 한글은 시스템 폰트로 폴백된다(현재 UI 언어는 영어 하나).
+	var dfnt: Font = _font_display if _font_display != null else fnt
 
 	# 무한: 런 종료 시점에 베스트 확정(부활로 이어가면 다음 팝업서 재갱신). 신기록이면 배지.
 	# 제출은 서비스로만 — 로컬 영속 + (모바일 때) 플랫폼 통지. best 캐시 미러 갱신.
@@ -6251,24 +6306,24 @@ func _draw_result(fnt: Font) -> void:
 	var msg_col: Color
 	if director.scores():
 		msg = _t("score_headline") % _comma(endless_score)   # 점수 모드: 점수가 헤드라인(리더보드 지표)
-		msg_col = C_GOLD
+		msg_col = _ink(C_GOLD, C_INK_GOLD)
 	elif game_clear:
 		msg = _t("caught_up") if frontier else _t("stage_clear")
-		msg_col = C_GOLD
+		msg_col = _ink(C_GOLD, C_INK_GOLD)
 	else:
 		msg = _fail_headline()
-		msg_col = Color.WHITE
+		msg_col = _ink(Color.WHITE, C_INK_TITLE)
 	# 클리어는 내용이 헤드라인뿐 → 더 크게. 상자를 끄면 패널 폭 상한이 사라져 한 단 더 키운다.
 	var mfs: int = 64
 	if game_clear and not director.scores():
 		mfs = 96 if boxless else 76
-	var mw: float = fnt.get_string_size(msg, HORIZONTAL_ALIGNMENT_LEFT, -1, mfs).x
+	var mw: float = dfnt.get_string_size(msg, HORIZONTAL_ALIGNMENT_LEFT, -1, mfs).x
 	var max_w: float = (VW_BASE - 72.0) if boxless else (p.size.x - 56.0)
 	if mw > max_w:
 		mfs = maxi(40, int(float(mfs) * max_w / mw))
-		mw = fnt.get_string_size(msg, HORIZONTAL_ALIGNMENT_LEFT, -1, mfs).x
-	var head_y: float = (p.position.y + 60.0) if (game_clear and not director.scores()) else (p.position.y + 84.0)
-	_draw_text_outlined(fnt, Vector2(cx - mw * 0.5, head_y), msg, mfs, msg_col)
+		mw = dfnt.get_string_size(msg, HORIZONTAL_ALIGNMENT_LEFT, -1, mfs).x
+	var head_y: float = (p.position.y + 60.0) if (game_clear and not director.scores()) else (p.position.y + RES_Y_HEAD)
+	_draw_text_outlined(dfnt, Vector2(cx - mw * 0.5, head_y), msg, mfs, msg_col, _ink_out())
 
 	# ② 사유 — 판정을 받쳐주는 한 줄. 작게 둔다(헤드라인과 안 싸우게).
 	#   무한도 '왜 끝났나'만 말한다 — 깊이(place_count)는 뺐다(2026-07-29 유저 결정): 점수가 이미
@@ -6276,14 +6331,39 @@ func _draw_result(fnt: Font) -> void:
 	#   두 갈래는 이제 색만 다르다(무한=보라 톤, 캠페인 실패=붉은 톤).
 	if director.scores() or game_over:
 		var reason: String = _t("cause_stuck") if stuck else _t("cause_core")
-		var rcol: Color = Color(0.8, 0.78, 1.0) if director.scores() else Color(1.0, 0.5, 0.5)
+		# ⚠빨강을 여기 쓰지 않는다. 사유는 부차 정보인데 화면에서 가장 튀는 색을 먼저 가져가면,
+		#   정작 성적 숫자와 같은 값이 되어 **어느 쪽이 위인지 눈이 못 정한다.**
+		#   빨강은 아래 숫자 하나에만 남긴다(밝은 판 한정 — 어두운 판은 예전 톤 유지).
+		var rcol: Color = _ink(Color(0.8, 0.78, 1.0), C_INK_BODY) if director.scores() \
+				else _ink(Color(1.0, 0.5, 0.5), C_INK_BODY)
 		var rw: float = fnt.get_string_size(reason, HORIZONTAL_ALIGNMENT_LEFT, -1, 20).x
-		_draw_text_outlined(fnt, Vector2(cx - rw * 0.5, p.position.y + 124.0), reason, 20, rcol)
+		var ry: float = p.position.y + RES_Y_REASON
+		# 사유 알약 — '왜 끝났나'는 부차 정보가 아니라 **다음 수를 정하는 정보**라(유저 판단),
+		#   글자 색을 키우는 대신 **바탕을 깐다.** 색을 키우면 아래 성적 숫자와 같은 빨강이 되어
+		#   위계가 다시 무너진다(그래서 위에서 걷어냈다) — 면은 채도가 낮아 숫자와 안 싸우면서
+		#   줄을 판에서 띄운다. 상태색(실패=붉은/클리어=금)을 옅게 써서 신호도 같이 돌아온다.
+		#   ⚠밝은 판에서만 깐다. 다크 폴백은 이미 글자가 밝은 색이라 바탕이 오히려 대비를 깎는다.
+		if _ink_light:
+			var ph: float = 30.0
+			var prad: float = ph * 0.5
+			var pw: float = rw + 32.0                      # 좌우 여백 16씩
+			var pcy: float = ry - 6.0                      # 글자 시각 중심(베이스라인 위)
+			var pl: float = cx - pw * 0.5
+			var pcol: Color = Color(accent.r, accent.g, accent.b, 0.18)
+			# 라운드 알약. ⚠설정 토글의 '사각+양끝 원' 방식을 쓰면 안 된다 — **반투명이라서**
+			#   원의 안쪽 절반이 사각과 겹쳐 그 부분만 알파가 두 번 쌓인다(양끝이 진한 반달로 보였다).
+			#   토글은 불투명이라 안 드러났던 함정이다. 한 번에 그리는 StyleBoxFlat으로 간다.
+			#   (§8의 draw_style_box 금지는 **StyleBoxTexture** 얘기다 — 모서리를 텍스처 픽셀 그대로
+			#    그려 2배 납품본이 부푸는 문제였고, 벡터로 그리는 Flat엔 해당하지 않는다.)
+			draw_style_box(_chip(pcol, prad), Rect2(pl, pcy - prad, pw, ph))
+			rcol = C_INK_TITLE                             # 바탕이 생겼으니 글자도 한 단 올린다
+		_draw_text_outlined(fnt, Vector2(cx - rw * 0.5, ry), reason, 20, rcol, _ink_out())
 	elif frontier:
 		# 프런티어: 완봉/처치 성적 대신 '새 스테이지는 계속 온다'는 안내(무한 유도는 주CTA가 담당).
 		var fs: String = _t("frontier_sub")
 		var fw: float = fnt.get_string_size(fs, HORIZONTAL_ALIGNMENT_LEFT, -1, 20).x
-		_draw_text_outlined(fnt, Vector2(cx - fw * 0.5, p.position.y + 100.0), fs, 20, Color(0.72, 0.78, 1.0))
+		_draw_text_outlined(fnt, Vector2(cx - fw * 0.5, p.position.y + RES_Y_REASON), fs, 20,
+				_ink(Color(0.72, 0.78, 1.0), C_INK_BODY), _ink_out())
 	# 캠페인 클리어엔 성적 줄이 없다 — 완봉·누수·처치는 다 걷어냈다(2026-07-30 유저 지시).
 	#   깬 판에 점수를 매기지 않는다: 헤드라인 + 다음 판 CTA만. 실패·무한은 위 분기에서 원인/점수를 그대로 쓴다.
 
@@ -6304,15 +6384,15 @@ func _draw_result(fnt: Font) -> void:
 			ecap = _t("best")   # 동점(gap==0) — '최고까지 0점'은 말이 안 된다
 		var ecap_fs: int = 20 if endless_new_best else 18
 		# 거리 문구는 초대라서 회색보다 살짝 따뜻하게, 단 신기록 금색보다는 확실히 아래(위계 유지).
-		var ecap_col: Color = C_GOLD if endless_new_best \
-				else (Color(0.86, 0.79, 0.60) if gap > 0 else Color(0.72, 0.74, 0.9))
+		var ecap_col: Color = _ink(C_GOLD, C_INK_GOLD) if endless_new_best \
+				else (_ink(Color(0.86, 0.79, 0.60), C_INK_BODY) if gap > 0 else _ink(Color(0.72, 0.74, 0.9), C_INK_BODY))
 		var ecw: float = fnt.get_string_size(ecap, HORIZONTAL_ALIGNMENT_LEFT, -1, ecap_fs).x
-		_draw_text_outlined(fnt, Vector2(cx - ecw * 0.5, p.position.y + 176.0), ecap, ecap_fs, ecap_col)
+		_draw_text_outlined(fnt, Vector2(cx - ecw * 0.5, p.position.y + RES_Y_CAP), ecap, ecap_fs, ecap_col, _ink_out())
 		var bnum: String = _comma(endless_best)
 		var bnum_fs: int = 52
-		var bnw: float = fnt.get_string_size(bnum, HORIZONTAL_ALIGNMENT_LEFT, -1, bnum_fs).x
-		_draw_text_outlined(fnt, Vector2(cx - bnw * 0.5, p.position.y + 238.0), bnum, bnum_fs,
-				C_GOLD if endless_new_best else Color(0.85, 0.85, 0.95))
+		var bnw: float = dfnt.get_string_size(bnum, HORIZONTAL_ALIGNMENT_LEFT, -1, bnum_fs).x
+		_draw_text_outlined(dfnt, Vector2(cx - bnw * 0.5, p.position.y + RES_Y_BIGNUM), bnum, bnum_fs,
+				_ink(C_GOLD, C_INK_GOLD) if endless_new_best else _ink(Color(0.85, 0.85, 0.95), C_INK_TITLE), _ink_out())
 	elif game_clear:
 		pass                        # 클리어 = 성적 없음(위 주석). 아래 블록은 전부 '실패 진단' 전용이 됐다.
 	elif bool(st.get("collect", false)):
@@ -6327,21 +6407,25 @@ func _draw_result(fnt: Font) -> void:
 		var cap: String = _t("result_remaining") if game_over else _t("result_killed")
 		var cap_fs: int = 18
 		var cw: float = fnt.get_string_size(cap, HORIZONTAL_ALIGNMENT_LEFT, -1, cap_fs).x
-		_draw_text_outlined(fnt, Vector2(cx - cw * 0.5, p.position.y + 176.0), cap, cap_fs, Color(0.95, 0.85, 0.5))
+		_draw_text_outlined(fnt, Vector2(cx - cw * 0.5, p.position.y + RES_Y_CAP), cap, cap_fs, _ink(Color(0.95, 0.85, 0.5), C_INK_BODY), _ink_out())
 
 		var num: String = str(remaining if game_over else killed)
 		var num_fs: int = 52
 		var icon_s: float = 44.0
-		var nw2: float = fnt.get_string_size(num, HORIZONTAL_ALIGNMENT_LEFT, -1, num_fs).x
+		var nw2: float = dfnt.get_string_size(num, HORIZONTAL_ALIGNMENT_LEFT, -1, num_fs).x
+		# ⚠숫자를 축에 세우는 안을 실제로 그려 봤다가 **되돌렸다.** 숫자만 중심에 두면 아이콘이
+		#   왼쪽으로 매달려 행 전체가 눈에 띄게 왼쪽으로 쏠린다 — 캡션 축과의 28px 어긋남보다
+		#   그쪽이 훨씬 크게 읽혔다. 아이콘+숫자는 한 덩어리이므로 **덩어리를 중심에** 둔다.
 		var grp_w: float = icon_s + 12.0 + nw2
 		var grp_l: float = cx - grp_w * 0.5
-		var row_y: float = p.position.y + 222.0
+		var row_y: float = p.position.y + RES_Y_ROW
 		_draw_enemy_icon(Vector2(grp_l + icon_s * 0.5, row_y), icon_s)
-		_draw_text_outlined(fnt, Vector2(grp_l + icon_s + 12.0, row_y + 16.0), num, num_fs,
-				Color(1.0, 0.55, 0.5) if game_over else Color(0.55, 0.95, 0.65))
+		_draw_text_outlined(dfnt, Vector2(grp_l + icon_s + 12.0, row_y + 16.0), num, num_fs,
+				_ink(Color(1.0, 0.55, 0.5), C_INK_LOSE) if game_over else _ink(Color(0.55, 0.95, 0.65), C_INK_WIN), _ink_out())
 
 	if rt < RESULT_BTN_IN:
-		draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
+		_xf(Vector2.ZERO, 0.0, Vector2.ONE)
+		_ink_light = false
 		return                      # ② 내용까지만 — 버튼은 마지막에 들어온다
 
 	# ── 광고 이어하기 버튼 (부활 가능할 때만 — 주 착지점, 금색 3D로 재도전 초록과 구분)
@@ -6354,6 +6438,7 @@ func _draw_result(fnt: Font) -> void:
 		var cbase: Color = Color(0.62, 0.52, 0.20) if _ad_pending \
 				else (Color(1.0, 0.86, 0.35) if _cont_hover else Color(0.95, 0.78, 0.25))
 		var cstate: int = BTN_OFF if _ad_pending else (BTN_PRESS if _cont_hover else BTN_NORMAL)
+		_btn_press_begin(cb, _cont_hover and not _ad_pending)
 		_draw_btn_box(cb, cbase, Color(0.4, 0.28, 0.05), Color(0.5, 0.38, 0.1), 7.0, 0.22, 4.0, cstate)
 		var cmid_y: float = cb.position.y + cb.size.y * 0.5
 		if _ad_pending:
@@ -6362,23 +6447,33 @@ func _draw_result(fnt: Font) -> void:
 			var wfs: int = 28
 			var wlw: float = fnt.get_string_size(wlab, HORIZONTAL_ALIGNMENT_LEFT, -1, wfs).x
 			_draw_text_outlined(fnt, Vector2(cb.position.x + cb.size.x * 0.5 - wlw * 0.5, cmid_y + 10.0),
-					wlab, wfs, Color(0.28, 0.22, 0.06))
+					wlab, wfs, Color(0.28, 0.22, 0.06), C_NO_OUT)
 		else:
 			# ▶ 아이콘 + "이어하기"
+			# 주CTA 라벨은 헤드라인과 같은 디스플레이 폰트로 간다. 외곽선을 걷고 나니 본문 폰트로는
+			#   옆 보조 버튼(흰 글자+테)보다 가벼워 보였다 — **굵기는 테로 흉내 내는 게 아니라
+			#   굵은 자체로 내야 한다**(테로 낸 굵기가 방금 속공간을 막은 원인이었다).
 			var clab: String = _t("continue")
 			var cfs: int = 34
-			var clw: float = fnt.get_string_size(clab, HORIZONTAL_ALIGNMENT_LEFT, -1, cfs).x
+			var clw: float = dfnt.get_string_size(clab, HORIZONTAL_ALIGNMENT_LEFT, -1, cfs).x
 			var pr: float = 15.0
 			var cin_w: float = pr * 1.7 + 16.0 + clw
 			var cin_l: float = cb.position.x + cb.size.x * 0.5 - cin_w * 0.5
 			_draw_play_icon(Vector2(cin_l + pr * 0.85, cmid_y), pr, Color(0.2, 0.15, 0.02))
-			_draw_text_outlined(fnt, Vector2(cin_l + pr * 1.7 + 16.0, cmid_y + 12.0), clab, cfs, Color(0.2, 0.15, 0.02))
-		# 'AD' 배지 — 우상단 코너. 이게 광고 시청임을 숨기지 않는다.
-		var badge: Rect2 = Rect2(cb.position.x + cb.size.x - 42.0, cb.position.y - 9.0, 38.0, 20.0)
-		draw_rect(badge, Color(0.18, 0.16, 0.22))
-		draw_rect(badge, Color(1.0, 0.86, 0.35), false, 1.5)
+			_draw_text_outlined(dfnt, Vector2(cin_l + pr * 1.7 + 16.0, cmid_y + 12.0), clab, cfs, Color(0.2, 0.15, 0.02), C_NO_OUT)
+		# 'AD' 배지 — 이게 광고 시청임을 숨기지 않는다(그래서 지우거나 흐리지 않는다).
+		# ⚠예전엔 짙은 남색 각진 칩이 버튼 **위 모서리에 걸쳐** 있었다. 어두운 판 시절엔 배경과
+		#   같은 계열이라 묻혀 있었는데, 크림 카드로 바뀌자 카드 위에 검은 조각이 떠서 버튼 모서리를
+		#   자르는 꼴이 됐다. → **버튼 안으로 들여놓고**, 라운드를 맞추고, 색도 버튼의 어두운 계열
+		#   (그림자·테와 같은 갈색)로 바꿔 '버튼에 찍힌 표식'으로 읽히게 한다.
 		var adw: float = fnt.get_string_size("AD", HORIZONTAL_ALIGNMENT_LEFT, -1, 14).x
-		_draw_text_outlined(fnt, Vector2(badge.position.x + badge.size.x * 0.5 - adw * 0.5, badge.position.y + 16.0), "AD", 14, Color(1.0, 0.9, 0.5))
+		var bw: float = adw + 20.0
+		var bh: float = 22.0
+		var badge: Rect2 = Rect2(cb.position.x + cb.size.x - bw - 12.0, cb.position.y + 12.0, bw, bh)
+		draw_style_box(_chip(Color(0.30, 0.21, 0.04, 0.92), bh * 0.5), badge)
+		_draw_text_outlined(fnt, Vector2(badge.position.x + badge.size.x * 0.5 - adw * 0.5, badge.position.y + bh * 0.5 + 5.0),
+				"AD", 14, Color(1.0, 0.93, 0.74), Color(0.0, 0.0, 0.0, 0.0))
+		_btn_press_end()
 
 	# ── 재도전 버튼. 부활 가능하면 부차(작고 톤 다운), 아니면 주(초록 3D — 홈 시작 버튼 문법).
 	var label: String = _t("retry")
@@ -6391,6 +6486,7 @@ func _draw_result(fnt: Font) -> void:
 	var icon_r: float = 13.0 if revivable else 17.0
 	var mid_y: float = r.position.y + r.size.y * 0.5
 	var rstate: int = BTN_PRESS if _retry_hover else BTN_NORMAL
+	_btn_press_begin(r, _retry_hover)
 	if revivable:
 		# 부차: 어두운 초록 필(그림자·하이라이트 없음) — 광고(금색 주)와 홈(회색 고스트) 사이 위계
 		var sbase: Color = Color(0.30, 0.5, 0.28) if _retry_hover else Color(0.22, 0.4, 0.22)
@@ -6410,24 +6506,28 @@ func _draw_result(fnt: Font) -> void:
 	else:
 		_draw_text_outlined(fnt, Vector2(r.position.x + r.size.x * 0.5 - lw * 0.5, mid_y + lfs * 0.34), label, lfs, Color.WHITE,
 				Color(0.10, 0.28, 0.14, 0.95))
+	_btn_press_end()
 
 	# ── 홈 (부차 동작 — 고스트 버튼)
 	var h: Rect2 = lay["home"]
 	# 호버 바탕은 폴백 전용 — 고스트 텍스처가 오면 각진 반투명 사각형이 라운드 테 밖으로 비죽 나온다.
 	#   그쪽에선 테 자체의 밝기(아래 alpha)가 호버를 말한다.
+	_btn_press_begin(h, _home_hover)
 	if _home_hover and not ui_9s.has("btn_ghost"):
 		draw_rect(h, Color(1.0, 1.0, 1.0, 0.08))
 	# 테두리 알약은 '담긴 맥락'을 전제로 한 형태다 — 상자가 없는 클리어에서는 검은 배경에 붕 떠 보여
 	#   글자만 남긴다(고스트의 정석). 상자가 있는 실패·무한에서는 테두리가 성립하므로 그대로.
 	if not boxless:
-		var gcol: Color = Color(0.5, 0.52, 0.62, 0.9 if _home_hover else 0.5)
+		var gcol: Color = _ink(Color(0.5, 0.52, 0.62, 0.9 if _home_hover else 0.5),
+				Color(0.42, 0.48, 0.58, 0.85 if _home_hover else 0.45))
 		if not _blit_9s("btn_ghost", h, gcol):
 			draw_rect(h, gcol, false, 2.0)
 	var hs: String = _t("go_home")
 	var hfs: int = 20
 	var hw2: float = fnt.get_string_size(hs, HORIZONTAL_ALIGNMENT_LEFT, -1, hfs).x
 	_draw_text_outlined(fnt, Vector2(h.position.x + h.size.x * 0.5 - hw2 * 0.5, h.position.y + h.size.y * 0.5 + 7.0), hs, hfs,
-			Color.WHITE if _home_hover else Color(0.75, 0.77, 0.88))
+			_ink(Color.WHITE, C_INK_TITLE) if _home_hover else _ink(Color(0.75, 0.77, 0.88), C_INK_BODY), _ink_out())
+	_btn_press_end()
 
 	# 광고 대기 중엔 부차 버튼(재도전·홈)을 덮어 '지금은 못 누름'을 색으로 알린다. 입력은 이미
 	#   막혀 있으므로(_input), 밝게 남겨두면 눌리는 줄 알고 누르는 죽은 버튼이 된다(C78이 고친 결함 유형).
@@ -6435,7 +6535,8 @@ func _draw_result(fnt: Font) -> void:
 		draw_rect(r, Color(0.10, 0.10, 0.14, 0.62))
 		draw_rect(h, Color(0.10, 0.10, 0.14, 0.62))
 
-	draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
+	_xf(Vector2.ZERO, 0.0, Vector2.ONE)
+	_ink_light = false
 
 	# 키 힌트는 없다(C39). SPACE=주 동작(부활 가능하면 이어하기)·ESC=홈은 그대로 받는다.
 
@@ -6549,6 +6650,7 @@ func _draw_menu(fnt: Font) -> void:
 	if not LEADERBOARD_ENABLED:
 		return
 	var lb: Rect2 = MENU_LB_BTN
+	_btn_press_begin(lb, _lb_hover)
 	draw_rect(Rect2(lb.position.x, lb.position.y + 5.0, lb.size.x, lb.size.y), Color(0.30, 0.24, 0.05))
 	draw_rect(lb, Color(0.24, 0.22, 0.14) if _lb_hover else Color(0.18, 0.17, 0.11))
 	draw_rect(lb, C_GOLD if _lb_hover else Color(0.55, 0.48, 0.2), false, 2.0)
@@ -6556,6 +6658,7 @@ func _draw_menu(fnt: Font) -> void:
 	_draw_trophy(Vector2(lb.position.x + 34.0, lb_mid), 26.0, C_GOLD)
 	_draw_text_outlined(fnt, Vector2(lb.position.x + 58.0, lb_mid + 7.0), _t("leaderboard"), 22,
 			Color.WHITE if _lb_hover else Color(0.9, 0.88, 0.78))
+	_btn_press_end()
 
 # 키보드 힌트("SPACE = Adventure…")는 제거했다(C80) — 모바일 우선 빌드에 PC 안내가 남아 있었다.
 #   키 입력 자체는 그대로 받는다(데스크톱 테스트용). 글자만 뺀 것.
@@ -6571,6 +6674,7 @@ func _draw_menu_button(fnt: Font, r: Rect2, hot: bool, base: Color, base_dim: Co
 	if locked:
 		body = Color(0.19, 0.20, 0.26)
 		edge = Color(0.12, 0.13, 0.17)
+	_btn_press_begin(r, hot and not locked)
 	_draw_btn_box(r, body, edge, edge, 8.0, 0.06 if locked else 0.16, 4.0,
 			BTN_OFF if locked else (BTN_PRESS if hot else BTN_NORMAL))
 
@@ -6603,6 +6707,7 @@ func _draw_menu_button(fnt: Font, r: Rect2, hot: bool, base: Color, base_dim: Co
 		var sw: float = fnt.get_string_size(slot, HORIZONTAL_ALIGNMENT_LEFT, -1, sfs).x
 		_draw_text_outlined(fnt, Vector2(r.position.x + r.size.x - sw - 24.0, slot_y + 8.0),
 				slot, sfs, C_GOLD, Color(edge.r, edge.g, edge.b, 0.95))
+	_btn_press_end()
 
 # ∞ 심볼(두 원 윤곽) — 무한 모드 표식
 func _draw_infinity(c: Vector2, s: float, col: Color) -> void:
@@ -6720,7 +6825,7 @@ func _draw_leaderboard(fnt: Font) -> void:
 		draw_circle(Vector2(72.0, by), 17.0, mc)
 		var rn: String = str(rank)
 		var rnw: float = fnt.get_string_size(rn, HORIZONTAL_ALIGNMENT_LEFT, -1, 20).x
-		_draw_text_outlined(fnt, Vector2(72.0 - rnw * 0.5, by + 7.0), rn, 20, Color(0.1, 0.1, 0.14))
+		_draw_text_outlined(fnt, Vector2(72.0 - rnw * 0.5, by + 7.0), rn, 20, Color(0.1, 0.1, 0.14), C_NO_OUT)
 		# 이름(YOU면 금색 + ★). '나' 행의 표기는 서비스가 아니라 화면이 소유한다(로케일 대상).
 		var nm: String = ("★ " + _t("lb_you")) if you else String(row["name"])
 		_draw_text_outlined(fnt, Vector2(104.0, by + 7.0), nm, 22,
@@ -6750,6 +6855,7 @@ func _draw_leaderboard(fnt: Font) -> void:
 		_draw_lock(Vector2(lin_l + 14.0, cmid), 26.0, Color(0.58, 0.60, 0.70))
 		_draw_text_outlined(fnt, Vector2(lin_l + 40.0, cmid + 8.0), llab, lfs2, Color(0.72, 0.74, 0.86))
 	else:
+		_btn_press_begin(cta, _lb_play_hover)
 		draw_rect(Rect2(cta.position.x, cta.position.y + 7.0, cta.size.x, cta.size.y), Color(0.10, 0.28, 0.14))
 		draw_rect(cta, Color(0.42, 0.82, 0.32) if _lb_play_hover else Color(0.34, 0.72, 0.26))
 		draw_rect(Rect2(cta.position.x, cta.position.y, cta.size.x, cta.size.y * 0.32), Color(1.0, 1.0, 1.0, 0.16))
@@ -6761,6 +6867,7 @@ func _draw_leaderboard(fnt: Font) -> void:
 		var cin_l: float = cta.position.x + cta.size.x * 0.5 - cin_w * 0.5
 		_draw_play_icon(Vector2(cin_l + 13.0, cmid), 14.0, Color.WHITE)
 		_draw_text_outlined(fnt, Vector2(cin_l + 40.0, cmid + 12.0), clab, cfs, Color.WHITE, Color(0.10, 0.28, 0.14, 0.95))
+		_btn_press_end()
 
 	# ── 정직 주석: 친구·퍼센타일은 플랫폼 연결 전 미리보기 ──
 	if not _leaderboard.has_platform():
@@ -6781,6 +6888,7 @@ func _medal_color(rank: int) -> Color:
 # select → 메뉴 복귀 버튼(좌상단 화살표 + 라벨)
 func _draw_back_button(fnt: Font) -> void:
 	var r: Rect2 = BACK_BTN
+	_btn_press_begin(r, _back_hover)
 	_draw_btn_box(r, Color(0.20, 0.21, 0.30) if _back_hover else Color(0.15, 0.16, 0.24),
 			Color.TRANSPARENT, Color(0.45, 0.47, 0.60), 0.0, 0.0, 2.0,
 			BTN_PRESS if _back_hover else BTN_NORMAL, true)
@@ -6790,6 +6898,7 @@ func _draw_back_button(fnt: Font) -> void:
 		Vector2(ax + 7.0, ay - 9.0), Vector2(ax - 7.0, ay), Vector2(ax + 7.0, ay + 9.0),
 	]), Color.WHITE)
 	_draw_text_outlined(fnt, Vector2(r.position.x + 46.0, ay + 7.0), _t("home"), 20, Color.WHITE)
+	_btn_press_end()
 
 # ⚠플테 전용 초기화 버튼. 스토어 빌드에선 그리지도, 눌리지도 않는다([[_playtest_tools_on]]).
 func _draw_dev_reset(fnt: Font) -> void:
@@ -6799,6 +6908,7 @@ func _draw_dev_reset(fnt: Font) -> void:
 	var armed: bool = _dev_reset_arm > 0.0
 	# 무장 상태는 색으로 말한다(경고 주황 → 실행 임박 빨강). 진짜 UI와 안 헷갈리게 채도를 낮게 유지.
 	var base: Color = Color(0.42, 0.14, 0.16) if armed else Color(0.20, 0.16, 0.16)
+	_btn_press_begin(r, _dev_reset_hover)
 	draw_rect(r, base.lightened(0.10) if _dev_reset_hover else base)
 	draw_rect(r, Color(0.85, 0.35, 0.30) if armed else Color(0.50, 0.40, 0.40), false, 2.0)
 	# 외부 테스터도 보는 버튼이라 'DEV WIPE'(내부 은어)에서 'RESET'으로 바꿨다.
@@ -6806,6 +6916,7 @@ func _draw_dev_reset(fnt: Font) -> void:
 	var lw: float = fnt.get_string_size(label, HORIZONTAL_ALIGNMENT_LEFT, -1, 18).x
 	_draw_text_outlined(fnt, Vector2(r.position.x + r.size.x * 0.5 - lw * 0.5, r.position.y + 34.0), label, 18,
 			Color(1.0, 0.8, 0.75) if armed else Color(0.80, 0.70, 0.70))
+	_btn_press_end()
 
 func _draw_select(fnt: Font) -> void:
 	# 배경은 _draw()가 이미 그렸다(오프셋 밖). 여기선 콘텐츠만.
@@ -6947,6 +7058,7 @@ func _draw_play_button(fnt: Font, cur: int) -> void:
 	var r: Rect2 = PLAY_BTN
 	# 입체감: 아래 그림자 → 본체 → 상단 하이라이트 (결과 팝업 주CTA와 같은 초록 '진행' 문법)
 	var base: Color = Color(0.42, 0.82, 0.32) if hot else Color(0.34, 0.72, 0.26)
+	_btn_press_begin(r, hot)
 	_draw_btn_box(r, base, Color(0.10, 0.28, 0.14), Color(0.16, 0.42, 0.18), 8.0, 0.16, 4.0,
 			BTN_PRESS if hot else BTN_NORMAL)
 
@@ -6961,6 +7073,7 @@ func _draw_play_button(fnt: Font, cur: int) -> void:
 	var nw: float = fnt.get_string_size(nm, HORIZONTAL_ALIGNMENT_LEFT, -1, nfs).x
 	_draw_text_outlined(fnt, Vector2(400.0 - nw * 0.5, r.position.y + 98.0), nm, nfs, Color(0.92, 1.0, 0.88),
 			Color(0.10, 0.28, 0.14, 0.95))
+	_btn_press_end()
 
 # 체크 표식(절차적) — 깬 스테이지 우상단. 언어 중립(도감/글자 대신 기호)
 func _draw_check(c: Vector2, s: float, col: Color, w: float = 3.0) -> void:
@@ -7000,8 +7113,19 @@ func _draw_card(r: Rect2, accent: Color) -> void:
 	draw_rect(r, accent, false, 3.0)
 
 # 간단한 적 토큰 아이콘 — 붉은 사각 + 눈 2개(아트 전 임시)
+# 해골(처치 대상 기호). ⚠**틴트 없음** — 뼈색+어두운 눈의 2색이라 색을 그림이 갖는다(적 스프라이트와 같은 예외).
+# ⚠밝은 판(결과 팝업) 위에선 그 뼈색이 배경과 거의 같은 값이 된다 — 실측 크림 대비 **1.16:1**로,
+#   눈구멍·이빨만 남아 '해골'이 아니라 검은 점 몇 개로 읽혔다. 색을 못 바꾸므로(위 예외) 해법은
+#   **같은 형태를 조금 키워 뒤에 까는 것**이다 — 블록 rim·적 강조와 같은 장치라([[sprite-swap-keeps-signal-channel]])
+#   면을 안 덮고, 2색 납품본이 와도 그대로 먹는다. 어두운 판에선 배경이 이미 어두워 필요 없다.
+const SKULL_RIM: float = 0.07   # s 대비 테 두께
 func _draw_enemy_icon(center: Vector2, s: float) -> void:
-	if _blit_icon("skull", center, s * 1.0):   # ⚠틴트 없음(흰색) — 해골은 뼈색+어두운 눈이라 2색이다. 단색으로 받으면 색은 이미지가 갖는다
+	var rim: float = s * SKULL_RIM if _ink_light else 0.0
+	if _blit_icon("skull", center, s * 1.0):
+		if rim > 0.0:
+			# 텍스처 경로 — 같은 그림을 키워 어두운 실루엣으로 먼저 깐다(면은 원본이 덮는다)
+			_blit_icon("skull", center, s + rim * 2.0, C_INK_TITLE)
+			_blit_icon("skull", center, s * 1.0)
 		return
 	# 목표=밀려오는 적 전부 처치(타입 무관, 못 없애면 거점 hp↓). 특정 타입 대신
 	# 타입 중립 "처치 대상" 기호=해골로 그린다. 뼈색+어두운 눈·코·이빨.
@@ -7009,6 +7133,10 @@ func _draw_enemy_icon(center: Vector2, s: float) -> void:
 	var dark: Color = Color(0.14, 0.11, 0.1)
 	var cx: float = center.x
 	var cy: float = center.y
+	# 도형 경로의 같은 처리 — 실루엣을 이루는 두 형태(턱·두개골)만 키워 어둡게 먼저 깐다.
+	if rim > 0.0:
+		draw_rect(Rect2(cx - s * 0.24 - rim, cy + s * 0.08 - rim, s * 0.48 + rim * 2.0, s * 0.32 + rim * 2.0), C_INK_TITLE)
+		draw_circle(Vector2(cx, cy - s * 0.06), s * 0.42 + rim, C_INK_TITLE)
 	# 아래턱(뼈색 사각) + 두개골(뼈색 원)
 	draw_rect(Rect2(cx - s * 0.24, cy + s * 0.08, s * 0.48, s * 0.32), bone)
 	draw_circle(Vector2(cx, cy - s * 0.06), s * 0.42, bone)
@@ -7057,7 +7185,9 @@ func _draw_hud(fnt: Font) -> void:
 		_draw_boss_cards(fnt, goal_r, adv_r, gw, aw, box_y)
 		if not game_over and not game_clear:
 			var gcb: Vector2 = gear_rect.position + gear_rect.size * 0.5
+			_btn_press_begin(gear_rect, _gear_hover)
 			_draw_gear_icon(gcb, 16.0, Color(0.9, 0.92, 1.0) if _gear_hover else Color(0.55, 0.58, 0.72))
+			_btn_press_end()
 		return
 
 	# 받기형 수집: GOAL 카드 = 보석 수집(N/K). ADVANCE 카드(적 전진 시계)는 아래서 그대로 유지 — 적이 밀려오니까.
@@ -7137,7 +7267,9 @@ func _draw_hud(fnt: Font) -> void:
 	# 우상단 설정 기어 — 활성 플레이 중에만(결과/설정 모달은 자체 스크림이 이 위를 덮는다).
 	if not game_over and not game_clear:
 		var gc: Vector2 = gear_rect.position + gear_rect.size * 0.5
+		_btn_press_begin(gear_rect, _gear_hover)
 		_draw_gear_icon(gc, 16.0, Color(0.9, 0.92, 1.0) if _gear_hover else Color(0.55, 0.58, 0.72))
+		_btn_press_end()
 
 # 보스(감시자) HUD 카드 — GOAL 자리에 보스 HP, ADVANCE 자리에 '다음 잔해까지' 카운트다운.
 # 기존 두-카드 레이아웃/셈을 그대로 재사용(새 위젯 없음). 남은 적 대신 boss_hp, 전진시계 대신 파울시계.
@@ -7462,8 +7594,71 @@ func _blit_9s(name: String, r: Rect2, col: Color = Color.WHITE) -> bool:
 		sy += shs[iy]
 	return true
 
+# 라운드 칩 배경(사유 알약·AD 배지). 매 프레임 새로 만들지 않게 한 장을 들고 색·반경만 갈아 쓴다.
+var _chip_sb: StyleBoxFlat = null
+
+# 지금 그리는 판이 밝은가. _draw_result·_draw_settings가 자기 시작점에서 켜고, _ink()가 이걸 읽는다.
+var _ink_light: bool = false
+
+# 밝은 판 ↔ 다크 폴백을 한 자리에서 가른다. 호출부는 두 색을 나란히 적어두기만 하면 된다.
+func _ink(on_dark: Color, on_light: Color) -> Color:
+	return on_light if _ink_light else on_dark
+
+# 라운드 칩 한 장. 반투명일 때 '사각+양끝 원'으로 그리면 겹치는 부분만 알파가 두 번 쌓여
+#   양끝이 진한 반달로 보인다(사유 알약에서 실제로 걸렸다) → 한 번에 그린다.
+# ⚠§8의 draw_style_box 금지는 **StyleBoxTexture** 얘기다(모서리를 텍스처 픽셀 그대로 그려
+#   2배 납품본의 라운드가 부푼다). 벡터로 그리는 Flat엔 해당하지 않는다.
+func _chip(col: Color, rad: float) -> StyleBoxFlat:
+	if _chip_sb == null:
+		_chip_sb = StyleBoxFlat.new()
+	_chip_sb.bg_color = col
+	_chip_sb.set_corner_radius_all(int(rad))
+	return _chip_sb
+
+# 밝은 판 위에선 외곽선을 **아예 끈다**(알파 0). 톤만 낮추면 안 된다 —
+#   _draw_text_outlined는 같은 글자를 8방향 ±2px로 덧그리는 방식이라, 흰색을 옅게 깔아도
+#   여덟 겹이 쌓여 **글자 뒤에 크림보다 밝은 판**이 생긴다(A/B 렌더로 확인). 획도 안쪽에서
+#   갉아먹혀 가늘어 보인다. 어두운 글자는 배경 명도차만으로 이미 선다(실측 5~7.5:1).
+#   ⚠어두운 판(폴백·클리어 무대)에서는 검은 테가 여전히 필요하다 — 거기선 흰 글자다.
+func _ink_out() -> Color:
+	return Color(1.0, 1.0, 1.0, 0.0) if _ink_light else Color(0.0, 0.0, 0.0, 0.9)
+
+# ── 캔버스 변환 추적 + 버튼 눌림 스케일 ──────────────────────────────────
+# Godot는 **현재 캔버스 변환을 돌려주는 함수가 없다**. 눌림 스케일을 이미 걸려 있는 변환
+#   (화면 오프셋 draw_ofs·결과 카드 팝·겹침 펼치기) **위에 곱하려면** 우리가 들고 있어야 한다
+#   → 화면 그리기의 모든 변환을 _xf()로 통과시키고 _xf_cur에 남긴다.
+var _xf_cur: Transform2D = Transform2D.IDENTITY
+var _xf_stack: Array = []
+
+func _xf(origin: Vector2 = Vector2.ZERO, rot: float = 0.0, sc: Vector2 = Vector2.ONE) -> void:
+	_xf_cur = Transform2D(rot, sc, 0.0, origin)
+	draw_set_transform_matrix(_xf_cur)
+
+# 눌림 = 버튼이 **살짝 들어간다**. 손가락이 닿아 있는 동안만이고, 떼면(=동작이 끝나면) 원래 크기다.
+#   색 변화(상태 텍스처·틴트) 위에 얹는 것이지 대체가 아니다 — 색은 '어떤 버튼인가', 크기는 '지금 눌렀다'.
+# ⚠**히트박스는 안 줄인다.** 그림만 작아진다 — 손가락이 이미 닿은 버튼이 판정에서 빠지면 안 된다.
+# ⚠모바일엔 hover가 없다(터치는 마우스로 번역) → 호출부의 hover 불리언이 곧 '눌림'이다.
+#   데스크톱에선 마우스만 올려도 들어가 보이는데, 출고 대상이 터치라 그쪽 진실을 따른다.
+const BTN_PRESS_SCALE: float = 0.95
+
+# begin/end는 **짝으로** 부른다. 안 눌렸어도 push한다 — 그래야 end가 조건 없이 pop할 수 있다.
+func _btn_press_begin(r: Rect2, pressed: bool) -> void:
+	_xf_stack.push_back(_xf_cur)
+	if not pressed:
+		return
+	var c: Vector2 = r.position + r.size * 0.5
+	var sc: float = BTN_PRESS_SCALE
+	_xf_cur = _xf_cur * Transform2D(0.0, Vector2(sc, sc), 0.0, c * (1.0 - sc))
+	draw_set_transform_matrix(_xf_cur)
+
+func _btn_press_end() -> void:
+	if _xf_stack.is_empty():
+		return
+	_xf_cur = _xf_stack.pop_back()
+	draw_set_transform_matrix(_xf_cur)
+
 # 모달 패널 한 장 = 그림자 → 본체 → 상단 강조바 → 테두리. 결과 팝업과 설정 모달이 **같은 부품**이다.
-#   body는 폴백 전용 색이다 — 납품 패널은 다크 톤 그림 자체를 받으므로 틴트하지 않는다(§4 P0).
+#   body는 폴백 전용 색이다 — 납품 패널은 그림이 색을 갖고 있어(밝은 크림) 틴트하지 않는다(§4 P0).
 #   accent만 계속 코드가 쥔다(클리어=금색 / 실패=붉은색 — '색만 바뀐다'가 기획).
 const PANEL_DROP: Vector2 = Vector2(6.0, 10.0)   # 그림자 오프셋. 텍스처 경로도 같은 값으로 실루엣을 깐다
 const PANEL_BAR_H: float = 8.0
@@ -7545,7 +7740,7 @@ func _blit_cell(r: Rect2) -> void:
 		return
 	draw_texture_rect(cell_tex, r, false)
 
-const RIM_PX: float = 3.0   # 블록 뒤로 삐져나오는 테 두께. 셀 간격(bpad=5)보다 좁게 = 옆 칸 안 침범
+const RIM_PX: float = 3.0   # 블록 뒤로 삐져나오는 테 두께. 셀 간격(그림 여백 3px)과 같게 = 옆 칸 안 침범
 func _blit_block(r: Rect2, col: Color, white: float = 0.0, rim: float = 0.0) -> void:
 	# LOD — 트레이 프리뷰는 셀 17px(5.3배 축소)라 텍스처를 넣으면 뭉갠다. 여기선 사각형이 낫다(§8).
 	if block_tex == null or r.size.x < BLOCK_TEX_MIN_PX:
@@ -7568,7 +7763,7 @@ func _draw_tut_target() -> void:
 	var pulse: float = 0.5 + 0.5 * sin(anim_t * 5.0)
 	var col: Color = _color_of("Y")
 	var ghost: Color = col.lerp(Color.WHITE, 0.3)   # 밝혀서 어두운 셀 위 알파 블렌딩의 칙칙함 상쇄 → 트레이 조각과 같은 밝은 노랑
-	var bpad: float = 5.0
+	var bpad: float = BLOCK_PAD
 	# 목표 칸마다 조각색 반투명 고스트 + 흰 테두리(트레이 조각과 같은 문법)로 "이 노란 블록이 여기".
 	var minx: float = 1e9; var miny: float = 1e9; var maxx: float = -1e9; var maxy: float = -1e9
 	for cell in tut_cells:
@@ -7608,7 +7803,7 @@ func _draw_board(fnt: Font) -> void:
 		chg = clampf(resolve_timer / charge_dur, 0.0, 1.0)
 		for ci in clear_cells:
 			charging[ci] = true
-	var bpad: float = 5.0
+	var bpad: float = BLOCK_PAD
 	for r in range(ROWS):
 		for c in range(COLS):
 			var rx: float = BOARD_X + c * CELL
@@ -7942,7 +8137,7 @@ func _draw_board(fnt: Font) -> void:
 			st_sc = (0.62 if st_n == 2 else (0.48 if st_n == 3 else 0.40))
 			var st_gap: float = CELL * (0.42 if st_n == 2 else (0.28 if st_n == 3 else 0.22))
 			st_dx = (float(st_k) - float(st_n - 1) * 0.5) * st_gap
-			draw_set_transform(draw_ofs + Vector2(cx, cy) * (1.0 - st_sc) + Vector2(st_dx, 0.0),
+			_xf(draw_ofs + Vector2(cx, cy) * (1.0 - st_sc) + Vector2(st_dx, 0.0),
 					0.0, Vector2(st_sc, st_sc))
 		var ratio: float = clampf(float(e["hp"]) / float(e["maxhp"]), 0.0, 1.0)
 		var etype: String = e["etype"]
@@ -8161,7 +8356,7 @@ func _draw_board(fnt: Font) -> void:
 			var heart_cx: float = bx + heart_s * 0.72 + 3.0
 			_draw_heart(Vector2(heart_cx, by + bar_h * 0.5), heart_s, Color(0.55, 1.0, 0.55))
 		if st_sc < 1.0:
-			draw_set_transform(draw_ofs)   # 겹침 변환 해제 — 다음 적/이후 레이어는 다시 화면 좌표로
+			_xf(draw_ofs)   # 겹침 변환 해제 — 다음 적/이후 레이어는 다시 화면 좌표로
 
 	# ── 놓을 곳 없음: 빈 칸이 아래에서 위로 메워진다. 꽉 찬 보드가 곧 패배 사유의 진술이다
 	#    ("놓을 곳이 없다"를 글이 아니라 사실로 보여준다). 물결이 지난 줄의 적은 위에서 이미 지웠다.
@@ -8354,7 +8549,7 @@ func _draw_collapse() -> void:
 		draw_rect(Rect2(float(BOARD_X), sy, sw, 32.0), Color(1.0, 0.35, 0.30, 0.7), false, 2.0)
 
 	# ② 받칠 게 사라진 블록이 열마다 시차를 두고 쏟아진다
-	var bpad: float = 5.0
+	var bpad: float = BLOCK_PAD
 	for r in range(ROWS):
 		for c in range(COLS):
 			if board[r][c] == "":
