@@ -22,6 +22,9 @@ func _click(r: Rect2) -> void:
 	ev.pressed = true
 	ev.position = r.get_center() + _dy()
 	g.call("_input", ev)
+	# 버튼은 **뗄 때** 발동한다(C144) — 누름만 보내면 걸리기만 하고 아무 일도 안 일어난다.
+	ev.pressed = false
+	g.call("_input", ev)
 	await process_frame
 
 func _key(code: int) -> void:

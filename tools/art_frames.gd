@@ -177,6 +177,23 @@ func _run() -> void:
 		})
 	g.set("enemies", em)
 	await _shot("m_enemies")
+
+	# ── 3.55 basic 기본 모습 + HP 명암 곡선.
+	#    ⚠위 프레임은 basic에 flinch를 걸어 둬서 **흰 플래시로 덮인 상태**다 — P0 스프라이트의
+	#      기본 색·실루엣이 어느 프레임에도 안 담겨 있었다(2026-08-04에 알아챘다).
+	#    hp를 4/4·2/4·1/4로 갈라 심는다: 스프라이트엔 색을 곱하는 길밖에 없으므로(_hp_tint)
+	#      "밝은 기준 1장만 받는다"는 계약이 실제로 서는지는 이 세 마리를 나란히 봐야 판단된다.
+	#    자리는 블록이 있는 행(row 4)이다 — 적만 따로 보면 안 되고 **블록과 한 벌로 읽히는지**가
+	#      코드제 자리지킴이의 유일한 합격 조건이다.
+	var eb: Array = []
+	var hps: Array = [4, 2, 1]
+	for k in range(3):
+		eb.append({
+			"col": 1 + k * 2, "row": 4, "vis_row": 4.0, "hp": int(hps[k]), "maxhp": 4,
+			"etype": "basic", "id": 9200 + k, "step_every": 3, "flinch": 0.0,
+		})
+	g.set("enemies", eb)
+	await _shot("m_basic")
 	g.set("enemies", prev_enemies)
 
 	# ── 3.6 종이비행기 — 한 장이 **세 곳**에 쓰인다(보드 픽업 CELL*0.60 · 보유 슬롯 90×90 · 발사체).

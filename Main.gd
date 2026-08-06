@@ -45,7 +45,7 @@ const INTRO_TOTAL: float = 1.13   # APPEAR+HOLD+DOCK
 const LINE_BASE: int = 120
 const STREAK_STEP: float = 0.5
 const BLAST_RING_DELAY: float = 0.26  # 링(추가 레인) 간 순차 발사 텀 (물결 확산 속도. 클수록 극적·느림).
-                                      #   0.4→0.26(C83): 콤보2~4 꼬리가 길어 '느린 템포'로 체감 → 조임. 스펙터클은 열색·칭찬·축포가 채움.
+									  #   0.4→0.26(C83): 콤보2~4 꼬리가 길어 '느린 템포'로 체감 → 조임. 스펙터클은 열색·칭찬·축포가 채움.
 # 유도 종이비행기(2줄+ 동시 삭제 시 자동 발사) — 임시 OFF.
 #   이유: 이 보너스가 "줄을 지우면 그 줄 위의 적이 죽는다"는 기본 규칙 위에 겹쳐 얹히는 바람에,
 #   신규 플레이어가 무엇 때문에 적이 죽었는지 귀속을 못 한다(규칙 인지 실패). 규칙이 몸에 붙은 뒤
@@ -266,6 +266,18 @@ const C_CELL := Color("#111122")
 const C_GRID := Color(0.28, 0.28, 0.38, 0.55)
 const C_HUD  := Color(0.06, 0.06, 0.12)
 const C_GOLD := Color("#ffd700")
+
+# ── 패널 잉크 = '판 위에 얹는 글자·선' ──────────────────────────────────────
+# 납품 패널(art/ui/panel.png)이 **밝은 크림 톤**이다(디자이너 확정 2026-08-04). 의뢰서는 원래
+#   다크 톤을 요청했는데 밝은 쪽으로 왔고, 어두운 게임 화면 위에 뜨는 카드로는 그쪽이 낫다고 보고 받았다.
+#   패널은 **코드가 틴트하지 않는 부품**(색을 그림이 갖는다)이라, 바뀌는 건 그림이 아니라 **그 위의 잉크**다.
+# ⚠폴백(패널 텍스처가 없을 때)은 여전히 다크 사각형을 그린다 → 그 경로에선 예전 밝은 글자가 맞다.
+#   그래서 색을 상수 하나로 못 박지 않고 _ink()가 두 벌을 들고 다닌다. 아트를 빼도 화면이 안 깨진다.
+const C_INK_TITLE := Color("#42506a")   # 제목·헤드라인 (디자이너 지정값)
+const C_INK_BODY  := Color("#5c6982")   # 본문·라벨·캡션 (디자이너 지정값)
+const C_INK_GOLD  := Color("#b0800f")   # 밝은 판 위의 금색 — C_GOLD는 크림 위에서 거의 안 읽힌다
+const C_INK_WIN   := Color("#1e7a3c")   # 성공 수치(초록) — 밝은 판용으로 내린 명도
+const C_INK_LOSE  := Color("#bf3a2b")   # 실패 수치(빨강) — 위와 같은 이유
 const C_BORD := Color(0.24, 0.24, 0.38)
 
 # 적 타입별 대표 색 (한눈 구분)
@@ -416,6 +428,14 @@ var endless_new_best: bool = false # 이번 런이 신기록인가(결과 팝업
 var endless_beat_best: bool = false # 판 중에 이미 최고를 넘었나(HUD 실시간 갱신 신호)
 # 점수 계수(C58 손맛)는 감독 소유로 이관(C61 seam): EndlessMode.CLEAR_BASE/KILL_MULT.
 #   코어는 director.clear_score()/kill_score()로 묻는다 — 모드 이름 대신 능력.
+# 아래 `_*_hover` 들은 이름만 '호버'고 실제 의미는 **'지금 눌려 있다'**이다(C144).
+#   포인터가 버튼 위에 있고 **동시에 버튼이 눌린 상태**일 때만 참 — 그래서 마우스를 올리기만 해선
+#   아무 일도 안 일어나고, 누르는 동안만 들어갔다가 떼면 돌아온다. 터치는 원래 '올려두기'가 없으므로
+#   폰과 데스크톱이 같은 규칙이 된다(옛 동작: 데스크톱은 마우스만 올려도 색이 바뀌고 눌린 척했다).
+# ⚠읽는 쪽은 전부 그리기다 — 클릭 판정은 이 플래그를 안 본다(rect.has_point을 그 자리에서 다시 쓴다).
+var _ptr_down: bool = false        # 좌클릭/터치가 눌려 있는 동안 참(_input 최상단서 갱신)
+var _armed: String = ""            # 지금 눌려 '걸린' 버튼 id("" = 없음). 뗄 때 같은 버튼 위면 발동.
+#   id는 화면 안에서만 유일하면 된다 — 화면이 바뀌면 뗄 때 그 화면의 처리기가 아예 안 불린다.
 var _adv_hover: bool = false       # 메뉴: Adventure(스테이지) 버튼 호버
 var _classic_hover: bool = false   # 메뉴: Classic(무한) 버튼 호버
 var _lb_hover: bool = false        # 메뉴: 리더보드(우상단 트로피) 버튼 호버
@@ -458,6 +478,17 @@ var boss_hp: int = 0            # 보스(감시자) 스테이지 전용 — 잔�
 var boss_hp_max: int = 0
 var collected_by_type: Array = []   # 받기형 수집 — 타입별 수집 수(길이=타입 수). 각 collect_targets[i] 도달 = 그 타입 완료, 전부 완료 = 클리어.
 var gem_flights: Array = []          # 잡은 보석이 상단 카운터로 빨려가는 연출 {from,to,t,dur,gtype,color}. 도착 시 카운트+1.
+# 보석 수집은 **세 박자**다(레퍼런스 60fps 실측, AUDIO_PLAN §34): 잡히면 제자리에서 기다리고
+#   → 아주 빠르게 쏘아 올려지고 → 도착에서 카운터가 튄다. R24까지 우리는 0.42초 등속으로 둥둥
+#   떠가서 블라스트 잔해와 섞였고, "이건 보석이다"가 안 읽혔다(유저 지적 2026-08-04).
+# ⚠**총 지연은 0.42초 그대로다.** 레퍼런스 홀드는 0.58~0.70초지만, 카운트가 오르는 시각은
+#   `_check_win`이 걸려 있는 **게임 로직**이다 — 늘려 봤더니 수집판 승률이 무너졌다(회귀 실측:
+#   s4 u1 20/20 → **0/20**, 처치 14.7 → 32.5). 보석이 늦게 세어지면 그만큼 판이 길어지고
+#   `_gem_secured`가 비행 중인 것까지 확보로 세어 스폰까지 막기 때문이다.
+#   → **박자는 0.42초 안에서 나눈다**(대기 0.32 + 발사 0.10). 골든이 byte-identical로 돌아온다.
+const GEM_TOTAL: float = 0.42     # 잡힘 → 카운트. **밸런스가 이 값에 물려 있다(바꾸지 말 것)**
+const GEM_FLY: float = 0.10       # 발사~도착(레퍼런스 실측 0.08). 짧아야 '쏜다'로 읽힌다
+const GEM_HOLD: float = GEM_TOTAL - GEM_FLY   # 제자리 대기 = 0.32초
 # 보호(Protect) — 금고(vault): 도둑이 거점 도달 시 여기서 훔쳐 도망. 0이면 패(상실축, 거점사와 별개).
 #   낚아채기=grab(vault--·carrying=true·바닥 반등 후 상승), 처치 회수=vault++. 승리는 표준(웨이브 소탕, 탈출=leaked)+vault>0.
 var vault: int = 0                   # 현재 금고 잔량
@@ -660,6 +691,12 @@ var game_seed: int = 0   # 현재 게임 시드(featured 트랙 index-addressed 
 #   끌 수 없고, 채도 높은 평면 색은 손실 압축에서 밴딩이 잘 보인다(§8).
 const BLOCK_TEX_PATH: String = "res://art/block.png"
 const BLOCK_TEX_MIN_PX: float = 24.0   # 이보다 작게 그릴 땐 텍스처 대신 사각형(트레이 프리뷰 17px)
+# 셀 안쪽으로 얼마나 밀어 그리는가 = **블록 사이 간격의 절반**. 0인 이유: 간격을 그림이 쥔다.
+#   납품 블록은 180 캔버스에 본체 176(가장자리 투명 2px씩) → 90px 셀에서 간격 2px이 그림에서 나온다.
+#   (1차 납품은 여백 6px = 간격 6px이었다. v2에서 좁혔다 — 레퍼런스 실측도 1.7px로 거의 붙어 있다.)
+#   ⚠여기에 값을 넣으면 그림 여백과 **두 겹으로** 들어가 간격이 사양(12px 파일)의 두 배 넘게 벌어진다
+#   (자리지킴이 시절엔 그림에 여백이 없어 이 값이 유일한 간격이었다 — 5.0이 그 잔재였다).
+const BLOCK_PAD: float = 0.0
 var block_tex: Texture2D = null
 var _glow: BlockGlowLayer = null       # 가산 덧칠 전용 자식(백열). 아래 클래스 정의 참조
 
@@ -668,6 +705,10 @@ var _glow: BlockGlowLayer = null       # 가산 덧칠 전용 자식(백열). �
 #   블록 그림이 정하고(bpad는 코드가 아니라 그림의 여백), 그 밑에 깔리는 판이 이것이다.
 # ⚠블록과 달리 **틴트하지 않는다** — 보드 셀은 존 색 전환에서도 원색을 유지하는 '다크 아일랜드'다
 #   (넘음 전환은 주변 바·여백만 물들인다). 색을 그림이 갖는다.
+# ⚠이 한 장은 **불투명 전면**이다(투명 여백 없음). 칸 사이 홈을 그림이 칠해서 갖고 있다는 뜻 —
+#   뚫어 두면 뒤에 오는 것에 따라 격자가 밝아졌다 어두워졌다 하고, 존 색 전환이 있어 실제로 흔들린다.
+#   그래서 이웃한 두 칸의 여백이 **합쳐져** 홈이 된다(각 3px → 화면 3px). 블록 간격(2px)보다 넓은 건
+#   의도다 — 레퍼런스도 홈 2.7px > 블록 간격 1.7px이다. 생성기 = tools/make_cell_plate.py.
 const CELL_TEX_PATH: String = "res://art/cell.png"
 var cell_tex: Texture2D = null
 
@@ -696,15 +737,17 @@ const UI_TEX_DIR: String = "res://art/ui/"
 const UI_TEX_SCALE: float = 2.0   # 납품 배율(§5). 텍스처 px ÷ 이 값 = 화면 px
 const UI_9S: Dictionary = {
 	# 이름          : [좌, 상, 우, 하] — 텍스처 픽셀
-	"panel":         [56, 56, 56, 56],   # 결과 팝업 = 설정 모달 공용 본체(다크 톤, 틴트 안 함)
+	"panel":         [24, 24, 24, 24],   # 결과 팝업 = 설정 모달 공용 본체(밝은 크림, 틴트 안 함 → 잉크는 C_INK_*)
 	# 상단 강조바 — 흰/회색조로 받아 코드가 accent를 입힌다.
 	# ⚠**패널과 같은 캔버스·같은 마진**의 레이어 한 장이다(8px 띠 한 조각이 아니다). 띠로 받으면
 	#   각진 양끝이 패널 라운드 밖으로 삐져나온다 — 자리지킴이로 실제로 그랬다. 같은 캔버스면
 	#   모서리가 정의상 일치하고, 바 높이·라운드를 그림이 쥔다.
-	"panel_bar":     [56, 56, 56, 56],
-	"btn_lg":        [48, 48, 48, 56],   # 큰 버튼 기본
-	"btn_lg_press":  [48, 48, 48, 56],   # 눌림
-	"btn_lg_off":    [48, 48, 48, 56],   # 비활성
+	"panel_bar":     [24, 24, 24, 24],
+	# 큰 버튼 3종 — 납품본 실측 라운드 반경 22 텍스처px. 마진을 그보다 크게 잡으면 세로 그라데이션의
+	#   위/아래가 그만큼 **고정**되고 가운데만 늘어나 이음매에 기울기 꺾임이 생긴다 → 반경 + 여유만.
+	"btn_lg":        [32, 32, 32, 32],   # 기본
+	"btn_lg_press":  [32, 32, 32, 32],   # 눌림
+	"btn_lg_off":    [32, 32, 32, 32],   # 비활성
 	"btn_sm":        [32, 32, 32, 36],   # 작은 버튼(설정 모달 행 버튼·뒤로가기)
 	"btn_sm_press":  [32, 32, 32, 36],
 	# 고스트(Home 등 보조) — ⚠**속이 빈 테두리만** 있는 마스터다. 위 버튼들처럼 면을 채워 오면
@@ -756,8 +799,9 @@ const ENEMY_TEX_SIDE: float = float(CELL)
 const ENEMY_TEX_RAD: float = float(CELL) * 0.40
 
 # 버튼 상태 3종 — 텍스처 파일이 갈리는 축. 폴백 렌더는 이 값을 안 본다(호출부 색이 이미 상태를 담고 있다).
-# ⚠모바일엔 hover가 없다 — 터치는 마우스로 번역되므로(emulate_mouse_from_touch) hover==손가락이 닿음
-#   = '눌림'이다. 그래서 호출부는 hover 불리언을 그대로 BTN_PRESS로 넘긴다.
+# ⚠모바일엔 hover가 없다(터치는 마우스로 번역 — emulate_mouse_from_touch). 그래서 **데스크톱도 hover를
+#   안 쓴다**: 호출부가 넘기는 `_*_hover` 불리언은 '포인터가 올라감'이 아니라 '지금 눌려 있다'다(C144).
+#   마우스만 올려서는 BTN_PRESS가 안 나온다 = 폰과 PC가 같은 그림.
 const BTN_NORMAL: int = 0
 const BTN_PRESS: int = 1
 const BTN_OFF: int = 2
@@ -861,7 +905,11 @@ func _ready() -> void:
 		_font_display = _font
 	_relayout()
 	get_viewport().size_changed.connect(_relayout)
-	mode = "menu"
+	# 부팅 첫 화면 = 게임 로고(스튜디오 스플래시 다음). 자세한 근거는 아래 LOGO_HOLD 주석.
+	#   ⚠`--script` 도구 실행에선 건너뛴다 — 프로브 69개가 전부 "menu에서 시작"을 전제로 짜여 있고,
+	#     여기서 화면을 하나 끼우면 그게 전부 첫 클릭부터 어긋난다(analytics.gd가 쓰는 것과 같은 게이트).
+	mode = "menu" if OS.get_cmdline_args().has("--script") else "logo"
+	logo_t = 0.0
 
 # 세로 레이아웃을 현재 뷰포트 높이에서 파생한다. portrait+expand라 폭은 800 고정, 높이만 실기기 비율로 늘어난다.
 # 앵커: HUD=상단 고정 · 트레이=하단 고정(엄지 그라운드) · 보드=그 사이 중앙. 폭 90%(CELL 90)로 키운 뒤
@@ -1116,7 +1164,9 @@ const SFX_WORDS: Dictionary = {
 	"grab": {"gap": 0.04, "db": -7.0, "det": 0.012, "base": -2},
 	"place": {"gap": 0.04, "db": -8.8, "det": 0.012, "base": 7},
 	"clear": {"gap": 0.00, "db": -3.6, "det": 0.004},    # 간격 0 = 절대 안 드롭한다(이게 보상이다)
-	"chain": {"gap": 0.03, "db": -7.6, "det": 0.004},
+	# ⚠−9.0은 R27에서 −7.6에서 내린 값이다 — 보석 수집음이 연쇄에 묻혀 안 들렸다(§35).
+	#   연쇄는 판당 5~9발이라 위계에서 조금 내려도 존재감이 남지만, 수집은 알림이라 안 들리면 0이다.
+	"chain": {"gap": 0.03, "db": -9.0, "det": 0.004},
 	"fanfare": {"gap": 0.00, "db": -14.0, "det": 0.004},  # 아르페지오 4음이 겹치므로 clear보다 낮게
 	"score": {"gap": 0.055, "db": -10.0, "det": 0.010},  # 연달아 나가므로 작게(단, 안 들리면 없느니만 못하다)
 	"fail": {"gap": 0.00, "db": -7.8, "det": 0.004},   # 유저 요청이 "약하지만 짧게" — 축하보다 낮게 둔다
@@ -1200,6 +1250,56 @@ const SFX_WORDS: Dictionary = {
 	#   det도 좁혔다: 노이즈성 재질에 넓은 디튠은 음정이 아니라 **길이**를 흔들어 들린다.
 	#   db는 길이가 0.10 → 0.4~1.0초로 길어진 만큼 낮췄다(7발이 겹쳐 쌓인다).
 	"fw_pop": {"gap": 0.00, "db": -13.0, "det": 0.004},
+	# ── 결과 팝업 개봉(R22 · §22 B-15) ────────────────────────────────────────
+	# 실측(2026-08-03): 팝업이 열린 뒤 **2초 동안 발화 0**이다 — 죽음 연출까지 합치면 실패 경로가
+	#   3.7초 무음이고, 이는 §24가 축하 무대에서 고친 3.4초보다 길다. 화면은 카드가 튀어 앉고
+	#   내용이 들어오고 버튼이 도착하는데 소리가 그걸 하나도 모르고 있었다.
+	# ⚠**파형이 글로켄(선율)이다.** 레퍼런스(Block Out!)는 이 자리에 6.5kHz 반짝임을 1.8초 깔았고
+	#   (§26 곁다리), 우리 파형 중 '감쇠하며 우는' 물건은 이것뿐이다. 타격음을 얹으면 0.1초에 끝나
+	#   팝업이 열리는 동안이 도로 빈다 — §27이 로고 조립에서 이미 겪은 문제다.
+	# ⚠**승패는 음정으로만 가른다**(tap_go/tap_back과 같은 문법 = 방향이 뜻을 나른다, §19).
+	#   레벨이나 음색으로 가르지 않는 이유: 실패에 어둡고 큰 소리를 주면 벌이 된다(§4 "손실은 눈으로").
+	#   승패는 이미 앞 소리가 말했다(축하 무대 / fail) — 여기 소리는 '화면이 바뀌었다'의 보강이다.
+	# ⚠**패배 쪽이 두 배 오래 운다**(실측 0.93 vs 1.87초) — 파형 하나를 음정으로 갈랐으니 낮은 쪽이
+	#   그만큼 길어진다(§14: 음을 올리면 샘플이 짧아진다). 낮은 종이 길게 우는 건 실제 악기의 물리라
+	#   귀에 어긋나지 않지만, **길게 우는 소리를 크게까지 주면 벌이 된다** → 패배만 leak·praise와
+	#   같은 −13 자리로 내렸다(승리는 축하의 꼬리라 −12).
+	"result_win": {"gap": 0.00, "db": -12.0, "det": 0.004, "base": 7, "music": true},
+	"result_lose": {"gap": 0.00, "db": -13.0, "det": 0.004, "base": -5, "music": true},
+	# 버튼 도착(RESULT_BTN_IN) — **장식이 아니라 상태 변화다**: 그 전까지 `_input`이 팝업을 통째로
+	#   막고 있어서(개봉 중 오조작 방지) 이 소리가 "지금부터 눌린다"를 말한다.
+	#   ⚠tap 넷과 같은 파형이되 음정은 +2다 — 0·+7·−5·−8엔 이미 임자가 있고(중립·진입·뒤로·잠김)
+	#   같은 값을 주면 UI 소리끼리 서로를 흉내 낸다. +2도 5음계 안이라 판의 소리와 협화한다.
+	"result_cta": {"gap": 0.05, "db": -14.0, "det": 0.012, "base": 2},
+	# ── 판 진입 목표 카드(R23) ─────────────────────────────────────────────────
+	# 레퍼런스 실측(2026-07-31 녹화 · §31)이 이 자리를 **두 사건**으로 쓴다:
+	#   ①배너 등장 = 짧은 3발(온셋 간격 85ms) ②0.35초 무음 ③칩이 HUD에 안착 = 벨 한 방 + 0.9초 감쇠.
+	#   우리 연출도 정확히 같은 3박이다(APPEAR 0.28 · HOLD 0.50 · DOCK 0.35) — **홀드는 비워 둔다.**
+	# ⚠**등장은 UI 파형(pop_high)이다.** 목표 카드는 판 안의 사건이 아니라 화면이 말을 거는 순간이고,
+	#   여기에 새 음색을 주면 세계에 없던 물건이 하나 더 생긴다(§19 UI 탭 넷과 같은 판단).
+	#   단발 탭과는 **figure로** 갈린다 — 탭은 한 발, 이건 0/+4/+7 3발이다.
+	"goal_in": {"gap": 0.00, "db": -11.0, "det": 0.008},
+	# 도킹 안착 = **보석 도착과 같은 틱 열차**다(R26에서 통일). R25에선 글로켄 8발 롤이었는데,
+	#   레퍼런스에선 이 둘이 **같은 소리**다 — 목표 칩이든 보석이든 "카운터로 들어가는 것"이라서다.
+	#   서로 다른 물건으로 만들어 두니 판 안에서 둘이 따로 놀았다(유저 판정 2026-08-04).
+	#   여기만 열차가 **두 배 길다**(6발) — 판당 1회짜리 큰 사건이고 예산도 이 창엔 여유가 있다.
+	"goal_dock": {"gap": 0.00, "db": -12.0, "det": 0.008},
+	# ── 보석 카운터 도착(R24 · R26에서 다시 씀) ───────────────────────────────
+	# 레퍼런스 실측(§34): 도착음은 **한 방이 아니라 틱 열차**다 — 32~44ms 간격으로 이어지고,
+	#   개수가 늘면 그만큼 길어지며(1개 11발/0.39초 · 3개 23발/0.77초), 음정은 앞머리에서 한 번
+	#   오른 뒤 **꼭대기를 반복하며 잦아든다.** 레벨은 블라스트보다 8~11dB 아래에 깔린다.
+	# ⚠**R24의 '진행도가 음정을 나른다'를 폐기했다.** 도착마다 다른 음이 뚝뚝 떨어져서 유저 판정이
+	#   "따로 놀고 튄다"였다. 레퍼런스는 **일부러 매번 같은 figure**를 쓴다 — 그래야 하나의 물건으로
+	#   들리고, 진행도는 화면 숫자가 이미 말한다. 정보를 하나 더 실으려다 소리를 흩어 놓은 것이다.
+	# ⚠파형도 글로켄(지속음 0.7초) → **pop_high**로 바꿨다. 레퍼런스 핑이 0.8~2.5kHz에 80~90%인데
+	#   그 자리가 정확히 이 파형이고("카운터 틱" 가족 = score와 같은 뜻), 종소리 성격이 사라진다.
+	# ⚠**base +12 · db −7은 R27에서 다시 잡은 값이다**(유저: "수집 사운드가 잘 인지 안 돼").
+	#   실측한 원인은 시간 겹침이 아니라 **음색·음역이 `chain`과 같다**는 것이었다: 둘 다 pop_high고
+	#   collect의 0·+7이 연쇄 사다리(0/2/4/7/9…)의 계단과 **같은 음**인데다 5.4dB 더 조용했다
+	#   → 귀엔 '새 소리'가 아니라 '연쇄가 조금 더 이어진 것'으로 들렸다.
+	#   ①옥타브 위로 올려 사다리 **밖**으로 내보내고(재생 +7/+12/+19 = 1471/1964/3006Hz)
+	#   ②연쇄보다 **위**에 둔다(collect −7 vs chain −9). 알려야 할 소리가 배경보다 조용하면 못 듣는다.
+	"collect": {"gap": 0.00, "db": -7.0, "det": 0.008, "base": 12},
 }
 const SFX_VOICES: int = 8
 # ⚠12다. 글자 6음(각 1.4초)이 아직 울리는 채로 정점 화음 4음이 얹혀 **최대 10**이 겹친다(실측) —
@@ -1260,6 +1360,17 @@ const FB_MAP: Dictionary = {
 	"logo": {"hap": "", "sfx": "logo"},
 	"fw_rise": {"hap": "", "sfx": "fw_rise"},
 	"fw_pop": {"hap": "", "sfx": "fw_pop"},
+	# 결과 팝업(R22)도 **소리만**. 판이 이미 끝난 뒤의 화면 전환이라 손에 뭔가 닿는 사건이 아니고,
+	#   실패 팝업에 진동을 얹으면 fail에서 뒤집지 않은 결정("손실엔 무진동", §11)을 여기서 뒤집게 된다.
+	"result_win": {"hap": "", "sfx": "result_win"},
+	"result_lose": {"hap": "", "sfx": "result_lose"},
+	"result_cta": {"hap": "", "sfx": "result_cta"},
+	# 목표 카드(R23)도 소리만 — 판이 아직 시작 전이라 손에 닿는 사건이 없다.
+	"goal_in": {"hap": "", "sfx": "goal_in"},
+	"goal_dock": {"hap": "", "sfx": "goal_dock"},
+	# 보석 도착(R24)도 소리만 — 잡는 순간의 진동은 이미 없고(chain은 무진동, 캐스케이드 뭉갬),
+	#   도착마다 진동을 얹으면 판당 15번이라 승자독식 액추에이터가 통째로 뭉갠다.
+	"collect": {"hap": "", "sfx": "collect"},
 }
 
 # 유일한 접점. 호출부는 '무엇이 일어났나'만 말한다.
@@ -1404,6 +1515,17 @@ func _sfx_build_bank() -> void:
 	_sfx_bank["logo"] = lh if lh != null else bu
 	var fb: AudioStream = load(SFX_FW_BURST)
 	_sfx_bank["fw_pop"] = fb if fb != null else sk
+	# 결과 팝업(R22) — 개봉은 **선율과 같은 글로켄**이다. 축하 무대를 인용하는 게 아니라 '감쇠하며
+	#   우는' 파형이 이것뿐이라서다(§R22). 버튼 도착만 UI 탭과 같은 파형 = UI 사건이기 때문.
+	_sfx_bank["result_win"] = ml if ml != null else hi
+	_sfx_bank["result_lose"] = ml if ml != null else hi
+	_sfx_bank["result_cta"] = hi
+	# 목표 카드(R23) — 등장은 UI 파형 3발, 안착만 글로켄 한 방(레퍼런스와 같은 역할 분담).
+	_sfx_bank["goal_in"] = hi
+	# 안착·도착은 **같은 파형**이다(R26) — 둘 다 '카운터로 들어가는 것'이고, 레퍼런스도 한 소리다.
+	#   pop_high = 카운터 틱 가족(score와 같은 파형) · 0.8~2.5kHz = 레퍼런스 핑이 앉은 자리.
+	_sfx_bank["goal_dock"] = hi
+	_sfx_bank["collect"] = hi
 
 
 # 전용 SFX 버스 + 하드 리미터를 **런타임에** 만든다 — 버스 레이아웃 리소스 파일을 안 만들므로
@@ -1482,6 +1604,25 @@ func _sfx(kind: String, intensity: float = 0.0) -> void:
 		#   R9에서 기각된 '거슬리는' 대역으로 되돌아간다. +5까지가 안전선이다.
 		_sfx_queue.append({"at": _sfx_t + 0.045, "kind": "clear2", "semi": 0})
 		_sfx_queue.append({"at": _sfx_t + 0.135, "kind": "clear2", "semi": 5})
+	elif kind == "goal_dock" or kind == "collect":
+		# 열차 한 줄(R26). 첫 발은 지금, 나머지는 예약. **마지막(가장 큰) 발이 도착과 같은 프레임**에
+		#   떨어지도록 호출부가 '발사' 시점에 부른다(열차 길이 ≈ 비행 시간).
+		_sfx_last[kind] = _sfx_t
+		# 열차 길이 = **들어가는 물건의 개수**(보석이든 목표 칩이든 같은 규칙, R28).
+		#   ⚠전엔 목표 칩만 6발로 길게 뒀는데("판당 1회짜리 큰 사건이니까"), 칩이 하나뿐인 판에서는
+		#   그 길이가 근거 없는 장식이 되어 "띠리링거린다"로 들렸다(유저 판정 2026-08-04).
+		#   화면에 하나가 들어가면 소리도 하나 분량이어야 한다.
+		_sfx_tick_run(kind, mini(TICK_N_GEM + maxi(0, int(intensity) - 1), TICK_N_MAX))
+		return
+	elif kind == "goal_in":
+		# 목표 카드 등장 = **3발 상승 figure**(레퍼런스 온셋 간격 85ms 그대로, §31). 첫 발은 지금,
+		#   나머지 둘은 예약한다 — 카드가 떠오르는 0.28초 안에 셋이 다 들어간다.
+		#   ⚠예약은 `_sfx_fire` 직행이라 여기로 다시 안 들어온다(재귀 없음).
+		_sfx_last[kind] = _sfx_t
+		for i in range(1, 3):
+			_sfx_queue.append({"at": _sfx_t + float(i) * 0.085, "kind": kind, "semi": [0, 4, 7][i]})
+		_sfx_fire(kind, 0)
+		return
 	elif kind == "rocket":
 		semi = mini(int(clampf(intensity, 0.0, 6.0)) * 2, 12)   # 링 번호 → 음정(바깥일수록 높다)
 	# ⚠**로고 강펀치의 2층(45ms 광택)을 뺐다**(R18). clear·climax와 같은 2층 문법이었는데, 그
@@ -1517,6 +1658,31 @@ func _sfx_clear_run(lines: int, combo: int) -> void:
 		_sfx_queue.append({"at": _sfx_t + 0.040 + float(i) * 0.055, "kind": "clear_note",
 				"semi": mini(start + SFX_LADDER[i], 16), "db": ndb})
 	_sfx_fire("clear_hit", 0)      # 타격은 음정을 안 받는다 — 올리면 몸통이 얇아진다
+
+# 카운터로 들어가는 소리 = **틱 열차**(R26 · 레퍼런스 실측 §34).
+#   ①한 방이 아니라 32~44ms 간격의 연속 틱 ②음정은 앞머리에서 오르고 **꼭대기를 반복**한다
+#   ③도착으로 갈수록 커지고, 도착 뒤엔 잦아든다.
+# ⚠**개수만큼 길어지는 건 열차 길이가 아니라 호출 횟수로 낸다** — 보석 하나가 3발이고, 여러 개가
+#   겹쳐 발사되면 열차도 겹쳐 그만큼 촘촘한 한 줄이 된다(레퍼런스의 텍스처가 그것이다).
+# ⚠레퍼런스는 보석 1개에 11발인데 우리는 3발이다. 초당 발화 예산이 14라 개당 11발이면 3개만 겹쳐도
+#   그 창의 다른 소리가 전부 굶는다. 밀도가 더 필요하면 **열차를 오프라인으로 구워 1발로** 쏠 것.
+const TICK_RUN: Array = [-5, 0, 7]   # 상승 후 꼭대기 유지(레퍼런스 E5 → C6 → G6 → G6…). 5음계 안의 값이다
+const TICK_GAP: float = 0.038        # 레퍼런스 온셋 간격 32~44ms의 중앙
+const TICK_SWELL: float = 2.5        # 도착으로 갈수록 커진다(레퍼런스 −37 → −27dB)
+const TICK_FADE: float = 2.0         # 도착 뒤엔 잦아든다
+const TICK_N_GEM: int = 3            # 보석 하나 — 3발 × 38ms ≈ GEM_FLY(0.10초)라 마지막 발이 도착에 앉는다
+const TICK_N_MAX: int = 8            # 열차 상한 — 여기서 막지 않으면 한 블라스트에 보석이 몰릴 때 예산이 터진다
+
+func _sfx_tick_run(kind: String, n: int) -> void:
+	var db0: float = float((SFX_WORDS[kind] as Dictionary)["db"])
+	var peak: int = TICK_RUN.size() - 1
+	for i in range(n):
+		var st_semi: int = int(TICK_RUN[mini(i, peak)])
+		var d: float = db0 - (float(peak - i) * TICK_SWELL if i < peak else float(i - peak) * TICK_FADE)
+		if i == 0:
+			_sfx_fire(kind, st_semi, d)
+		else:
+			_sfx_queue.append({"at": _sfx_t + float(i) * TICK_GAP, "kind": kind, "semi": st_semi, "db": d})
 
 func _sfx_fire(kind: String, semi: int, db_over: float = 99.0) -> bool:
 	if _sfx_budget < 1.0:
@@ -1896,6 +2062,7 @@ func _start_stage(idx: int) -> void:
 	mode = "play"
 	_init_game()
 	intro_t = 0.0   # 캠페인 진입에서만 인트로 카드 재생(무한·featured는 _init_game이 -1로 둠)
+	_fb("goal_in")  # 카드가 뜨는 **그 프레임**에(R23). _init_game 뒤라 _sfx_reset에 안 쓸린다
 	# 시작 적(도입판이면 신규 타입)이 이미 켠 콜아웃은 카드 뒤로 미룬다 — 카드가 끝나는 순간 뜬다.
 	#   앵커도 같이 들고 간다(안 그러면 미뤄진 콜아웃만 대상을 잃고 옛 상단 배너로 떨어진다).
 	if callout_timer > 0.0:
@@ -2725,6 +2892,11 @@ func _sync_hover_from_drag() -> void:
 func _add_floater(pos: Vector2, text: String, color: Color, life: float, size: int = 22, pop: bool = false) -> void:
 	floaters.append({"pos": pos, "text": text, "color": color, "life": life, "max": life, "size": size, "pop": pop})
 
+# 글자 + 외곽선. 같은 글자를 8방향 ±2px로 덧그리고 그 위에 채운다.
+# ⚠**외곽선은 글자보다 어두울 때만 쓸 것.** 채움과 명도가 비슷하면 획이 사방 2px씩 두꺼워질 뿐이라
+#   34px쯤에서 o·e·u의 속공간이 막혀 글자가 덩어리로 뭉갠다(금색 버튼의 'Continue'가 실제로 그랬다).
+#   밝은 바탕 위 **어두운 글자**는 바탕과의 명도차가 이미 충분하다 → C_NO_OUT을 넘겨 외곽선을 끈다.
+const C_NO_OUT: Color = Color(0.0, 0.0, 0.0, 0.0)
 func _draw_text_outlined(fnt: Font, pos: Vector2, text: String, size: int, fill: Color, outline: Color = Color(0.0, 0.0, 0.0, 0.9)) -> void:
 	var offs: Array = [
 		Vector2(-2, 0), Vector2(2, 0), Vector2(0, -2), Vector2(0, 2),
@@ -2732,6 +2904,9 @@ func _draw_text_outlined(fnt: Font, pos: Vector2, text: String, size: int, fill:
 	]
 	var o_col: Color = outline
 	o_col.a = outline.a * fill.a
+	if o_col.a <= 0.0:
+		draw_string(fnt, pos, text, HORIZONTAL_ALIGNMENT_LEFT, -1, size, fill)
+		return
 	for off in offs:
 		draw_string(fnt, pos + (off as Vector2), text,
 				HORIZONTAL_ALIGNMENT_LEFT, -1, size, o_col)
@@ -3140,7 +3315,11 @@ func _apply_hit(h: Dictionary) -> void:
 		var gt: int = int(e.get("gtype", 0))
 		var gcol: Color = GEM_COLORS[gt % GEM_COLORS.size()]
 		impacts.append({"pos": ep, "life": 0.20, "max": 0.20, "color": gcol, "radius": CELL * 0.42, "star": true})
-		gem_flights.append({"from": ep, "to": _collect_counter_pos(gt), "t": 0.0, "dur": 0.42, "gtype": gt, "color": gcol})
+		# ⚠**순차 엇갈림을 안 넣는다.** 같은 프레임에 여럿 잡히면 도착도 같이 온다 — 레퍼런스는
+		#   0.11초씩 벌리지만, 그러려면 카운트 시각을 미뤄야 하고 그게 곧 밸런스다(위 주석).
+		#   대신 소리가 개수를 나른다: 열차가 겹쳐 그만큼 촘촘해진다(간격 0 = 안 드롭).
+		gem_flights.append({"from": ep, "to": _collect_counter_pos(gt), "t": 0.0,
+				"dur": GEM_TOTAL, "gtype": gt, "color": gcol})
 		kill_pulse = 0.35
 		hitstop = maxf(hitstop, 0.05)
 		_fb("chain")            # 획득도 연쇄의 한 알 — 사다리를 같이 오른다
@@ -4133,7 +4312,7 @@ const CLEAR_SWEEP_TOTAL: float = CLEAR_SWEEP_STAGGER * float(ROWS - 1) + CLEAR_S
 #   (t=63.4~63.75): 아이콘보다 크게 튀어 들어와 제 크기로 안착하고, 암전 뒤에도 그대로 남는다.
 #   축하에서 '쫓던 목표가 주인공'이라는 레퍼런스의 통찰을 이게 전부 담당한다(시간 비용 0, 동사별 자기 자리).
 const CLEAR_CHECK_AT: float = 0.14    # 승리 후 이만큼은 '수'를 그대로 보여준다 → 그 다음 체크가 들어온다
-                                      #   (레퍼런스도 숫자 노출 후 0.22s 뒤에 체크. 동시면 '이미 체크였던' 것으로 읽힌다)
+									  #   (레퍼런스도 숫자 노출 후 0.22s 뒤에 체크. 동시면 '이미 체크였던' 것으로 읽힌다)
 const CLEAR_CHECK_POP: float = 0.20   # 오버슛 → 안착
 # 스윕이 끝난 뒤 '빈 판'을 한 박 쥐고 무대가 열린다(레퍼런스도 비운 판을 한 박 보여준다).
 #   ⚠목표 배지(HUD→중앙 상승 + 0→N 카운트업 + 도장)는 2026-07-30 유저 결정으로 제거했다. 이유:
@@ -4164,12 +4343,12 @@ const CLEAR_LETTER_POP: float = 0.20   # 글자 하나가 튀어 안착하는 �
 const CLEAR_L2_IN: float = 0.56        # 1행 조립 완료 직후 CASTLE 등장
 const CLEAR_L2_PEAK: float = 2.5       # 오버슛 배율 — 1행을 다 가릴 만큼 커졌다가 튕겨 돌아온다
 const CLEAR_L2_PUNCH: float = 0.40     # 폭주가 멈추고 되튀는 순간 = 연출 유일의 강펀치(_clear_l2_scale)
-                                       #   ⚠소리(`logo`)가 이 상수를 읽는다 — 애니메이션과 어긋나면 안 되므로 상수로 뺐다
+									   #   ⚠소리(`logo`)가 이 상수를 읽는다 — 애니메이션과 어긋나면 안 되므로 상수로 뺐다
 const CLEAR_CONFETTI_AT: float = 1.00  # 색종이 낙하 시작 — 로고가 다 선 뒤에야 쏟아진다(레퍼런스 순서)
 const CLEAR_ROCKET_N: int = 7          # 폭죽 발수
 const CLEAR_ROCKET_FIRST: float = 1.20 # 첫 로켓 발사 — 색종이보다 0.2s 늦게(층을 겹치지 않고 쌓는다)
 const CLEAR_ROCKET_LAST: float = 2.05  # 2.35였을 때 7번째 발이 컷(2.80) 0.05s 전에 점화 → 3프레임 만에
-                                       #   사라졌다(만들어 던져버리는 발 + '반짝하다 끊김'으로 보임)
+									   #   사라졌다(만들어 던져버리는 발 + '반짝하다 끊김'으로 보임)
 const CLEAR_ROCKET_RISE: float = 0.40  # 올라가는 시간. '올라감→터짐'이 예비동작을 만든다
 const CLEAR_BURST_LIFE: float = 0.75
 const CLEAR_SHOW_TOTAL: float = 2.80   # 무대 유지 총 시간 → 이후 결과 팝업
@@ -4192,6 +4371,17 @@ var clear_rockets: Array = []          # [{x, apex, t0, col, seed}] 클리어 �
 const RESULT_CLEAR_CARD: bool = false
 # **주 CTA는 상태와 무관하게 같은 자리·같은 크기.** 방금 이겼든 방금 죽었든 엄지가 다시 조준하지
 #   않게. 부활 가능 상태만 버튼이 3개라 부(재도전)·고스트(홈)가 아래로 붙지만 주 버튼은 여기 고정.
+# ── 결과 팝업 세로 리듬(패널 위 기준 오프셋) ─────────────────────────────
+# 예전엔 +84/+124/+176/+222가 손으로 박혀 있었고, 실측 여백이 25/10/33/23/46이었다.
+#   문제는 크기가 아니라 **묶임이 안 읽힌다는 것**이었다 — 캡션↔숫자(23)와 문단 사이(33)가
+#   거의 같아서 넷이 그냥 나열됐다. 짝 안쪽은 붙이고 문단 사이는 떼는 한 벌로 바꾼다:
+#     짝 안쪽 4 · 같은 문단 20 · 문단 사이 34 · 내용↔CTA 40(항상 가장 큼)
+# ⚠주CTA는 전 상태 같은 자리(RESULT_CTA)라 못 움직인다 → 내용을 그 위 띠 안에서 배치한다.
+const RES_Y_HEAD: float = 86.0     # 헤드라인 베이스라인
+const RES_Y_REASON: float = 122.0  # 사유 한 줄 (헤드라인과 한 묶음 = 8 간격)
+const RES_Y_CAP: float = 175.0     # 성적 캡션 (여기서 문단이 갈린다 = 34 간격)
+const RES_Y_ROW: float = 203.0     # 아이콘+숫자 행 **중심** (캡션과 한 묶음 = 6 간격)
+const RES_Y_BIGNUM: float = 218.0  # 무한 최고점 숫자 베이스라인(아이콘 없는 행)
 const RESULT_CTA: Rect2 = Rect2(180.0, 530.0, 440.0, 112.0)
 const RESULT_HOME: Rect2 = Rect2(280.0, 672.0, 240.0, 46.0)
 # 상자 있는 상태(실패·부활·무한)의 패널 폭. 주 CTA가 440이라 460이면 좌우 여백이 10px뿐이어서
@@ -4201,7 +4391,7 @@ const RESULT_PANEL_W: float = 520.0
 const RESULT_PANEL_X: float = (VW_BASE - RESULT_PANEL_W) * 0.5
 const RESULT_CARD_POP: float = 0.18
 const RESULT_CONTENT_IN: float = 0.06   # 카드가 헤드라인을 '들고' 올라온다. 0.14였을 때는 빈 노란 상자가
-                                        #   8프레임 떠 있어 개봉이 아니라 로딩으로 보였다(성적 3줄이 없어진 뒤로).
+										#   8프레임 떠 있어 개봉이 아니라 로딩으로 보였다(성적 3줄이 없어진 뒤로).
 const RESULT_BTN_IN: float = 0.30
 var result_t: float = -1.0             # 팝업 등장 타이머(-1=아직 안 뜸)
 var clear_show_t: float = CLEAR_OFF     # 무대 타이머. -CLEAR_HOLD에서 시작해 0에서 무대가 열린다
@@ -4329,13 +4519,45 @@ func _wm_line_w(f: Font, text: String, size: int) -> float:
 		w += f.get_string_size(text[i], HORIZONTAL_ALIGNMENT_LEFT, -1, size).x + _wm_track(size)
 	return w - _wm_track(size)
 
-func _wm_fit(f: Font, text: String) -> int:
+func _wm_fit(f: Font, text: String, maxw: float = WM_MAXW) -> int:
 	var s: int = 400
 	while s > 40:
-		if _wm_line_w(f, text, s) <= WM_MAXW:
+		if _wm_line_w(f, text, s) <= maxw:
 			return s
 		s -= 2
 	return s
+
+# 애니메이션 없는 워드마크 — 허브(홈)와 부트 스플래시가 같은 물건을 쓰기 위한 정지 조판.
+#   center_y = 락업의 시각 중심. [윗변, 아랫변]을 돌려준다(태그라인을 붙일 기준).
+#   ⚠클리어 연출(_draw_clear_stage)과 코드를 공유해야 한다 — 락업이 갈리면 세 화면의 로고가 서로 다른 물건이 된다.
+#   ⚠호출부의 변환을 반드시 되돌린다. _draw_wm_line은 글자마다 _xf()로 기울기를 걸고 **원점으로**
+#     초기화하며 끝난다 — 허브는 콘텐츠 전체를 _ui_dy()만큼 내린 상태에서 부르므로, 그냥 두면
+#     워드마크 다음에 그려지는 버튼이 그 오프셋(1280 화면서 140px)을 잃고 위로 뜬다. 판정은 오프셋을
+#     그대로 쓰므로 **보이는 자리와 눌리는 자리가 어긋난다**(실기기에서 버튼이 안 눌린 원인).
+func _draw_wm_static(f: Font, center_y: float, maxw: float) -> Array:
+	var prev_xf: Transform2D = _xf_cur
+	var s1: int = _wm_fit(f, WM_L1, maxw)
+	var s2: int = _wm_fit(f, WM_L2, maxw)
+	var gap: float = float(s1) * 0.72
+	var top_rel: float = -0.75 * float(s1)
+	var bot_rel: float = gap + 0.22 * float(s2)
+	var b1: float = center_y - (top_rel + bot_rel) * 0.5
+	var ones1: Array = []
+	var ones2: Array = []
+	for i in range(WM_L1.length()):
+		ones1.append(1.0)
+	for j in range(WM_L2.length()):
+		ones2.append(1.0)
+	var c1: Array = [C_RED, C_GREEN, C_ORANGE, C_BLUE, C_PURPLE]   # 웜·쿨 교차(시안② 확정)
+	# _draw_wm_line은 글자마다 **절대** 변환을 걸어 호출부 오프셋을 무시한다 → 세로 좌표에 직접 더해 그린다.
+	#   (가로 오프셋은 어느 화면도 쓰지 않으므로 y만 본다.)
+	var dy: float = prev_xf.origin.y
+	var gc: Vector2 = Vector2(400.0, center_y + dy)
+	_draw_wm_line(f, WM_L1, s1, b1 + dy, c1, 1.0, 1.0, gc, ones1, ones1)
+	_draw_wm_line(f, WM_L2, s2, b1 + gap + dy, [C_YELL], 0.3, 1.0, gc, ones2, ones2)
+	_xf_cur = prev_xf
+	draw_set_transform_matrix(prev_xf)
+	return [b1 + top_rel, b1 + bot_rel]      # 반환값은 **콘텐츠 좌표** — 호출부가 그 좌표계로 이어 그린다
 
 # 한 줄. 패스를 나눠야 뒤 글자의 블롭이 앞 글자의 면을 덮지 않는다.
 #   gs/gc = 그룹 스케일과 그 중심(조립되며 워드마크 전체가 커진다). ls/la = 글자별 스케일·알파(하나씩 튀어 들어옴).
@@ -4360,11 +4582,11 @@ func _draw_wm_line(f: Font, text: String, size: int, baseline: float, cols: Arra
 			continue
 		var piv: Vector2 = Vector2(xs[i] + cw * 0.5, baseline - float(size) * 0.32 + float(WM_BOB[i % WM_BOB.size()]) * bob_amp)
 		# 그룹 스케일은 피벗 자체를 중심으로 끌어당긴다 → 글자들이 서로 벌어지며 락업이 커진다
-		draw_set_transform(gc + (piv - gc) * gs, deg_to_rad(float(WM_TILT[i % WM_TILT.size()])), Vector2(lsc, lsc))
+		_xf(gc + (piv - gc) * gs, deg_to_rad(float(WM_TILT[i % WM_TILT.size()])), Vector2(lsc, lsc))
 		var base: Vector2 = Vector2(xs[i], baseline) - piv
 		draw_string_outline(f, base + Vector2(0.0, float(dep) + 10.0), ch, HORIZONTAL_ALIGNMENT_LEFT, -1, size, blob_o, Color(C_WM_BLOB_D.r, C_WM_BLOB_D.g, C_WM_BLOB_D.b, a))
 		draw_string_outline(f, base + Vector2(0.0, float(dep)), ch, HORIZONTAL_ALIGNMENT_LEFT, -1, size, blob_i, Color(C_WM_BLOB.r, C_WM_BLOB.g, C_WM_BLOB.b, a))
-		draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
+		_xf(Vector2.ZERO, 0.0, Vector2.ONE)
 
 	# 패스2 — 압출 몸통(깊이 램프) → 윗면 림라이트 → 면. 단색 한 겹이면 옆면이 판자로 보인다.
 	for i2 in range(text.length()):
@@ -4375,7 +4597,7 @@ func _draw_wm_line(f: Font, text: String, size: int, baseline: float, cols: Arra
 		if a <= 0.002 or lsc <= 0.002:
 			continue
 		var piv2: Vector2 = Vector2(xs[i2] + cw2 * 0.5, baseline - float(size) * 0.32 + float(WM_BOB[i2 % WM_BOB.size()]) * bob_amp)
-		draw_set_transform(gc + (piv2 - gc) * gs, deg_to_rad(float(WM_TILT[i2 % WM_TILT.size()])), Vector2(lsc, lsc))
+		_xf(gc + (piv2 - gc) * gs, deg_to_rad(float(WM_TILT[i2 % WM_TILT.size()])), Vector2(lsc, lsc))
 		var base2: Vector2 = Vector2(xs[i2], baseline) - piv2
 		var col: Color = cols[i2 % cols.size()]
 		for d in range(dep, 0, -1):
@@ -4385,7 +4607,7 @@ func _draw_wm_line(f: Font, text: String, size: int, baseline: float, cols: Arra
 		var rim: Color = col.lightened(0.55)
 		draw_string(f, base2 + Vector2(0.0, -float(size) * 0.022), ch2, HORIZONTAL_ALIGNMENT_LEFT, -1, size, Color(rim.r, rim.g, rim.b, a))
 		draw_string(f, base2, ch2, HORIZONTAL_ALIGNMENT_LEFT, -1, size, Color(col.r, col.g, col.b, a))
-		draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
+		_xf(Vector2.ZERO, 0.0, Vector2.ONE)
 
 # 로켓(상승) → 폭죽(작렬). 시각은 계획표에 박혀 있어 프레임률과 무관하게 같은 리듬으로 재생된다.
 func _draw_clear_fireworks(t: float) -> void:
@@ -4747,6 +4969,12 @@ func _return_held() -> void:
 #   껐으므로 여기서 직접 한 단계씩 되돌린다. 안 그러면 판 중에 뒤로가기 한 번으로 앱이 통째로 꺼진다.
 #   사다리: 모달 닫기 → 결과 팝업은 홈 → 플레이 중엔 일시정지(설정) → 하위 화면은 허브 → 허브에서만 종료.
 func _notification(what: int) -> void:
+	# 창 밖으로 나가거나 포커스를 잃으면 '뗀' 이벤트가 안 온다 → 눌린 그림이 굳는다. 여기서 푼다.
+	if what == NOTIFICATION_WM_MOUSE_EXIT or what == NOTIFICATION_WM_WINDOW_FOCUS_OUT \
+			or what == NOTIFICATION_APPLICATION_FOCUS_OUT:
+		_ptr_down = false
+		_clear_btn_hot()
+		queue_redraw()
 	# 계측 세션 경계 — 모바일에선 '종료'가 잘 안 오고 백그라운드 전환이 실제 세션 끝이다.
 	#   그래서 PAUSED에서 닫고 RESUMED에서 새로 연다(세션 길이가 실제 체류와 맞아떨어지게).
 	if what == NOTIFICATION_WM_CLOSE_REQUEST or what == NOTIFICATION_APPLICATION_PAUSED:
@@ -4775,24 +5003,102 @@ func _notification(what: int) -> void:
 		get_tree().quit()            # 허브에서 한 번 더 = 종료(안드로이드 관례)
 	queue_redraw()
 
+# ── 눌림 갱신 ── 화면마다 버튼 목록이 다르므로 화면별로 하나씩. **이동과 누름 양쪽**에서 부른다:
+#   터치는 손가락이 닿기 전에 이동 이벤트가 없다(에뮬 마우스는 드래그만 motion을 만든다). 이동에서만
+#   계산하면 폰에서 탭 눌림 그림이 통째로 빠진다.
+# 뗄 때는 어느 화면인지 따지지 않고 전부 끈다 — 누른 버튼이 화면을 갈아치우면(재도전·홈) 그 화면의
+#   갱신 함수는 다시 안 불린다. 안 끄면 돌아왔을 때 버튼 하나가 눌린 채로 굳는다.
+func _clear_btn_hot() -> void:
+	_adv_hover = false
+	_classic_hover = false
+	_lb_hover = false
+	_lb_play_hover = false
+	_back_hover = false
+	_dev_reset_hover = false
+	_play_hover = false
+	_retry_hover = false
+	_home_hover = false
+	_cont_hover = false
+	_gear_hover = false
+	_set_close_hover = false
+	_set_home_hover = false
+	_set_replay_hover = false
+	_set_sound_hover = false
+	_set_privacy_hover = false
+	_set_haptic_hover = false
+	_armed = ""
+
+# ── 걸림(armed) ── 누를 때 그 버튼이 '걸리고', 뗄 때 **같은 버튼 위**면 발동한다(C144).
+#   눌린 그림이 보이는 건 이 구조 덕이다: 발동이 누름과 동시면 화면이 그 자리에서 바뀌어서
+#   눌린 프레임이 아예 안 그려진다(0프레임 — 짧아서 안 보이는 게 아니었다).
+#   덤으로 '누른 채 밖으로 끌면 취소'가 공짜로 딸려온다 — 걸린 버튼을 벗어나면 그림도 같이 풀린다.
+# ⚠걸림은 **누를 때 검증까지 끝낸다**(잠금·해금·플테 여부). 뗄 때 다시 묻지 않는다 —
+#   누르고 있는 사이에 조건이 바뀌어도 손가락이 본 그 버튼이 발동해야 한다.
+func _armed_hot(id: String, r: Rect2, p: Vector2) -> bool:
+	return _armed == id and r.has_point(p)
+
+func _settings_row(p: Vector2, lay: Dictionary) -> String:
+	for k in ["close", "sound_tog", "haptic_tog", "home_btn", "replay_btn"]:
+		if (lay[k] as Rect2).has_point(p):
+			return String(k)
+	if bool(lay["privacy_on"]) and (lay["privacy_btn"] as Rect2).has_point(p):
+		return "privacy_btn"
+	return ""
+
+func _hot_settings(p: Vector2, slay: Dictionary) -> void:
+	var row: String = "set:" + _settings_row(p, slay)
+	_set_close_hover = _armed == "set:close" and row == _armed
+	_set_home_hover = _armed == "set:home_btn" and row == _armed
+	_set_replay_hover = _armed == "set:replay_btn" and row == _armed
+	_set_privacy_hover = _armed == "set:privacy_btn" and row == _armed
+	_set_sound_hover = _armed == "set:sound_tog" and row == _armed
+	_set_haptic_hover = _armed == "set:haptic_tog" and row == _armed
+
+func _hot_menu(p: Vector2) -> void:   # p = _ui_dy 보정된 좌표
+	_adv_hover = _armed_hot("adv", MENU_ADV_BTN, p)
+	_classic_hover = _armed_hot("classic", MENU_CLASSIC_BTN, p)
+	_lb_hover = _armed_hot("lb", MENU_LB_BTN, p)
+
+func _hot_leaderboard(p: Vector2) -> void:
+	_back_hover = _armed_hot("back", BACK_BTN, p)
+	_lb_play_hover = _armed_hot("lb_play", LB_PLAY_BTN, p)
+
+func _hot_select(p: Vector2) -> void:
+	_play_hover = _armed_hot("play", PLAY_BTN, p)
+	_back_hover = _armed_hot("back", BACK_BTN, p)
+	_dev_reset_hover = _armed_hot("dev_reset", DEV_RESET_BTN, p)
+
+func _hot_result(p: Vector2, lay: Dictionary) -> void:
+	_retry_hover = _armed_hot("retry", lay["retry"] as Rect2, p)
+	_home_hover = _armed_hot("home", lay["home"] as Rect2, p)
+	_cont_hover = _armed_hot("cont", lay["cont"] as Rect2, p)
+
 func _input(event: InputEvent) -> void:
+	# 포인터 눌림 = 화면과 무관한 전역 사실이라 분기보다 먼저 잡는다(아래 return들이 화면마다 다르다).
+	if event is InputEventMouseButton and (event as InputEventMouseButton).button_index == MOUSE_BUTTON_LEFT:
+		_ptr_down = (event as InputEventMouseButton).pressed
+		if not _ptr_down:
+			# ⚠**지연 해제**다. 뗀 순간 바로 지우면 아래 화면별 처리기가 `_armed`를 못 읽어 아무 버튼도
+			#   발동하지 않는다. 지연이면 이 이벤트 처리가 다 끝난 뒤(같은 프레임) 지워진다.
+			_clear_btn_hot.call_deferred()
+			queue_redraw()
+
 	# ── 설정 모달: 열려 있으면 모달 입력만 처리(닫힐 때까지 뒤쪽 입력 차단) ──
 	#   ⚠최상단이어야 한다 — 허브에서도 기어로 열리므로(C80), 플레이 경로 안에 두면 허브에선 모달이
 	#   떠 있는데 뒤의 메뉴 버튼이 눌린다.
 	if settings_open:
 		var slay: Dictionary = _settings_layout()
 		if event is InputEventMouseMotion:
-			var mp2: Vector2 = (event as InputEventMouseMotion).position
-			_set_close_hover = (slay["close"] as Rect2).has_point(mp2)
-			_set_home_hover = (slay["home_btn"] as Rect2).has_point(mp2)
-			_set_replay_hover = (slay["replay_btn"] as Rect2).has_point(mp2)
-			_set_privacy_hover = (slay["privacy_btn"] as Rect2).has_point(mp2)
-			_set_sound_hover = (slay["sound_tog"] as Rect2).has_point(mp2)
-			_set_haptic_hover = (slay["haptic_tog"] as Rect2).has_point(mp2)
+			_hot_settings((event as InputEventMouseMotion).position, slay)
 		elif event is InputEventMouseButton:
 			var sb: InputEventMouseButton = event as InputEventMouseButton
-			if sb.pressed and sb.button_index == MOUSE_BUTTON_LEFT:
-				_settings_click(sb.position, slay)
+			if sb.button_index == MOUSE_BUTTON_LEFT:
+				var srow: String = _settings_row(sb.position, slay)
+				if sb.pressed:
+					_armed = "" if srow.is_empty() else "set:" + srow
+					_hot_settings(sb.position, slay)   # 누름 시점엔 이동 이벤트가 없다 — 여기서 켜야 보인다
+				elif _armed == "set:" + srow and not srow.is_empty():
+					_settings_click(sb.position, slay)
 		elif event is InputEventKey:
 			var sek: InputEventKey = event as InputEventKey
 			if sek.pressed and sek.keycode == KEY_ESCAPE:
@@ -4800,35 +5106,60 @@ func _input(event: InputEvent) -> void:
 				settings_open = false   # ESC = 모달 닫기(홈 아님)
 		return
 
+	# ── 부팅 로고 화면: 아무 입력이나 건너뛴다 ──
+	#   ⚠여기서 안 막으면 아래 플레이 경로가 판 없는 상태로 돈다.
+	#   누를 때 발동이다(버튼 규약인 '뗄 때'와 다르다) — 버튼이 아니라 '넘기기'라 즉각성이 맞고,
+	#   뗄 때 발동으로 두면 그 손뗌이 홈의 버튼 위에서 일어난다.
+	if mode == "logo":
+		var lp: bool = (event is InputEventMouseButton and (event as InputEventMouseButton).pressed) \
+				or (event is InputEventKey and (event as InputEventKey).pressed) \
+				or (event is InputEventScreenTouch and (event as InputEventScreenTouch).pressed)
+		if lp:
+			_logo_done()
+		return
+
 	# ── 메인 메뉴(허브): Adventure(스테이지) / Classic(무한) ──
 	# 세로 중앙 오프셋(_ui_dy)만큼 화면을 내려 그리므로, 입력 좌표는 그만큼 되돌려 히트테스트한다.
 	if mode == "menu":
+		# 부팅 미끄러짐 초반엔 버튼이 아직 안 그려져 있다 — 그동안은 판정도 없다(_menu_slots_live).
+		#   로고 화면을 탭으로 건너뛴 손가락이 그대로 남아 있는 구간이라, 안 보이는 버튼이 살아 있으면
+		#   '누른 적 없는 판'이 시작된다.
+		if not _menu_slots_live():
+			return
 		var mdy: Vector2 = Vector2(0.0, _ui_dy())
 		if event is InputEventMouseMotion:
-			var mmp: Vector2 = (event as InputEventMouseMotion).position - mdy
-			_adv_hover = MENU_ADV_BTN.has_point(mmp)
-			_classic_hover = MENU_CLASSIC_BTN.has_point(mmp) and _endless_unlocked()
-			_lb_hover = LEADERBOARD_ENABLED and MENU_LB_BTN.has_point(mmp)
+			_hot_menu((event as InputEventMouseMotion).position - mdy)
 		elif event is InputEventMouseButton:
 			var mb: InputEventMouseButton = event as InputEventMouseButton
-			if mb.pressed and mb.button_index == MOUSE_BUTTON_LEFT:
+			if mb.button_index == MOUSE_BUTTON_LEFT:
+				# ⚠mbp(=dy 보정 좌표)여야 한다. raw position을 쓰면 그리는 자리와 눌리는 자리가
+				#   _ui_dy만큼 어긋나 1000보다 높은 모든 화면(=모든 폰)에서 이 버튼이 죽는다.
+				#   눌림은 보정 좌표라 '불은 들어오는데 안 눌리는' 형태로 숨는다. (tools/ux_hit_probe.gd)
 				var mbp: Vector2 = mb.position - mdy
-				if MENU_ADV_BTN.has_point(mbp):
-					_fb("tap_go")
-					_adventure_go()                # 이어하기 = 다음 스테이지로 바로
-				elif MENU_CLASSIC_BTN.has_point(mbp):
-					if _endless_unlocked():
+				if mb.pressed:
+					_armed = ""
+					if MENU_ADV_BTN.has_point(mbp):
+						_armed = "adv"
+					elif MENU_CLASSIC_BTN.has_point(mbp):
+						# 잠긴 무한은 **걸지 않는다** — 눌린 그림은 '뗴면 된다'는 약속이라 거짓말이 된다.
+						#   대신 거절 소리는 누르는 즉시 낸다(잠긴 카드와 같은 어휘).
+						if _endless_unlocked():
+							_armed = "classic"
+						else:
+							_fb("tap_off")
+					elif LEADERBOARD_ENABLED and MENU_LB_BTN.has_point(mbp):
+						_armed = "lb"
+					_hot_menu(mbp)
+				else:
+					if _armed_hot("adv", MENU_ADV_BTN, mbp):
 						_fb("tap_go")
-						_start_endless()           # 무한 모드 바로 시작
-					else:
-						_fb("tap_off")             # 잠김 — 화면은 여전히 무반응이고 소리만 "여긴 아직"이라 말한다
-					# 잠겼으면 무반응 — 선택화면의 잠긴 카드와 같은 어휘(자물쇠는 이유를 이미 적어 둠)
-				elif LEADERBOARD_ENABLED and MENU_LB_BTN.has_point(mbp):
-					# ⚠mbp(=dy 보정 좌표)여야 한다. raw position을 쓰면 그리는 자리와 눌리는 자리가
-					#   _ui_dy만큼 어긋나 1000보다 높은 모든 화면(=모든 폰)에서 이 버튼이 죽는다.
-					#   호버는 보정 좌표라 '불은 들어오는데 안 눌리는' 형태로 숨는다. (tools/ux_hit_probe.gd)
-					_fb("tap")
-					mode = "leaderboard"           # 우상단 트로피 → 리더보드 peek
+						_adventure_go()                # 이어하기 = 다음 스테이지로 바로
+					elif _armed_hot("classic", MENU_CLASSIC_BTN, mbp):
+						_fb("tap_go")
+						_start_endless()               # 무한 모드 바로 시작
+					elif _armed_hot("lb", MENU_LB_BTN, mbp):
+						_fb("tap")
+						mode = "leaderboard"           # 우상단 트로피 → 리더보드 peek
 		elif event is InputEventKey:
 			# ⚠키 경로도 같은 소리를 태운다 — 버튼에만 달면 키로 눌렀을 때만 조용해져서, 같은 행동이
 			#   입력 방식에 따라 다르게 들린다(데스크톱 플테에서 '가끔 소리가 안 난다'로 보고된다).
@@ -4851,19 +5182,25 @@ func _input(event: InputEvent) -> void:
 	if mode == "leaderboard":
 		var ldy: Vector2 = Vector2(0.0, _ui_dy())   # 그리기와 동일 오프셋(menu/select와 같은 규칙)
 		if event is InputEventMouseMotion:
-			var lp: Vector2 = (event as InputEventMouseMotion).position - ldy
-			_back_hover = BACK_BTN.has_point(lp)
-			_lb_play_hover = LB_PLAY_BTN.has_point(lp) and _endless_unlocked()
+			_hot_leaderboard((event as InputEventMouseMotion).position - ldy)
 		elif event is InputEventMouseButton:
 			var lmb: InputEventMouseButton = event as InputEventMouseButton
-			if lmb.pressed and lmb.button_index == MOUSE_BUTTON_LEFT:
+			if lmb.button_index == MOUSE_BUTTON_LEFT:
 				var lmp: Vector2 = lmb.position - ldy
-				if BACK_BTN.has_point(lmp):
-					_fb("tap_back")
-					mode = "menu"
-				elif LB_PLAY_BTN.has_point(lmp) and _endless_unlocked():
-					_fb("tap_go")
-					_start_endless()   # ⚠허브 버튼과 같은 게이트 — 여기만 열어두면 잠금이 새는 뒷문이 된다
+				if lmb.pressed:
+					_armed = ""
+					if BACK_BTN.has_point(lmp):
+						_armed = "back"
+					elif LB_PLAY_BTN.has_point(lmp) and _endless_unlocked():
+						_armed = "lb_play"   # ⚠허브 버튼과 같은 게이트 — 여기만 열어두면 잠금이 새는 뒷문이 된다
+					_hot_leaderboard(lmp)
+				else:
+					if _armed_hot("back", BACK_BTN, lmp):
+						_fb("tap_back")
+						mode = "menu"
+					elif _armed_hot("lb_play", LB_PLAY_BTN, lmp):
+						_fb("tap_go")
+						_start_endless()
 		elif event is InputEventKey:
 			var lk: InputEventKey = event as InputEventKey
 			if lk.pressed and lk.keycode == KEY_ESCAPE:
@@ -4881,9 +5218,7 @@ func _input(event: InputEvent) -> void:
 		if event is InputEventMouseMotion:
 			var mm: InputEventMouseMotion = event as InputEventMouseMotion
 			var mp: Vector2 = mm.position - sdy
-			_play_hover = PLAY_BTN.has_point(mp) and not _all_cleared()
-			_back_hover = BACK_BTN.has_point(mp)
-			_dev_reset_hover = _playtest_tools_on() and DEV_RESET_BTN.has_point(mp)
+			_hot_select(mp)
 			# 드래그 스크롤 — 버튼(마우스/터치)이 눌린 채 그리드 위를 끌면 스크롤. 터치=에뮬 마우스로 재사용.
 			if _sel_drag_y >= 0.0 and (mm.button_mask & MOUSE_BUTTON_MASK_LEFT) != 0:
 				_sel_scroll_by(_sel_drag_y - mp.y)
@@ -4899,22 +5234,30 @@ func _input(event: InputEvent) -> void:
 				_sel_scroll_by(64.0)
 			elif sm.button_index == MOUSE_BUTTON_LEFT:
 				if sm.pressed:
+					_armed = ""
 					if _playtest_tools_on() and DEV_RESET_BTN.has_point(smp):
+						_armed = "dev_reset"
+					elif BACK_BTN.has_point(smp):
+						_armed = "back"
+					elif PLAY_BTN.has_point(smp) and not _all_cleared():
+						_armed = "play"
+					elif smp.y > SEL_TOP and smp.y < SEL_VIEW_BOT:
+						_sel_drag_y = smp.y                 # 그리드 영역 프레스 = 드래그 스크롤 시작
+					_hot_select(smp)
+				else:
+					_sel_drag_y = -1.0
+					if _armed_hot("dev_reset", DEV_RESET_BTN, smp):
 						if _dev_reset_arm > 0.0:
 							_dev_wipe_progress()            # 두 번째 탭 = 실행
 						else:
 							_dev_reset_arm = DEV_RESET_ARM  # 첫 탭 = 무장(시간 지나면 저절로 풀림)
 							queue_redraw()
-					elif BACK_BTN.has_point(smp):
+					elif _armed_hot("back", BACK_BTN, smp):
 						_fb("tap_back")
 						mode = "menu"                       # 허브로 복귀
-					elif PLAY_BTN.has_point(smp) and not _all_cleared():
+					elif _armed_hot("play", PLAY_BTN, smp):
 						_fb("tap_go")
 						_start_stage(_current_stage())      # 하단 버튼 = 프런티어(다음 판)로 진행
-					elif smp.y > SEL_TOP and smp.y < SEL_VIEW_BOT:
-						_sel_drag_y = smp.y                 # 그리드 영역 프레스 = 드래그 스크롤 시작
-				else:
-					_sel_drag_y = -1.0
 		elif event is InputEventKey:
 			var sk: InputEventKey = event as InputEventKey
 			if sk.pressed and (sk.keycode == KEY_SPACE or sk.keycode == KEY_ENTER):
@@ -4958,24 +5301,31 @@ func _input(event: InputEvent) -> void:
 		if _ad_pending:
 			return
 		if event is InputEventMouseMotion:
-			var rp: Vector2 = (event as InputEventMouseMotion).position
-			_retry_hover = (lay["retry"] as Rect2).has_point(rp)
-			_home_hover = (lay["home"] as Rect2).has_point(rp)
-			_cont_hover = has_cont and (lay["cont"] as Rect2).has_point(rp)
+			_hot_result((event as InputEventMouseMotion).position, lay)
 		elif event is InputEventMouseButton:
 			var mbe: InputEventMouseButton = event as InputEventMouseButton
-			if mbe.pressed and mbe.button_index == MOUSE_BUTTON_LEFT:
-				if has_cont and (lay["cont"] as Rect2).has_point(mbe.position):
-					_fb("tap_go")
-					_request_revive_ad()
-				elif (lay["retry"] as Rect2).has_point(mbe.position):
-					_fb("tap_go")
-					_track_revive_dismissed("retry")
-					_result_advance()
-				elif (lay["home"] as Rect2).has_point(mbe.position):
-					_fb("tap_back")
-					_track_revive_dismissed("home")
-					mode = _home_mode()
+			if mbe.button_index == MOUSE_BUTTON_LEFT:
+				if mbe.pressed:
+					_armed = ""
+					if has_cont and (lay["cont"] as Rect2).has_point(mbe.position):
+						_armed = "cont"
+					elif (lay["retry"] as Rect2).has_point(mbe.position):
+						_armed = "retry"
+					elif (lay["home"] as Rect2).has_point(mbe.position):
+						_armed = "home"
+					_hot_result(mbe.position, lay)
+				else:
+					if _armed_hot("cont", lay["cont"] as Rect2, mbe.position):
+						_fb("tap_go")
+						_request_revive_ad()
+					elif _armed_hot("retry", lay["retry"] as Rect2, mbe.position):
+						_fb("tap_go")
+						_track_revive_dismissed("retry")
+						_result_advance()
+					elif _armed_hot("home", lay["home"] as Rect2, mbe.position):
+						_fb("tap_back")
+						_track_revive_dismissed("home")
+						mode = _home_mode()
 		elif event is InputEventKey:
 			var ke: InputEventKey = event as InputEventKey
 			# SPACE = 주 동작. 부활 가능하면 '광고 이어하기', 아니면 재도전/다음.
@@ -4998,6 +5348,9 @@ func _input(event: InputEvent) -> void:
 		if (event is InputEventMouseButton and (event as InputEventMouseButton).pressed) \
 				or (event is InputEventKey and (event as InputEventKey).pressed):
 			intro_t = -1.0
+			# 스킵 = 카드를 닫은 것 → 닫기 소리. **`goal_dock`은 안 낸다** — 도킹 연출을 건너뛰었으니
+			#   안착도 없었다. 소리가 화면에 없는 사건을 말하면 안 된다(§2 원칙 1).
+			_fb("tap_back")
 		return
 
 	if event is InputEventKey:
@@ -5029,9 +5382,9 @@ func _input(event: InputEvent) -> void:
 	if resolving:
 		return
 
-	# 우상단 기어 호버 (플레이 중 언제나)
+	# 우상단 기어 눌림 (플레이 중 언제나)
 	if event is InputEventMouseMotion:
-		_gear_hover = gear_rect.has_point((event as InputEventMouseMotion).position)
+		_gear_hover = _armed_hot("gear", gear_rect, (event as InputEventMouseMotion).position)
 
 	# 들고 있는 조각은 두 모드 모두 포인터를 따라온다 — 화면 규칙(스냅=가능/부유=불가)이 같아진다.
 	if event is InputEventMouseMotion and dragging:
@@ -5043,8 +5396,16 @@ func _input(event: InputEvent) -> void:
 		if mbe.button_index != MOUSE_BUTTON_LEFT:
 			return
 
-		# 설정 기어 → 모달 열기(들고 있던 조각은 트레이로 되돌림)
-		if mbe.pressed and gear_rect.has_point(mbe.position):
+		# 설정 기어 → 모달 열기(들고 있던 조각은 트레이로 되돌림).
+		#   기어만 뗄 때 열린다(UI 버튼 규칙). 누름은 여기서 **삼킨다** — 안 그러면 기어를 누른 손이
+		#   그대로 조각 집기·조준 해제로 새어 들어간다.
+		if mbe.pressed:
+			if gear_rect.has_point(mbe.position):
+				_armed = "gear"
+				_gear_hover = true
+				return
+			_armed = ""       # 판 위 누름은 UI 버튼이 아니다 — 걸린 게 있으면 푼다
+		elif _armed_hot("gear", gear_rect, mbe.position):
 			_fb("tap")
 			settings_open = true
 			plane_armed = false   # 모달 뒤에 조준이 살아 있으면 돌아왔을 때 유령 링이 떠 있다
@@ -5118,6 +5479,23 @@ func _process(delta: float) -> void:
 		_ad_seam_t += delta
 		if _ad_seam_t >= AD_SEAM_TIMEOUT:
 			_ad_seam_done()
+	if mode == "logo":
+		logo_t += delta
+		if logo_t >= LOGO_HOLD:
+			_logo_done()
+		queue_redraw()
+		return
+	# 로고 → 홈 미끄러짐. 홈을 떠나면 즉시 끝낸다(허브로 되돌아올 때 다시 미끄러지면 안 된다).
+	if menu_intro >= 0.0:
+		if mode == "menu":
+			# ⚠delta를 그대로 더하지 않는다. 부팅 직후엔 프레임이 들쭉날쭉해서(실측 17~105ms) 긴 프레임
+			#   하나가 이동의 38%를 한 번에 먹는다 — 그게 "뚜둑"이다. 한 프레임이 가져갈 수 있는 몫을
+			#   묶어 두면 느린 기기에선 전환이 조금 길어질 뿐, 계단은 늘 같은 폭이 된다.
+			menu_intro += minf(delta, 1.0 / 30.0)
+			if menu_intro >= MENU_INTRO:
+				menu_intro = -1.0
+		else:
+			menu_intro = -1.0
 	if mode == "menu" or mode == "select" or mode == "leaderboard":
 		if _dev_reset_arm > 0.0:
 			_dev_reset_arm = maxf(0.0, _dev_reset_arm - delta)   # 무장은 저절로 풀린다(오발 방지)
@@ -5128,6 +5506,11 @@ func _process(delta: float) -> void:
 		intro_t += delta
 		if intro_t >= INTRO_TOTAL:
 			intro_t = -1.0
+			# 안착 = 보석 도착과 **같은 열차**(§34). 길이는 들어가는 칩 개수가 정한다 —
+			#   수집판은 색마다 한 칩씩 자기 카운터로 가고, 나머지 동사는 하나다.
+			var dock_n: int = maxi(1, (st.get("collect_targets", []) as Array).size()) \
+					if bool(st.get("collect", false)) else 1
+			_fb("goal_dock", float(dock_n))
 		queue_redraw()
 	# 카드가 끝났으면(또는 탭으로 건너뛰었으면) 미뤄 둔 콜아웃을 그제야 켠다 — 두 종료 경로가
 	#   모두 intro_t를 -1로 두므로 여기 한 곳에서 받는다(스킵 경로에 같은 코드를 또 두지 않는다).
@@ -5163,7 +5546,15 @@ func _process(delta: float) -> void:
 
 	# 결과 팝업 타이머 — 무대가 끝난(또는 실패로 바로 뜬) 시점부터 순차 개봉
 	if (game_over or game_clear) and not _death_playing() and not _clear_stage_on():
+		var rt_was: float = result_t
 		result_t = 0.0 if result_t < 0.0 else result_t + delta
+		# 개봉 두 박에 소리를 붙인다(R22 · §22 B-15) — 실측으로 이 창은 2초 내내 발화 0이었다.
+		#   ⚠**경계를 넘는 프레임에 한 번만.** result_t는 팝업이 닫힐 때까지 계속 올라가므로
+		#   조건을 값 비교로 쓰면 매 프레임 울린다(진흙 정도가 아니라 굉음이 된다).
+		if rt_was < 0.0:
+			_fb("result_win" if game_clear else "result_lose")
+		elif rt_was < RESULT_BTN_IN and result_t >= RESULT_BTN_IN:
+			_fb("result_cta")       # 여기서부터 입력이 열린다(_input의 개봉 가드) = 상태 변화의 신호
 		queue_redraw()
 
 	# 전투 순차 연출 진행 (타이머는 항상 0으로 수렴 → 데드락 없음)
@@ -5289,10 +5680,18 @@ func _process(delta: float) -> void:
 			death_flashes.remove_at(j)
 		j -= 1
 	# 보석 비행: 상단 카운터로 빨려간다. 도착하면 그 타입 카운트+1(cap), 카운터 팝, 마지막이면 클리어 발화.
+	var g_launched: int = 0
 	var gf: int = gem_flights.size() - 1
 	while gf >= 0:
-		gem_flights[gf]["t"] += delta
-		if gem_flights[gf]["t"] >= float(gem_flights[gf]["dur"]):
+		var g_was: float = float(gem_flights[gf]["t"])
+		var g_launch: float = maxf(0.0, float(gem_flights[gf]["dur"]) - GEM_FLY)
+		gem_flights[gf]["t"] = g_was + delta
+		# **발사 프레임에 소리를 낸다**(R26). 레퍼런스는 도착 순간의 한 방이 아니라 빨려 들어가는
+		#   동작 전체를 덮는 틱 열차이고, 그 열차의 **가장 큰 마지막 발이 도착과 같은 프레임**에 온다.
+		#   → 여기서 시작해야 열차 길이(3발 × 38ms ≈ GEM_FLY)가 비행과 맞아떨어진다.
+		if g_was < g_launch and float(gem_flights[gf]["t"]) >= g_launch:
+			g_launched += 1
+		if float(gem_flights[gf]["t"]) >= float(gem_flights[gf]["dur"]):
 			var gt2: int = int(gem_flights[gf]["gtype"])
 			var tgts2: Array = st.get("collect_targets", [])
 			if not game_over and gt2 < collected_by_type.size() and gt2 < tgts2.size() and int(collected_by_type[gt2]) < int(tgts2[gt2]):
@@ -5304,6 +5703,11 @@ func _process(delta: float) -> void:
 			if not game_clear and not game_over:
 				_check_win()              # 마지막 보석이 도착하며 클리어
 		gf -= 1
+	# ⚠**같은 프레임에 여럿 발사돼도 열차는 하나다** — 개수만큼 **길어질** 뿐이다(레퍼런스: 1개 11발 ·
+	#   3개 23발 = 한 줄이 늘어난다). 보석마다 한 줄씩 쏘면 5개일 때 15발이 0.08초에 몰려 예산을
+	#   넘고(실측 롤링 16 > 15) 그때부터는 조용히 드롭된다 = 개수가 오히려 덜 들린다.
+	if g_launched > 0:
+		_fb("collect", float(g_launched))
 	for pi in range(collect_pop.size()):
 		if collect_pop[pi] > 0.0:
 			collect_pop[pi] = maxf(0.0, collect_pop[pi] - delta)
@@ -5456,7 +5860,37 @@ func _process(delta: float) -> void:
 	queue_redraw()
 
 # ===== 그리기 =====
+# 홈 배경 — 가운데만 밝은 인디고 타원, 가장자리는 C_BG. 순평면 어두운 화면은 OLED에서 '꺼진 화면'과
+#   구분이 안 된다. **부트 스플래시 그림(tools/splash_shot.gd)과 같은 식·같은 값**이어야 한다 —
+#   스플래시가 꺼지고 이 화면이 뜨는 순간 배경이 달라지면 그 컷이 그대로 보인다.
+# 세로 그라데이션이 아니라 타원인 이유: 엔진은 스플래시 그림을 화면 비율에 맞춰 레터박스로 앉히고 남는
+#   자리를 bg_color로 칠한다. 그림 가장자리가 bg_color와 다르면 경계가 띠로 보인다 → 네 변을 C_BG로 맞췄고,
+#   홈은 그 그림과 같아 보여야 하므로 여기도 같은 모양으로 그린다.
+const C_BG_TOP := Color("#2a2358")   # 발광 중심색
+const BG_GLOW_CY: float = 0.47       # 발광 중심(화면 세로 비율) = 스플래시 워드마크의 광학 중심
+const BG_GLOW_RINGS: int = 48        # 48단계면 8비트에서 계단이 안 보인다
+
+# ⚠이 배경으로 무언가를 **반투명하게 가리려 하지 말 것**(부팅 전환에서 버튼 페이드인으로 시도했다가 걷어냄).
+#   48겹이 겹쳐 칠해지므로 겹당 알파를 낮춰도 누적 불투명도가 1-(1-a)^48 ≈ 1이다 — 알파가 뭐든 결과는
+#   '완전히 가림'뿐이라, 실측 diff가 페이드 없이 90에서 0으로 한 번에 떨어졌다. 가리려면 안 그리면 된다.
+func _draw_bg_glow() -> void:
+	draw_rect(Rect2(-20.0, -20.0, VW_BASE + 40.0, vh + 40.0), C_BG)
+	var cy: float = vh * BG_GLOW_CY
+	var rx: float = VW_BASE * 0.52       # ⚠반폭을 크게 넘기면 좌우 가장자리가 밝아져 위 목적이 깨진다
+	var ry: float = vh * 0.58
+	for i in range(BG_GLOW_RINGS, 0, -1):
+		var k: float = float(i) / float(BG_GLOW_RINGS)   # 1=가장 바깥
+		var pts := PackedVector2Array()
+		for a in range(40):
+			var th: float = TAU * float(a) / 40.0
+			pts.append(Vector2(VW_BASE * 0.5 + cos(th) * rx * k, cy + sin(th) * ry * k))
+		draw_polygon(pts, PackedColorArray([C_BG.lerp(C_BG_TOP, (1.0 - k) * (1.0 - k))]))
+
+
 func _draw() -> void:
+	# 눌림 스케일 스택은 프레임마다 새로 시작한다 — 어딘가 begin/end 짝이 어긋나도 다음 프레임으로 안 샌다.
+	_xf_stack.clear()
+	_xf_cur = Transform2D.IDENTITY
 	var fnt: Font = _font if _font != null else ThemeDB.fallback_font
 	# 가산 큐는 매 프레임 새로 쌓는다. 자식은 부모 뒤에 그려지므로, 여기서 dirty만 찍어두면
 	#   아래에서 채워진 큐를 같은 프레임에 소비한다(아래 화면 분기들이 일찍 return해도 안전).
@@ -5464,19 +5898,37 @@ func _draw() -> void:
 		_glow.quads.clear()
 		_glow.queue_redraw()
 
+	if mode == "logo":
+		# 홈과 **같은 배경·같은 락업**이다. 다른 건 락업이 앉는 높이(47% vs 23%) 하나뿐 —
+		#   그래서 이 화면이 홈으로 넘어갈 때, 로고가 그 높이차만큼 미끄러지는 것 말고는 아무것도 안 바뀐다.
+		_draw_bg_glow()
+		# ⚠홈 버튼을 여기서 미리 한 번 그려 배경으로 덮는다 = **워밍업**(화면엔 안 남는다 — 배경이
+		#   불투명하고 홈과 같은 그림이다). 첫 버튼 그리기가 9-slice 텍스처 업로드·셰이더 컴파일을 끌고
+		#   오는데, 그게 미끄러지는 도중에 터지면 **그 프레임만 105ms**가 되어 로고가 한 칸 건너뛴다
+		#   (실측: 스파이크 시각이 버튼 등장 시각과 정확히 겹쳤다). 여기서 미리 치르면 홈은 이미 더운 상태다.
+		_xf(Vector2(0.0, _ui_dy()))
+		_draw_menu_slots(fnt)
+		_xf(Vector2.ZERO)
+		_draw_bg_glow()
+		_draw_logo(fnt)
+		return
+
 	if mode == "menu":
 		# 배경은 전체를 덮고, 콘텐츠만 세로 중앙으로 내린다(입력도 같은 오프셋으로 되돌림).
-		draw_rect(Rect2(-20, -20, VW_BASE + 40.0, vh + 40.0), C_BG)
-		draw_set_transform(Vector2(0.0, _ui_dy()))
+		# 홈만 그라데이션이다 — 부트 스플래시 그림과 같은 재질이라, 스플래시가 꺼지고 홈이 뜨는 순간이
+		#   배경에서 안 보인다(레퍼런스 실측: 스튜디오·스플래시·홈 세 화면의 배경이 픽셀 단위로 같다).
+		#   게임 화면은 평면 C_BG 그대로다 — 보드가 깔리면 어차피 화면이 통째로 바뀐다.
+		_draw_bg_glow()
+		_xf(Vector2(0.0, _ui_dy()))
 		_draw_menu(fnt)
-		draw_set_transform(Vector2.ZERO)
+		_xf(Vector2.ZERO)
 		return
 
 	if mode == "select":
 		draw_rect(Rect2(-20, -20, VW_BASE + 40.0, vh + 40.0), C_BG)
-		draw_set_transform(Vector2(0.0, _ui_dy()))
+		_xf(Vector2(0.0, _ui_dy()))
 		_draw_select(fnt)
-		draw_set_transform(Vector2.ZERO)
+		_xf(Vector2.ZERO)
 		return
 
 	if mode == "leaderboard":
@@ -5484,16 +5936,16 @@ func _draw() -> void:
 		#   (구: 840×1040 고정 배경 + 오프셋 없음 → 긴 화면에서 하단이 미도색으로 남고,
 		#    허브에서 넘어올 때 레이아웃이 위로 점프했다.)
 		draw_rect(Rect2(-20, -20, VW_BASE + 40.0, vh + 40.0), C_BG)
-		draw_set_transform(Vector2(0.0, _ui_dy()))
+		_xf(Vector2(0.0, _ui_dy()))
 		_draw_leaderboard(fnt)
-		draw_set_transform(Vector2.ZERO)
+		_xf(Vector2.ZERO)
 		return
 
 	draw_ofs = Vector2.ZERO
 	if shake_timer > 0.0:
 		var mag: float = SHAKE_AMP * (shake_timer / SHAKE_DUR)
 		draw_ofs = Vector2(randf_range(-mag, mag), randf_range(-mag, mag))
-		draw_set_transform(draw_ofs)
+		_xf(draw_ofs)
 	# 가산 레이어는 **자식**이라 부모의 흔들림 변환을 안 받는다 — 같은 오프셋을 노드 위치로 걸어 준다.
 	#   안 걸면 화면이 흔들리는 동안 백열·피격 플래시만 제자리에 남아 실루엣이 어긋난다.
 	if _glow != null:
@@ -5537,8 +5989,13 @@ func _draw() -> void:
 
 	# 보석 비행: 잡은 자리 → 상단 그 색 카운터. 가속(빨려감) + 작아짐 + 꼬리광.
 	for gfl in gem_flights:
-		var gft: float = clampf(float(gfl["t"]) / float(gfl["dur"]), 0.0, 1.0)
-		var gpos: Vector2 = (gfl["from"] as Vector2).lerp(gfl["to"] as Vector2, gft * gft)
+		# 세 박자(R26): ①제자리 대기 — 살짝 떠올라 맥동한다(잊힌 물건이 아니라 '곧 갈 것'이라는 신호)
+		#   ②가속 발사 ③도착. 대기 없이 바로 떠가면 블라스트 잔해와 섞여 보석인지 안 읽힌다.
+		var g_raw: float = float(gfl["t"])
+		var g_hold: float = maxf(0.0, float(gfl["dur"]) - GEM_FLY)
+		var gft: float = clampf((g_raw - g_hold) / maxf(0.001, float(gfl["dur"]) - g_hold), 0.0, 1.0)
+		var g_bob: float = (-4.0 - 3.0 * sin(g_raw * 9.0)) if g_raw < g_hold else 0.0
+		var gpos: Vector2 = ((gfl["from"] as Vector2) + Vector2(0.0, g_bob)).lerp(gfl["to"] as Vector2, gft * gft)
 		var gsz: float = lerpf(CELL * 0.55, CELL * 0.22, gft)
 		var gfc: Color = gfl["color"]
 		draw_circle(gpos, gsz * 0.5 + 4.0, Color(gfc.r, gfc.g, gfc.b, 0.28 * (1.0 - gft)))
@@ -5917,12 +6374,12 @@ func _draw_pb_sticker(fnt: Font) -> void:
 	var lw: float = fnt.get_string_size(label, HORIZONTAL_ALIGNMENT_LEFT, -1, sfs).x
 	var sw: float = lw + 34.0
 	var sh: float = 40.0
-	draw_set_transform(Vector2(cx, 30.0 + safe_top), -0.12 + wob, Vector2(ss, ss))   # 카드 상단 걸치게, ~-7°
+	_xf(Vector2(cx, 30.0 + safe_top), -0.12 + wob, Vector2(ss, ss))   # 카드 상단 걸치게, ~-7°
 	draw_rect(Rect2(-sw * 0.5 + 2.0, -sh * 0.5 + 3.0, sw, sh), Color(0.0, 0.0, 0.0, 0.22 * a))   # 그림자
 	draw_rect(Rect2(-sw * 0.5, -sh * 0.5, sw, sh), Color(0.82, 0.58, 0.06, a))                   # 골드 테두리
 	draw_rect(Rect2(-sw * 0.5 + 3.0, -sh * 0.5 + 3.0, sw - 6.0, sh - 6.0), Color(1.0, 0.86, 0.3, a))  # 크림 속
 	draw_string(fnt, Vector2(-lw * 0.5, sfs * 0.36), label, HORIZONTAL_ALIGNMENT_LEFT, -1, sfs, Color(0.3, 0.15, 0.0, a))
-	draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
+	_xf(Vector2.ZERO, 0.0, Vector2.ONE)
 
 # ===== 결과 팝업 =====
 # 화면을 통째로 덮는 텍스트 나열이 아니라, 어두워진 게임 위에 뜨는 '카드'.
@@ -5948,7 +6405,9 @@ func _result_layout() -> Dictionary:
 		# 3버튼 상태 — 주(광고)는 공통 자리, 부(재도전)·고스트(홈)만 아래로 붙는다. 패널은 그만큼 길어진다.
 		return {
 			"revivable": true,
-			"panel": Rect2(RESULT_PANEL_X, 234.0 + dy, RESULT_PANEL_W, 560.0),
+			# ⚠위선을 실패 팝업(264)과 맞췄다 — 버튼이 하나 늘어난다고 헤드라인이 위로 튀면
+			#   광고 대기↔부활 사이에서 카드가 들썩인다. 늘어나는 만큼 아래로만 길어진다.
+			"panel": Rect2(RESULT_PANEL_X, 264.0 + dy, RESULT_PANEL_W, 530.0),
 			"cont": cta,                                                # 주: 광고 이어하기
 			"retry": Rect2(275.0, 660.0 + dy, 250.0, 52.0),             # 부: 재도전
 			"home": Rect2(290.0, 730.0 + dy, 220.0, 40.0),              # 고스트: 홈
@@ -6185,7 +6644,7 @@ func _settings_click(pos: Vector2, lay: Dictionary) -> void:
 func _draw_toggle(r: Rect2, on: bool, hot: bool) -> void:
 	var mid_y: float = r.position.y + r.size.y * 0.5
 	var rad: float = r.size.y * 0.5
-	var base: Color = Color(0.28, 0.64, 0.36) if on else Color(0.19, 0.20, 0.29)
+	var base: Color = Color(0.28, 0.64, 0.36) if on else _ink(Color(0.19, 0.20, 0.29), Color(0.74, 0.76, 0.82))
 	if hot:
 		base = base.lightened(0.10)
 	draw_rect(Rect2(r.position.x + rad, r.position.y, r.size.x - 2.0 * rad, r.size.y), base)
@@ -6197,10 +6656,12 @@ func _draw_toggle(r: Rect2, on: bool, hot: bool) -> void:
 # 모달 안 작은 액션 버튼(홈=회색빛 유틸 / 다시하기=초록 '진행'). 결과팝업 버튼 언어 계승.
 func _draw_mini_button(fnt: Font, r: Rect2, label: String, hot: bool, accent: Color, ink: Color) -> void:
 	var base: Color = accent.lightened(0.12) if hot else accent
+	_btn_press_begin(r, hot)
 	_draw_btn_box(r, base, accent.darkened(0.5), accent.darkened(0.35), 5.0, 0.14, 3.0,
 			BTN_PRESS if hot else BTN_NORMAL, true)
 	var lw: float = fnt.get_string_size(label, HORIZONTAL_ALIGNMENT_LEFT, -1, 24).x
 	_draw_text_outlined(fnt, Vector2(r.position.x + r.size.x * 0.5 - lw * 0.5, r.position.y + r.size.y * 0.5 + 9.0), label, 24, ink)
+	_btn_press_end()
 
 # 기어 아이콘 — 이(teeth) 8개 + 링 + 중심점. 작은 크기라 형태로만 '설정'을 말한다.
 func _draw_gear_icon(c: Vector2, rad: float, col: Color) -> void:
@@ -6218,41 +6679,47 @@ func _draw_settings(fnt: Font) -> void:
 	var p: Rect2 = lay["panel"]
 	# 스크림 — 뒤 판을 눌러 모달임을 알린다(결과팝업과 동일 톤)
 	draw_rect(Rect2(-20, -20, VW_BASE + 40.0, vh + 40.0), Color(0.0, 0.0, 0.0, 0.68))
-	# 패널(다크) — 그림자 + 본체 + 상단 강조바 + 테두리. 결과 팝업과 같은 부품(_draw_panel_box)이다.
+	# 패널 — 그림자 + 본체 + 상단 강조바 + 테두리. 결과 팝업과 같은 부품(_draw_panel_box)이다.
 	var accent: Color = Color(0.55, 0.58, 0.72)
 	_draw_panel_box(p, Color(0.11, 0.11, 0.18), accent)
+	_ink_light = ui_9s.has("panel")   # 납품 패널=밝은 크림 → 이 아래 글자·선을 어두운 쪽으로 뒤집는다
 	var cx: float = p.position.x + p.size.x * 0.5
 	var lx: float = lay["label_x"]
 
 	# 제목 + X 닫기
 	var title: String = _t("settings")
 	var tw: float = fnt.get_string_size(title, HORIZONTAL_ALIGNMENT_LEFT, -1, 34).x
-	_draw_text_outlined(fnt, Vector2(cx - tw * 0.5, lay["title_y"]), title, 34, Color(0.92, 0.92, 0.98))
+	_draw_text_outlined(fnt, Vector2(cx - tw * 0.5, lay["title_y"]), title, 34,
+			_ink(Color(0.92, 0.92, 0.98), C_INK_TITLE), _ink_out())
 	var cb: Rect2 = lay["close"]
 	var cc: Vector2 = cb.position + cb.size * 0.5
-	var xcol: Color = Color.WHITE if _set_close_hover else Color(0.65, 0.67, 0.78)
+	var xcol: Color = _ink(Color.WHITE, C_INK_TITLE) if _set_close_hover else _ink(Color(0.65, 0.67, 0.78), C_INK_BODY)
+	_btn_press_begin(cb, _set_close_hover)
 	draw_line(cc + Vector2(-9, -9), cc + Vector2(9, 9), xcol, 4.0)
 	draw_line(cc + Vector2(9, -9), cc + Vector2(-9, 9), xcol, 4.0)
+	_btn_press_end()
 
 	# 토글 행: 소리 · 진동
-	_draw_text_outlined(fnt, Vector2(lx, float(lay["r1"]) + 9.0), _t("sound"), 26, Color(0.86, 0.87, 0.95))
+	_draw_text_outlined(fnt, Vector2(lx, float(lay["r1"]) + 9.0), _t("sound"), 26, _ink(Color(0.86, 0.87, 0.95), C_INK_BODY), _ink_out())
 	_draw_toggle(lay["sound_tog"], sound_on, _set_sound_hover)
-	_draw_text_outlined(fnt, Vector2(lx, float(lay["r2"]) + 9.0), _t("haptic"), 26, Color(0.86, 0.87, 0.95))
+	_draw_text_outlined(fnt, Vector2(lx, float(lay["r2"]) + 9.0), _t("haptic"), 26, _ink(Color(0.86, 0.87, 0.95), C_INK_BODY), _ink_out())
 	_draw_toggle(lay["haptic_tog"], haptic_on, _set_haptic_hover)
 
 	# 구분선
-	draw_line(Vector2(lx, lay["divider_y"]), Vector2(p.position.x + p.size.x - 36.0, lay["divider_y"]), Color(1.0, 1.0, 1.0, 0.10), 2.0)
+	draw_line(Vector2(lx, lay["divider_y"]), Vector2(p.position.x + p.size.x - 36.0, lay["divider_y"]),
+			_ink(Color(1.0, 1.0, 1.0, 0.10), Color(0.26, 0.32, 0.42, 0.22)), 2.0)
 
 	# 액션 행: 홈(메뉴로) · 다시하기(재시작)
-	_draw_text_outlined(fnt, Vector2(lx, float(lay["r3"]) + 9.0), _t("home"), 26, Color(0.86, 0.87, 0.95))
+	_draw_text_outlined(fnt, Vector2(lx, float(lay["r3"]) + 9.0), _t("home"), 26, _ink(Color(0.86, 0.87, 0.95), C_INK_BODY), _ink_out())
 	_draw_mini_button(fnt, lay["home_btn"], _t("go_home"), _set_home_hover, Color(0.30, 0.33, 0.44), Color(0.92, 0.93, 1.0))
-	_draw_text_outlined(fnt, Vector2(lx, float(lay["r4"]) + 9.0), _t("restart_label"), 26, Color(0.86, 0.87, 0.95))
+	_draw_text_outlined(fnt, Vector2(lx, float(lay["r4"]) + 9.0), _t("restart_label"), 26, _ink(Color(0.86, 0.87, 0.95), C_INK_BODY), _ink_out())
 	_draw_mini_button(fnt, lay["replay_btn"], _t("restart"), _set_replay_hover, Color(0.34, 0.72, 0.26), Color(0.98, 1.0, 0.94))
 
 	# 개인정보 옵션 — 필요한 지역에서만(EEA/UK). 홈과 같은 회색빛 유틸 언어를 쓴다(진행 버튼 아님).
 	if bool(lay["privacy_on"]):
-		_draw_text_outlined(fnt, Vector2(lx, float(lay["r5"]) + 9.0), _t("privacy_label"), 26, Color(0.86, 0.87, 0.95))
+		_draw_text_outlined(fnt, Vector2(lx, float(lay["r5"]) + 9.0), _t("privacy_label"), 26, _ink(Color(0.86, 0.87, 0.95), C_INK_BODY), _ink_out())
 		_draw_mini_button(fnt, lay["privacy_btn"], _t("privacy_btn"), _set_privacy_hover, Color(0.30, 0.33, 0.44), Color(0.92, 0.93, 1.0))
+	_ink_light = false
 
 # 재생 삼각형(▶) — '광고 영상을 본다'는 뜻. 오른쪽을 향한 정삼각형.
 func _draw_play_icon(c: Vector2, r: float, col: Color) -> void:
@@ -6298,6 +6765,21 @@ func _fail_headline() -> String:
 		return _t("fail_near")
 	return _t("fail_far")
 
+# 인트로 칩이 날아가 안착할 자리(R28) — **HUD가 이번 프레임에 그린 '목표 수'의 실제 좌표**를 쓴다.
+#   `_goal_num_cs`는 `_draw_hud`가 동사별 분기에서 채우고(적=남은 수 · 수집=색마다 · 보호·보스=카드 중앙),
+#   `_draw_hud`가 `_draw_stage_intro`보다 먼저 도므로 같은 프레임 값이 이미 들어 있다.
+# ⚠하드코딩 (293,66)은 **어느 동사에서도 안 맞았다**(유저 지적): 적 판은 숫자가 카드 오른쪽에 있고,
+#   수집 판은 색마다 자리가 다르다. 좌표를 두 곳에 적으면 레이아웃이 바뀔 때마다 조용히 어긋난다.
+func _goal_card_center() -> Vector2:
+	return Vector2(400.0, _hud_card_y() + HUD_CARD_H * 0.5)
+
+func _goal_dock_pos(i: int) -> Vector2:
+	if i >= 0 and i < _goal_num_cs.size():
+		return _goal_num_cs[i] as Vector2
+	if _goal_num_cs.size() > 0:
+		return _goal_num_cs[0] as Vector2
+	return Vector2(400.0, _hud_card_y() + HUD_CARD_H * 0.5)   # 애매하면 카드 중앙
+
 # 스테이지 인트로 카드 — 중앙 큰 팝업(이름·태그·목표)이 떠서 머물다, 상단 목표 카드(goal_r)로
 # 축소·이동하며 알파가 빠져 '녹아든다'. 텍스트는 카드 높이비로 함께 축소 → 도킹 끝에 목표 카드에 안착.
 # BlockBlast의 목표 배너(중앙 등장 → 상단 HUD 도킹) 관찰. 목표는 판마다 같지만(적 N 처치) 이름·태그·수는
@@ -6332,7 +6814,6 @@ func _draw_stage_intro(fnt: Font) -> void:
 		var ctgts: Array = st.get("collect_targets", [1])
 		var cn: int = maxi(1, ctgts.size())
 		var c_hold: Vector2 = Vector2(cx, r.position.y + r.size.y * 0.62)
-		var c_chip: Vector2 = c_hold.lerp(Vector2(293.0, 66.0), dock)
 		var ccs: float = lerpf(1.0, 0.47, dock)
 		var c_a: float = appear * (1.0 - clampf((dock - 0.72) / 0.28, 0.0, 1.0))
 		var g_icon: float = 52.0 * ccs
@@ -6346,10 +6827,14 @@ func _draw_stage_intro(fnt: Font) -> void:
 			g_ws.append(gw2)
 			g_total += gw2
 		g_total += g_gap * float(cn - 1)
-		var gx0: float = c_chip.x - g_total * 0.5
+		# ⚠**색마다 자기 카운터로 간다**(R28). 전엔 한 점으로 뭉쳐 날아가서 어느 색이 어디로 들어가는지가
+		#   안 보였다 — 수집 카드는 색 슬롯이 갈려 있으므로 도착점도 갈려야 화면과 소리가 같은 말을 한다.
+		var gx0: float = cx - g_total * 0.5
 		for gi2 in range(cn):
-			_draw_gem_icon(Vector2(gx0 + g_icon * 0.5, c_chip.y), g_icon, gi2)
-			_draw_text_outlined(fnt, Vector2(gx0 + g_icon + 8.0 * ccs, c_chip.y + float(g_fs) * 0.35), str(int(ctgts[gi2])), g_fs, Color(1.0, 0.92, 0.62, c_a))
+			var g_to: Vector2 = _goal_dock_pos(gi2)
+			var g_here: Vector2 = Vector2(gx0 + g_icon * 0.5, c_hold.y).lerp(g_to, dock)
+			_draw_gem_icon(g_here, g_icon, gi2)
+			_draw_text_outlined(fnt, Vector2(g_here.x + g_icon * 0.5 + 8.0 * ccs, g_here.y + float(g_fs) * 0.35), str(int(ctgts[gi2])), g_fs, Color(1.0, 0.92, 0.62, c_a))
 			gx0 += float(g_ws[gi2]) + g_gap
 		return
 
@@ -6357,7 +6842,7 @@ func _draw_stage_intro(fnt: Font) -> void:
 	if bool(st.get("protect", false)):
 		var pv: int = int(st.get("vault_start", vault_max))
 		var p_hold: Vector2 = Vector2(cx, r.position.y + r.size.y * 0.62)
-		var p_chip: Vector2 = p_hold.lerp(Vector2(293.0, 66.0), dock)
+		var p_chip: Vector2 = p_hold.lerp(_goal_dock_pos(0), dock)
 		var pcs: float = lerpf(1.0, 0.47, dock)
 		var p_a: float = appear * (1.0 - clampf((dock - 0.72) / 0.28, 0.0, 1.0))
 		var p_icon: float = 52.0 * pcs
@@ -6376,7 +6861,10 @@ func _draw_stage_intro(fnt: Font) -> void:
 	var num_fs: int = 60
 	var skull_s: float = 48.0
 	var chip_hold: Vector2 = Vector2(cx, r.position.y + r.size.y * 0.62)
-	var chip_end: Vector2 = Vector2(293.0, 66.0)   # 상단 목표 카드(goal_r) skull+수 그룹
+	# ⚠적 판은 **숫자가 아니라 카드 중앙**으로 들어간다(유저 결정 2026-08-04). 숫자 자리로 넣어 보니
+	#   💀+수 그룹이 카드 오른쪽에 치우쳐 있어서 칩이 옆으로 빠지는 것처럼 보였다.
+	#   수집판만 색마다 갈라진다 — 거기선 어느 색이 어디로 가는지가 정보이기 때문이다.
+	var chip_end: Vector2 = _goal_card_center()
 	var chip: Vector2 = chip_hold.lerp(chip_end, dock)
 	var cs: float = lerpf(1.0, 0.47, dock)           # 60→~28 카드 크기로 축소
 	var chip_a: float = appear * (1.0 - clampf((dock - 0.72) / 0.28, 0.0, 1.0))
@@ -6396,7 +6884,7 @@ func _draw_result_collect(fnt: Font, p: Rect2, cx: float) -> void:
 	var cap: String = _t("result_gems")
 	var cap_fs: int = 18
 	var cw: float = fnt.get_string_size(cap, HORIZONTAL_ALIGNMENT_LEFT, -1, cap_fs).x
-	_draw_text_outlined(fnt, Vector2(cx - cw * 0.5, p.position.y + 176.0), cap, cap_fs, Color(0.95, 0.85, 0.5))
+	_draw_text_outlined(fnt, Vector2(cx - cw * 0.5, p.position.y + RES_Y_CAP), cap, cap_fs, _ink(Color(0.95, 0.85, 0.5), C_INK_BODY), _ink_out())
 	var tgts: Array = st.get("collect_targets", [1])
 	var n: int = maxi(1, tgts.size())
 	var icon_s: float = 38.0
@@ -6412,13 +6900,13 @@ func _draw_result_collect(fnt: Font, p: Rect2, cx: float) -> void:
 		total_w += w
 	total_w += gap * float(n - 1)
 	var x: float = cx - total_w * 0.5
-	var row_y: float = p.position.y + 222.0
+	var row_y: float = p.position.y + RES_Y_ROW
 	for i in range(n):
 		var got2: int = int(collected_by_type[i]) if i < collected_by_type.size() else 0
 		var rem2: int = maxi(0, int(tgts[i]) - got2)
 		_draw_gem_icon(Vector2(x + icon_s * 0.5, row_y), icon_s, i)
-		var col: Color = Color(0.55, 0.95, 0.65) if rem2 <= 0 else Color(1.0, 0.55, 0.5)
-		_draw_text_outlined(fnt, Vector2(x + icon_s + 8.0, row_y + 16.0), str(rem2), num_fs, col)
+		var col: Color = _ink(Color(0.55, 0.95, 0.65), C_INK_WIN) if rem2 <= 0 else _ink(Color(1.0, 0.55, 0.5), C_INK_LOSE)
+		_draw_text_outlined(fnt, Vector2(x + icon_s + 8.0, row_y + 16.0), str(rem2), num_fs, col, _ink_out())
 		x += float(widths[i]) + gap
 
 # 보호 결과 — 지킨 금고를 핍 열로(채움=지킴 금 다이아, 빈=뺏김). 게임 중 금고 카드와 같은 언어.
@@ -6427,13 +6915,13 @@ func _draw_result_protect(fnt: Font, p: Rect2, cx: float) -> void:
 	var cap: String = _t("result_vault")
 	var cap_fs: int = 18
 	var cw: float = fnt.get_string_size(cap, HORIZONTAL_ALIGNMENT_LEFT, -1, cap_fs).x
-	_draw_text_outlined(fnt, Vector2(cx - cw * 0.5, p.position.y + 176.0), cap, cap_fs, Color(0.95, 0.85, 0.5))
+	_draw_text_outlined(fnt, Vector2(cx - cw * 0.5, p.position.y + RES_Y_CAP), cap, cap_fs, _ink(Color(0.95, 0.85, 0.5), C_INK_BODY), _ink_out())
 	var vm: int = maxi(1, vault_max)
 	var pip_s: float = clampf(230.0 / float(vm) - 8.0, 12.0, 34.0)
 	var gap: float = 8.0
 	var row_w: float = pip_s * float(vm) + gap * float(vm - 1)
 	var x: float = cx - row_w * 0.5
-	var row_y: float = p.position.y + 220.0
+	var row_y: float = p.position.y + RES_Y_ROW
 	for i in range(vm):
 		var px: float = x + pip_s * 0.5
 		if i < vault:
@@ -6448,8 +6936,8 @@ func _draw_result_protect(fnt: Font, p: Rect2, cx: float) -> void:
 	var cnt: String = "%d / %d" % [vault, vault_max]
 	var c_fs: int = 22
 	var c_w: float = fnt.get_string_size(cnt, HORIZONTAL_ALIGNMENT_LEFT, -1, c_fs).x
-	var c_col: Color = Color(0.55, 0.95, 0.65) if vault > 0 else Color(1.0, 0.5, 0.5)
-	_draw_text_outlined(fnt, Vector2(cx - c_w * 0.5, row_y + 34.0), cnt, c_fs, c_col)
+	var c_col: Color = _ink(Color(0.55, 0.95, 0.65), C_INK_WIN) if vault > 0 else _ink(Color(1.0, 0.5, 0.5), C_INK_LOSE)
+	_draw_text_outlined(fnt, Vector2(cx - c_w * 0.5, row_y + 34.0), cnt, c_fs, c_col, _ink_out())
 
 func _draw_result(fnt: Font) -> void:
 	# 스크림 — 팝업 뒤의 보드를 '멈춘 배경'으로 눌러둔다(모달 표시).
@@ -6464,19 +6952,25 @@ func _draw_result(fnt: Font) -> void:
 	var rt: float = result_t if result_t >= 0.0 else 999.0
 	var pc: Vector2 = p.position + p.size * 0.5
 	var csc: float = _ease_out_back(clampf(rt / RESULT_CARD_POP, 0.0, 1.0))
-	draw_set_transform(pc * (1.0 - csc), 0.0, Vector2(csc, csc))
+	_xf(pc * (1.0 - csc), 0.0, Vector2(csc, csc))
 	var accent: Color = C_GOLD if game_clear else Color(0.85, 0.35, 0.35)
 	# 상자 — 클리어만 끌 수 있다(RESULT_CLEAR_CARD). 위치 계산은 상자를 안 그려도 layout 사각형을
 	#   그대로 쓰므로 버튼 히트테스트·개봉 순서는 전혀 안 바뀐다.
 	var boxless: bool = game_clear and not director.scores() and not RESULT_CLEAR_CARD
 	if not boxless:
 		_draw_panel_box(p, Color(0.13, 0.13, 0.2), accent)   # 설정 모달과 같은 부품 — 상단 강조바 색만 갈린다
+	_ink_light = ui_9s.has("panel") and not boxless   # 상자 없는 클리어는 암막 무대 위 = 밝은 글자 그대로
 
 	if rt < RESULT_CONTENT_IN:
-		draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
+		_xf(Vector2.ZERO, 0.0, Vector2.ONE)
+		_ink_light = false
 		return                      # ① 아직 카드만 — 내용은 다음 박자에
 
 	var cx: float = p.position.x + p.size.x * 0.5
+	# 판정 한 줄만 디스플레이 폰트(Baloo2 ExtraBold)로 간다 — 판이 끝나는 순간의 글자라
+	#   여기가 이 폰트를 쓸 자리다. 사유·캡션까지 넘기면 카드가 통째로 굵어져 위계가 다시 평평해진다.
+	#   ⚠라틴 전용이라 한글은 시스템 폰트로 폴백된다(현재 UI 언어는 영어 하나).
+	var dfnt: Font = _font_display if _font_display != null else fnt
 
 	# 무한: 런 종료 시점에 베스트 확정(부활로 이어가면 다음 팝업서 재갱신). 신기록이면 배지.
 	# 제출은 서비스로만 — 로컬 영속 + (모바일 때) 플랫폼 통지. best 캐시 미러 갱신.
@@ -6501,24 +6995,24 @@ func _draw_result(fnt: Font) -> void:
 	var msg_col: Color
 	if director.scores():
 		msg = _t("score_headline") % _comma(endless_score)   # 점수 모드: 점수가 헤드라인(리더보드 지표)
-		msg_col = C_GOLD
+		msg_col = _ink(C_GOLD, C_INK_GOLD)
 	elif game_clear:
 		msg = _t("caught_up") if frontier else _t("stage_clear")
-		msg_col = C_GOLD
+		msg_col = _ink(C_GOLD, C_INK_GOLD)
 	else:
 		msg = _fail_headline()
-		msg_col = Color.WHITE
+		msg_col = _ink(Color.WHITE, C_INK_TITLE)
 	# 클리어는 내용이 헤드라인뿐 → 더 크게. 상자를 끄면 패널 폭 상한이 사라져 한 단 더 키운다.
 	var mfs: int = 64
 	if game_clear and not director.scores():
 		mfs = 96 if boxless else 76
-	var mw: float = fnt.get_string_size(msg, HORIZONTAL_ALIGNMENT_LEFT, -1, mfs).x
+	var mw: float = dfnt.get_string_size(msg, HORIZONTAL_ALIGNMENT_LEFT, -1, mfs).x
 	var max_w: float = (VW_BASE - 72.0) if boxless else (p.size.x - 56.0)
 	if mw > max_w:
 		mfs = maxi(40, int(float(mfs) * max_w / mw))
-		mw = fnt.get_string_size(msg, HORIZONTAL_ALIGNMENT_LEFT, -1, mfs).x
-	var head_y: float = (p.position.y + 60.0) if (game_clear and not director.scores()) else (p.position.y + 84.0)
-	_draw_text_outlined(fnt, Vector2(cx - mw * 0.5, head_y), msg, mfs, msg_col)
+		mw = dfnt.get_string_size(msg, HORIZONTAL_ALIGNMENT_LEFT, -1, mfs).x
+	var head_y: float = (p.position.y + 60.0) if (game_clear and not director.scores()) else (p.position.y + RES_Y_HEAD)
+	_draw_text_outlined(dfnt, Vector2(cx - mw * 0.5, head_y), msg, mfs, msg_col, _ink_out())
 
 	# ② 사유 — 판정을 받쳐주는 한 줄. 작게 둔다(헤드라인과 안 싸우게).
 	#   무한도 '왜 끝났나'만 말한다 — 깊이(place_count)는 뺐다(2026-07-29 유저 결정): 점수가 이미
@@ -6526,14 +7020,39 @@ func _draw_result(fnt: Font) -> void:
 	#   두 갈래는 이제 색만 다르다(무한=보라 톤, 캠페인 실패=붉은 톤).
 	if director.scores() or game_over:
 		var reason: String = _t("cause_stuck") if stuck else _t("cause_core")
-		var rcol: Color = Color(0.8, 0.78, 1.0) if director.scores() else Color(1.0, 0.5, 0.5)
+		# ⚠빨강을 여기 쓰지 않는다. 사유는 부차 정보인데 화면에서 가장 튀는 색을 먼저 가져가면,
+		#   정작 성적 숫자와 같은 값이 되어 **어느 쪽이 위인지 눈이 못 정한다.**
+		#   빨강은 아래 숫자 하나에만 남긴다(밝은 판 한정 — 어두운 판은 예전 톤 유지).
+		var rcol: Color = _ink(Color(0.8, 0.78, 1.0), C_INK_BODY) if director.scores() \
+				else _ink(Color(1.0, 0.5, 0.5), C_INK_BODY)
 		var rw: float = fnt.get_string_size(reason, HORIZONTAL_ALIGNMENT_LEFT, -1, 20).x
-		_draw_text_outlined(fnt, Vector2(cx - rw * 0.5, p.position.y + 124.0), reason, 20, rcol)
+		var ry: float = p.position.y + RES_Y_REASON
+		# 사유 알약 — '왜 끝났나'는 부차 정보가 아니라 **다음 수를 정하는 정보**라(유저 판단),
+		#   글자 색을 키우는 대신 **바탕을 깐다.** 색을 키우면 아래 성적 숫자와 같은 빨강이 되어
+		#   위계가 다시 무너진다(그래서 위에서 걷어냈다) — 면은 채도가 낮아 숫자와 안 싸우면서
+		#   줄을 판에서 띄운다. 상태색(실패=붉은/클리어=금)을 옅게 써서 신호도 같이 돌아온다.
+		#   ⚠밝은 판에서만 깐다. 다크 폴백은 이미 글자가 밝은 색이라 바탕이 오히려 대비를 깎는다.
+		if _ink_light:
+			var ph: float = 30.0
+			var prad: float = ph * 0.5
+			var pw: float = rw + 32.0                      # 좌우 여백 16씩
+			var pcy: float = ry - 6.0                      # 글자 시각 중심(베이스라인 위)
+			var pl: float = cx - pw * 0.5
+			var pcol: Color = Color(accent.r, accent.g, accent.b, 0.18)
+			# 라운드 알약. ⚠설정 토글의 '사각+양끝 원' 방식을 쓰면 안 된다 — **반투명이라서**
+			#   원의 안쪽 절반이 사각과 겹쳐 그 부분만 알파가 두 번 쌓인다(양끝이 진한 반달로 보였다).
+			#   토글은 불투명이라 안 드러났던 함정이다. 한 번에 그리는 StyleBoxFlat으로 간다.
+			#   (§8의 draw_style_box 금지는 **StyleBoxTexture** 얘기다 — 모서리를 텍스처 픽셀 그대로
+			#    그려 2배 납품본이 부푸는 문제였고, 벡터로 그리는 Flat엔 해당하지 않는다.)
+			draw_style_box(_chip(pcol, prad), Rect2(pl, pcy - prad, pw, ph))
+			rcol = C_INK_TITLE                             # 바탕이 생겼으니 글자도 한 단 올린다
+		_draw_text_outlined(fnt, Vector2(cx - rw * 0.5, ry), reason, 20, rcol, _ink_out())
 	elif frontier:
 		# 프런티어: 완봉/처치 성적 대신 '새 스테이지는 계속 온다'는 안내(무한 유도는 주CTA가 담당).
 		var fs: String = _t("frontier_sub")
 		var fw: float = fnt.get_string_size(fs, HORIZONTAL_ALIGNMENT_LEFT, -1, 20).x
-		_draw_text_outlined(fnt, Vector2(cx - fw * 0.5, p.position.y + 100.0), fs, 20, Color(0.72, 0.78, 1.0))
+		_draw_text_outlined(fnt, Vector2(cx - fw * 0.5, p.position.y + RES_Y_REASON), fs, 20,
+				_ink(Color(0.72, 0.78, 1.0), C_INK_BODY), _ink_out())
 	# 캠페인 클리어엔 성적 줄이 없다 — 완봉·누수·처치는 다 걷어냈다(2026-07-30 유저 지시).
 	#   깬 판에 점수를 매기지 않는다: 헤드라인 + 다음 판 CTA만. 실패·무한은 위 분기에서 원인/점수를 그대로 쓴다.
 
@@ -6554,15 +7073,15 @@ func _draw_result(fnt: Font) -> void:
 			ecap = _t("best")   # 동점(gap==0) — '최고까지 0점'은 말이 안 된다
 		var ecap_fs: int = 20 if endless_new_best else 18
 		# 거리 문구는 초대라서 회색보다 살짝 따뜻하게, 단 신기록 금색보다는 확실히 아래(위계 유지).
-		var ecap_col: Color = C_GOLD if endless_new_best \
-				else (Color(0.86, 0.79, 0.60) if gap > 0 else Color(0.72, 0.74, 0.9))
+		var ecap_col: Color = _ink(C_GOLD, C_INK_GOLD) if endless_new_best \
+				else (_ink(Color(0.86, 0.79, 0.60), C_INK_BODY) if gap > 0 else _ink(Color(0.72, 0.74, 0.9), C_INK_BODY))
 		var ecw: float = fnt.get_string_size(ecap, HORIZONTAL_ALIGNMENT_LEFT, -1, ecap_fs).x
-		_draw_text_outlined(fnt, Vector2(cx - ecw * 0.5, p.position.y + 176.0), ecap, ecap_fs, ecap_col)
+		_draw_text_outlined(fnt, Vector2(cx - ecw * 0.5, p.position.y + RES_Y_CAP), ecap, ecap_fs, ecap_col, _ink_out())
 		var bnum: String = _comma(endless_best)
 		var bnum_fs: int = 52
-		var bnw: float = fnt.get_string_size(bnum, HORIZONTAL_ALIGNMENT_LEFT, -1, bnum_fs).x
-		_draw_text_outlined(fnt, Vector2(cx - bnw * 0.5, p.position.y + 238.0), bnum, bnum_fs,
-				C_GOLD if endless_new_best else Color(0.85, 0.85, 0.95))
+		var bnw: float = dfnt.get_string_size(bnum, HORIZONTAL_ALIGNMENT_LEFT, -1, bnum_fs).x
+		_draw_text_outlined(dfnt, Vector2(cx - bnw * 0.5, p.position.y + RES_Y_BIGNUM), bnum, bnum_fs,
+				_ink(C_GOLD, C_INK_GOLD) if endless_new_best else _ink(Color(0.85, 0.85, 0.95), C_INK_TITLE), _ink_out())
 	elif game_clear:
 		pass                        # 클리어 = 성적 없음(위 주석). 아래 블록은 전부 '실패 진단' 전용이 됐다.
 	elif bool(st.get("collect", false)):
@@ -6577,21 +7096,25 @@ func _draw_result(fnt: Font) -> void:
 		var cap: String = _t("result_remaining") if game_over else _t("result_killed")
 		var cap_fs: int = 18
 		var cw: float = fnt.get_string_size(cap, HORIZONTAL_ALIGNMENT_LEFT, -1, cap_fs).x
-		_draw_text_outlined(fnt, Vector2(cx - cw * 0.5, p.position.y + 176.0), cap, cap_fs, Color(0.95, 0.85, 0.5))
+		_draw_text_outlined(fnt, Vector2(cx - cw * 0.5, p.position.y + RES_Y_CAP), cap, cap_fs, _ink(Color(0.95, 0.85, 0.5), C_INK_BODY), _ink_out())
 
 		var num: String = str(remaining if game_over else killed)
 		var num_fs: int = 52
 		var icon_s: float = 44.0
-		var nw2: float = fnt.get_string_size(num, HORIZONTAL_ALIGNMENT_LEFT, -1, num_fs).x
+		var nw2: float = dfnt.get_string_size(num, HORIZONTAL_ALIGNMENT_LEFT, -1, num_fs).x
+		# ⚠숫자를 축에 세우는 안을 실제로 그려 봤다가 **되돌렸다.** 숫자만 중심에 두면 아이콘이
+		#   왼쪽으로 매달려 행 전체가 눈에 띄게 왼쪽으로 쏠린다 — 캡션 축과의 28px 어긋남보다
+		#   그쪽이 훨씬 크게 읽혔다. 아이콘+숫자는 한 덩어리이므로 **덩어리를 중심에** 둔다.
 		var grp_w: float = icon_s + 12.0 + nw2
 		var grp_l: float = cx - grp_w * 0.5
-		var row_y: float = p.position.y + 222.0
+		var row_y: float = p.position.y + RES_Y_ROW
 		_draw_enemy_icon(Vector2(grp_l + icon_s * 0.5, row_y), icon_s)
-		_draw_text_outlined(fnt, Vector2(grp_l + icon_s + 12.0, row_y + 16.0), num, num_fs,
-				Color(1.0, 0.55, 0.5) if game_over else Color(0.55, 0.95, 0.65))
+		_draw_text_outlined(dfnt, Vector2(grp_l + icon_s + 12.0, row_y + 16.0), num, num_fs,
+				_ink(Color(1.0, 0.55, 0.5), C_INK_LOSE) if game_over else _ink(Color(0.55, 0.95, 0.65), C_INK_WIN), _ink_out())
 
 	if rt < RESULT_BTN_IN:
-		draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
+		_xf(Vector2.ZERO, 0.0, Vector2.ONE)
+		_ink_light = false
 		return                      # ② 내용까지만 — 버튼은 마지막에 들어온다
 
 	# ── 광고 이어하기 버튼 (부활 가능할 때만 — 주 착지점, 금색 3D로 재도전 초록과 구분)
@@ -6604,6 +7127,7 @@ func _draw_result(fnt: Font) -> void:
 		var cbase: Color = Color(0.62, 0.52, 0.20) if _ad_pending \
 				else (Color(1.0, 0.86, 0.35) if _cont_hover else Color(0.95, 0.78, 0.25))
 		var cstate: int = BTN_OFF if _ad_pending else (BTN_PRESS if _cont_hover else BTN_NORMAL)
+		_btn_press_begin(cb, _cont_hover and not _ad_pending)
 		_draw_btn_box(cb, cbase, Color(0.4, 0.28, 0.05), Color(0.5, 0.38, 0.1), 7.0, 0.22, 4.0, cstate)
 		var cmid_y: float = cb.position.y + cb.size.y * 0.5
 		if _ad_pending:
@@ -6612,23 +7136,33 @@ func _draw_result(fnt: Font) -> void:
 			var wfs: int = 28
 			var wlw: float = fnt.get_string_size(wlab, HORIZONTAL_ALIGNMENT_LEFT, -1, wfs).x
 			_draw_text_outlined(fnt, Vector2(cb.position.x + cb.size.x * 0.5 - wlw * 0.5, cmid_y + 10.0),
-					wlab, wfs, Color(0.28, 0.22, 0.06))
+					wlab, wfs, Color(0.28, 0.22, 0.06), C_NO_OUT)
 		else:
 			# ▶ 아이콘 + "이어하기"
+			# 주CTA 라벨은 헤드라인과 같은 디스플레이 폰트로 간다. 외곽선을 걷고 나니 본문 폰트로는
+			#   옆 보조 버튼(흰 글자+테)보다 가벼워 보였다 — **굵기는 테로 흉내 내는 게 아니라
+			#   굵은 자체로 내야 한다**(테로 낸 굵기가 방금 속공간을 막은 원인이었다).
 			var clab: String = _t("continue")
 			var cfs: int = 34
-			var clw: float = fnt.get_string_size(clab, HORIZONTAL_ALIGNMENT_LEFT, -1, cfs).x
+			var clw: float = dfnt.get_string_size(clab, HORIZONTAL_ALIGNMENT_LEFT, -1, cfs).x
 			var pr: float = 15.0
 			var cin_w: float = pr * 1.7 + 16.0 + clw
 			var cin_l: float = cb.position.x + cb.size.x * 0.5 - cin_w * 0.5
 			_draw_play_icon(Vector2(cin_l + pr * 0.85, cmid_y), pr, Color(0.2, 0.15, 0.02))
-			_draw_text_outlined(fnt, Vector2(cin_l + pr * 1.7 + 16.0, cmid_y + 12.0), clab, cfs, Color(0.2, 0.15, 0.02))
-		# 'AD' 배지 — 우상단 코너. 이게 광고 시청임을 숨기지 않는다.
-		var badge: Rect2 = Rect2(cb.position.x + cb.size.x - 42.0, cb.position.y - 9.0, 38.0, 20.0)
-		draw_rect(badge, Color(0.18, 0.16, 0.22))
-		draw_rect(badge, Color(1.0, 0.86, 0.35), false, 1.5)
+			_draw_text_outlined(dfnt, Vector2(cin_l + pr * 1.7 + 16.0, cmid_y + 12.0), clab, cfs, Color(0.2, 0.15, 0.02), C_NO_OUT)
+		# 'AD' 배지 — 이게 광고 시청임을 숨기지 않는다(그래서 지우거나 흐리지 않는다).
+		# ⚠예전엔 짙은 남색 각진 칩이 버튼 **위 모서리에 걸쳐** 있었다. 어두운 판 시절엔 배경과
+		#   같은 계열이라 묻혀 있었는데, 크림 카드로 바뀌자 카드 위에 검은 조각이 떠서 버튼 모서리를
+		#   자르는 꼴이 됐다. → **버튼 안으로 들여놓고**, 라운드를 맞추고, 색도 버튼의 어두운 계열
+		#   (그림자·테와 같은 갈색)로 바꿔 '버튼에 찍힌 표식'으로 읽히게 한다.
 		var adw: float = fnt.get_string_size("AD", HORIZONTAL_ALIGNMENT_LEFT, -1, 14).x
-		_draw_text_outlined(fnt, Vector2(badge.position.x + badge.size.x * 0.5 - adw * 0.5, badge.position.y + 16.0), "AD", 14, Color(1.0, 0.9, 0.5))
+		var bw: float = adw + 20.0
+		var bh: float = 22.0
+		var badge: Rect2 = Rect2(cb.position.x + cb.size.x - bw - 12.0, cb.position.y + 12.0, bw, bh)
+		draw_style_box(_chip(Color(0.30, 0.21, 0.04, 0.92), bh * 0.5), badge)
+		_draw_text_outlined(fnt, Vector2(badge.position.x + badge.size.x * 0.5 - adw * 0.5, badge.position.y + bh * 0.5 + 5.0),
+				"AD", 14, Color(1.0, 0.93, 0.74), Color(0.0, 0.0, 0.0, 0.0))
+		_btn_press_end()
 
 	# ── 재도전 버튼. 부활 가능하면 부차(작고 톤 다운), 아니면 주(초록 3D — 홈 시작 버튼 문법).
 	var label: String = _t("retry")
@@ -6641,6 +7175,7 @@ func _draw_result(fnt: Font) -> void:
 	var icon_r: float = 13.0 if revivable else 17.0
 	var mid_y: float = r.position.y + r.size.y * 0.5
 	var rstate: int = BTN_PRESS if _retry_hover else BTN_NORMAL
+	_btn_press_begin(r, _retry_hover)
 	if revivable:
 		# 부차: 어두운 초록 필(그림자·하이라이트 없음) — 광고(금색 주)와 홈(회색 고스트) 사이 위계
 		var sbase: Color = Color(0.30, 0.5, 0.28) if _retry_hover else Color(0.22, 0.4, 0.22)
@@ -6660,24 +7195,28 @@ func _draw_result(fnt: Font) -> void:
 	else:
 		_draw_text_outlined(fnt, Vector2(r.position.x + r.size.x * 0.5 - lw * 0.5, mid_y + lfs * 0.34), label, lfs, Color.WHITE,
 				Color(0.10, 0.28, 0.14, 0.95))
+	_btn_press_end()
 
 	# ── 홈 (부차 동작 — 고스트 버튼)
 	var h: Rect2 = lay["home"]
 	# 호버 바탕은 폴백 전용 — 고스트 텍스처가 오면 각진 반투명 사각형이 라운드 테 밖으로 비죽 나온다.
 	#   그쪽에선 테 자체의 밝기(아래 alpha)가 호버를 말한다.
+	_btn_press_begin(h, _home_hover)
 	if _home_hover and not ui_9s.has("btn_ghost"):
 		draw_rect(h, Color(1.0, 1.0, 1.0, 0.08))
 	# 테두리 알약은 '담긴 맥락'을 전제로 한 형태다 — 상자가 없는 클리어에서는 검은 배경에 붕 떠 보여
 	#   글자만 남긴다(고스트의 정석). 상자가 있는 실패·무한에서는 테두리가 성립하므로 그대로.
 	if not boxless:
-		var gcol: Color = Color(0.5, 0.52, 0.62, 0.9 if _home_hover else 0.5)
+		var gcol: Color = _ink(Color(0.5, 0.52, 0.62, 0.9 if _home_hover else 0.5),
+				Color(0.42, 0.48, 0.58, 0.85 if _home_hover else 0.45))
 		if not _blit_9s("btn_ghost", h, gcol):
 			draw_rect(h, gcol, false, 2.0)
 	var hs: String = _t("go_home")
 	var hfs: int = 20
 	var hw2: float = fnt.get_string_size(hs, HORIZONTAL_ALIGNMENT_LEFT, -1, hfs).x
 	_draw_text_outlined(fnt, Vector2(h.position.x + h.size.x * 0.5 - hw2 * 0.5, h.position.y + h.size.y * 0.5 + 7.0), hs, hfs,
-			Color.WHITE if _home_hover else Color(0.75, 0.77, 0.88))
+			_ink(Color.WHITE, C_INK_TITLE) if _home_hover else _ink(Color(0.75, 0.77, 0.88), C_INK_BODY), _ink_out())
+	_btn_press_end()
 
 	# 광고 대기 중엔 부차 버튼(재도전·홈)을 덮어 '지금은 못 누름'을 색으로 알린다. 입력은 이미
 	#   막혀 있으므로(_input), 밝게 남겨두면 눌리는 줄 알고 누르는 죽은 버튼이 된다(C78이 고친 결함 유형).
@@ -6685,7 +7224,8 @@ func _draw_result(fnt: Font) -> void:
 		draw_rect(r, Color(0.10, 0.10, 0.14, 0.62))
 		draw_rect(h, Color(0.10, 0.10, 0.14, 0.62))
 
-	draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
+	_xf(Vector2.ZERO, 0.0, Vector2.ONE)
+	_ink_light = false
 
 	# 키 힌트는 없다(C39). SPACE=주 동작(부활 가능하면 이어하기)·ESC=홈은 그대로 받는다.
 
@@ -6708,8 +7248,30 @@ const PLAY_BTN: Rect2 = Rect2(150.0, 742.0, 500.0, 126.0)
 #   (C81: 목록 칩·허브 기어는 유저 요청으로 제거 — 어색했다.)
 # 재도전 경로는 '없음'으로 확정(유저: 이미 깬 판은 재도전 니즈가 없다). 진행 중엔 목록에 못 가고
 #   다음 판으로만 이어진다 = 캠페인의 정상 동선. 전부 깬 뒤의 select는 재도전이 아니라 완주 진열장이다.
-const MENU_ADV_BTN: Rect2 = Rect2(150.0, 600.0, 500.0, 116.0)     # 오렌지 = 스테이지(모험) — 이어하기
-const MENU_CLASSIC_BTN: Rect2 = Rect2(150.0, 740.0, 500.0, 116.0) # 블루 = 무한(∞)
+# 락업 기준 폭. 지금은 **로고 화면도 홈과 같은 380을 쓴다**(아래) — 이 값은 그 기준선과 태그라인
+#   비율(sc = 실제폭/560)을 재는 자리로 남는다. 클리어 연출·시안 도구가 이 치수를 참조한다.
+const MENU_WM_MAXW: float = 560.0     # 화면의 70%
+# 홈에서는 로고가 작아진다(560 → 380). 유저 지적: "가장 눈에 띄어야 할 건 플레이 버튼인데 로고가 이긴다."
+#   실측이 그대로였다 — 로고 잉크 118,313px vs 버튼 두 개 합 109,475px. 색은 이미 버튼이 이기고 있었고
+#   (채도 0.85 vs 0.72) 지고 있던 건 면적 하나라, 면적으로 풀었다. 380에서 버튼이 로고의 2.7배가 된다.
+# ⚠340 밑으로 내리지 말 것: 브릭 베벨이 뭉개져 로고가 '알록달록한 글자'가 되고, 비율로 딸려 내려가는
+#   태그라인이 16px 밑으로 떨어져 실기기에서 안 읽힌다(논리 800폭 기준이라 폰에선 더 작다).
+# ⚠**로고 화면도 이 폭을 쓴다** — 즉 부팅 중에 크기는 안 변하고 자리만 변한다(원 설계 원칙 그대로).
+#   크기를 애니메이션하려다 걷어냈다: 폭을 프레임마다 바꾸면 글자 크기가 바뀌어 글리프·외곽선을 새로
+#   굽고(21~27ms → **83~132ms**), 글자 크기를 고정하고 변환 배율만 바꿔도 엔진이 배율에 맞춰 다시 구워
+#   45ms에 머물렀다. 배율을 고정하니 21ms로 돌아왔다. 크기 전환이 갖는 값어치보다 비싸다.
+const MENU_WM_MAXW_HOME: float = 380.0
+const MENU_WM_CENTER_Y: float = 230.0 # 락업 시각 중심(화면의 18%). 로고 화면은 같은 물건을 47%에 놓는다
+                                      #   ⚠290이던 값이다 — 로고를 줄이기만 하니 위 여백이 324로 늘어
+                                      #     화면이 위로 떠 보였다(유저 지적). 올려서 여백을 264로 정리했다.
+const MENU_TAGLINE: String = "CASTLE KEEPER"   # 후보 검토 중 — 장르 설명 아님, 플레이어 자칭(레퍼런스 수법)
+const C_TAGLINE := Color("#cbc0a8")   # 저채도 크림. 색 주도권은 워드마크가 독점한다
+const MENU_TAG_SIZE: int = 26         # 스플래시 그림과 같은 치수(논리 800폭 기준)
+const MENU_TAG_TRACK: float = 7.0     # 자간
+# 두 갈래 버튼 = 홈에서 **가장 무거워야 하는 물건**(위 MENU_WM_MAXW_HOME 주석). 500×116에서 키웠다.
+#   ⚠버튼 속 조판은 높이를 세로 중앙 기준으로 잡는다(_draw_menu_button) — 여기 높이를 바꿔도 따라온다.
+const MENU_ADV_BTN: Rect2 = Rect2(130.0, 596.0, 540.0, 140.0)     # 오렌지 = 스테이지(모험) — 이어하기
+const MENU_CLASSIC_BTN: Rect2 = Rect2(130.0, 760.0, 540.0, 140.0) # 블루 = 무한(∞)
 const MENU_LB_BTN: Rect2 = Rect2(560.0, 40.0, 216.0, 60.0)       # 우상단 트로피 = 리더보드(opt-in 천장, 모드 아님)
 const BACK_BTN: Rect2 = Rect2(24.0, 24.0, 132.0, 54.0)           # select/리더보드 → 메뉴 복귀
 # ⚠플테 전용: 진행도 초기화 버튼(우상단, BACK_BTN과 대칭). 디버그 빌드에서만 그려지고 눌린다.
@@ -6759,22 +7321,112 @@ func _sel_scroll_by(dy: float) -> void:
 		sel_scroll = ns
 		queue_redraw()
 
+# ── 부팅 로고 화면(엔진 스플래시와 홈 사이) ──
+# 앱을 켜면 화면이 세 칸을 지난다: [엔진 스플래시 = EGGTART STUDIO 그림] → [이 화면 = 게임 로고] → [홈].
+#   레퍼런스(Block Blast) 60fps 실측이 이 구조의 근거다 — 세 화면이 전부 **하드컷**인데 전환이 안 느껴진다.
+#   이유는 둘: ①세 화면의 배경이 픽셀 단위로 같고 ②게임 로고가 사라지지 않고 **같은 크기 그대로**
+#   위로 평행이동만 한다. 스튜디오 카드가 게임 로고보다 **먼저·아래(거의 정중앙)·흰 단색**인 것도 실측값이다.
+# 그래서 이 화면은 새 그림이 아니라 홈과 **같은 락업**(_draw_wm_static + _draw_tagline)을 47%에 놓은 것이다.
+#   홈은 같은 물건을 23%(MENU_WM_CENTER_Y)에 놓는다 → 넘어갈 때 로고만 위로 올라간다.
+# ⚠단 스튜디오→로고와 달리 **로고→홈은 컷이 아니다**: 그 구간만 실제로 미끄러진다(MENU_INTRO 주석).
+#   위 실측을 그대로 컷으로 옮겼더니 유저가 "뚝 끊긴다"고 했다 — 두 자리의 거리(180px)가 레퍼런스와 다르면
+#   같은 컷이 다른 물건이 된다. 레퍼런스 값은 배경·크기·순서에 대한 것이지 '컷이면 된다'가 아니었다.
+# ⚠art/studio.png(엔진 스플래시)의 배경과 _draw_bg_glow는 같은 값이어야 한다. 한쪽만 손대면 컷이 보인다.
+#   그림은 tools/studio_shot.gd가 굽는다(`-- <dir> ship`).
+const LOGO_HOLD: float = 0.60          # 레퍼런스 스튜디오 카드가 0.52초. 엔진 스플래시(700ms) 뒤에 이어 붙는다
+const LOGO_CENTER_RATIO: float = 0.47  # 워드마크 광학 중심 — 기하 중심 50%는 처져 보인다
+var logo_t: float = 0.0                # 경과(초). -1 = 이 화면 지났음
+
+# 로고 화면 → 홈은 **하드컷이 아니라 미끄러짐**이다(유저 실플레이 지적: "뚝 끊긴다").
+#   위 주석대로 이 컷의 전제는 "로고가 사라지지 않고 같은 크기 그대로 위로 평행이동만 한다"인데,
+#   컷으로 붙이면 그 평행이동이 **한 프레임에 180px 순간이동**으로 일어난다 — 눈은 그걸 이동이 아니라
+#   장면 교체로 읽는다. 그래서 그 이동을 실제 시간축에 올린다: 로고는 47%→23%로 미끄러지고,
+#   홈의 나머지(버튼)는 그 도중에 들어온다. 크기·색·배경은 그대로 — 움직이는 건 자리 하나뿐이다.
+const MENU_INTRO: float = 0.28         # 미끄러지는 시간. 더 길면 '연출'로 읽혀 홈 진입이 굼떠진다
+# 버튼이 들어오는 시점(0~1). 로고가 **아직 갈 길이 남았을 때**여야 한다 — 여기서 이동의 42%(=75px)가
+#   남는다. 눈이 움직이는 로고를 쫓는 동안이라 버튼이 나타난 순간이 안 잡힌다(모션 마스킹).
+#   ⚠페이드인은 기각됐다: 배경이 48겹이라 반투명 덮개가 알파와 무관하게 '완전히 가림'이 되고(그 실측이
+#     _draw_bg_glow 주석에), 버튼 겹마다 알파를 꿰면 4px 어긋난 그림자가 본체에 비쳐 탁해진다.
+#   ⚠끝(1.0)에 붙이지 말 것 — 로고가 멈춘 자리에서 버튼이 튀어나오면 고치려던 그 '뚝'이 된다.
+const MENU_INTRO_SLOTS: float = 0.35
+var menu_intro: float = -1.0           # 경과(초). <0 = 전환 아님(평상시 홈)
+
+# 버튼이 지금 화면에 있나 — **그리기와 판정이 이 함수 하나를 같이 본다.**
+#   갈라 두면 부팅 첫 0.1초에 '안 보이는데 눌리는' 버튼이 생긴다(그린 자리 vs 판정 rect와 같은 종류의 사고).
+func _menu_slots_live() -> bool:
+	return menu_intro < 0.0 or menu_intro / MENU_INTRO >= MENU_INTRO_SLOTS
+
+func _draw_logo(fnt: Font) -> void:
+	var f: Font = _font_display if _font_display != null else fnt
+	# ⚠홈과 **같은 폭·같은 태그라인 비율**이다. 갈리면 넘어가는 순간 로고가 커졌다 작아졌다 한다.
+	var sc: float = MENU_WM_MAXW_HOME / MENU_WM_MAXW
+	var wm: Array = _draw_wm_static(f, vh * LOGO_CENTER_RATIO, MENU_WM_MAXW_HOME)
+	_draw_tagline(fnt, float(wm[1]) + 46.0 * sc, sc)
+
+func _logo_done() -> void:
+	if mode != "logo":
+		return
+	logo_t = -1.0
+	mode = "menu"
+	menu_intro = 0.0   # 컷이 아니라 여기서부터 로고가 홈 자리로 미끄러진다
+	queue_redraw()
+
+# 태그라인 한 줄 — 로고 락업의 셋째 줄. **로고 화면과 홈이 같은 코드를 쓴다**:
+#   두 화면이 하드컷으로 붙어 있어서, 값이 갈리면 컷에서 문구가 튀는 게 그대로 보인다.
+#   자간을 벌려 그린다 — 짧은 대문자 한 줄은 자간이 없으면 덩어리로 뭉쳐 로고의 일부로 안 읽힌다.
+#   외곽선 없음: 색을 쓰는 요소는 워드마크 하나여야 한다.
+#   sc = 락업 배율(로고 화면 1.0, 홈 380/560). 태그라인은 락업의 셋째 줄이라 **글자와 자간이 같이** 줄어야
+#     한다 — 워드마크만 줄이면 태그라인이 상대적으로 커져 락업이 아니라 별개 문구로 읽힌다.
+func _draw_tagline(fnt: Font, y: float, sc: float = 1.0) -> void:
+	var fs: int = maxi(10, int(round(float(MENU_TAG_SIZE) * sc)))
+	var tr: float = MENU_TAG_TRACK * sc
+	var tgw: float = 0.0
+	for i in range(MENU_TAGLINE.length()):
+		tgw += fnt.get_string_size(MENU_TAGLINE[i], HORIZONTAL_ALIGNMENT_LEFT, -1, fs).x + tr
+	tgw -= tr
+	var tgx: float = 400.0 - tgw * 0.5
+	for j in range(MENU_TAGLINE.length()):
+		draw_string(fnt, Vector2(tgx, y), MENU_TAGLINE[j], HORIZONTAL_ALIGNMENT_LEFT, -1, fs, C_TAGLINE)
+		tgx += fnt.get_string_size(MENU_TAGLINE[j], HORIZONTAL_ALIGNMENT_LEFT, -1, fs).x + tr
+
+
 # ── 메인 메뉴(허브): 위 로고, 아래 두 갈래 버튼 ──
 func _draw_menu(fnt: Font) -> void:
 	# 배경은 _draw()가 이미 그렸다(오프셋 밖). 여기선 콘텐츠만.
 
-	# 로고: 게임명 + 태그라인(레퍼런스의 상단 로고 자리)
-	# ⚠화면에선 띄어 쓴다 — 대문자로 붙이면(BLOCKCASTLE) 단어 경계가 사라져 한눈에 안 읽힌다.
-	#   스토어 제목·패키지명은 붙여 쓴 BlockCastle이 정본이다.
-	var title: String = "BLOCK CASTLE"
-	var tfs: int = 64
-	var tw: float = fnt.get_string_size(title, HORIZONTAL_ALIGNMENT_LEFT, -1, tfs).x
-	_draw_text_outlined(fnt, Vector2(400.0 - tw * 0.5, 300.0), title, tfs, C_GOLD)
-	var tag: String = "PACKING DEFENSE"
-	var tgfs: int = 22
-	var tgw: float = fnt.get_string_size(tag, HORIZONTAL_ALIGNMENT_LEFT, -1, tgfs).x
-	_draw_text_outlined(fnt, Vector2(400.0 - tgw * 0.5, 340.0), tag, tgfs, Color(0.55, 0.72, 0.95))
+	# 로고 = 클리어 연출과 **같은 브릭 워드마크**를 정지 조판한 것.
+	#   왜 골드 텍스트를 버렸나 — 부트 스플래시가 이 워드마크를 화면 중앙에 띄우는데, 홈이 다른 글자면
+	#   스플래시가 꺼지는 순간이 그대로 보인다. 레퍼런스(Block Blast) 실측: 로고 폭 71%·**크기 불변**·
+	#   위로 평행이동만, 배경색은 세 화면(스튜디오·스플래시·홈)이 동일 → 전환이 아예 안 느껴진다.
+	#   그래서 여기 폭(MENU_WM_MAXW)은 스플래시와 같아야 한다. 손대면 둘 다 손댈 것.
+	# ⚠'BLOCK CASTLE' 한 줄 텍스트로 되돌리지 말 것 — 두 줄 락업이라 단어 경계가 조판으로 이미 서 있다
+	#   (붙여 쓴 BlockCastle은 스토어 제목·패키지명 전용).
+	var f: Font = _font_display if _font_display != null else fnt
 
+	# 부팅 직후엔 락업이 로고 화면 자리(47%)에서 홈 자리(23%)로 미끄러져 온다(MENU_INTRO 주석).
+	#   k=0에서 두 화면의 절대 좌표가 정확히 일치한다: 로고 화면은 오프셋 없이 vh*0.47에 그리고,
+	#   여기선 _ui_dy() 안이라 그만큼 빼야 같은 자리다. 어긋나면 첫 프레임에 로고가 튄다.
+	#   ⚠**크기는 안 변한다** — 로고 화면도 같은 380이다(MENU_WM_MAXW_HOME 주석의 실측 참조).
+	var wm_cy: float = MENU_WM_CENTER_Y
+	if menu_intro >= 0.0:
+		var k: float = clampf(menu_intro / MENU_INTRO, 0.0, 1.0)
+		# ease-out 2제곱 — 곧장 출발해 끝에서 눕는다(감속이 '도착'을 만든다).
+		#   ⚠3제곱은 안 된다: 절반 시점에 이미 87%가 끝나 있어 '미끄러짐'이 아니라 '점프 후 안착'으로 읽힌다.
+		var e: float = 1.0 - (1.0 - k) * (1.0 - k)
+		wm_cy = lerpf(vh * LOGO_CENTER_RATIO - _ui_dy(), MENU_WM_CENTER_Y, e)
+	var wm: Array = _draw_wm_static(f, wm_cy, MENU_WM_MAXW_HOME)
+	# 태그라인은 락업의 일부처럼 앉힌다(레퍼런스도 로고의 셋째 줄로 조판돼 있다).
+	#   ⚠부팅 로고 화면과 **같은 함수**를 쓴다 — 둘은 붙어 있어 갈리면 미끄러지는 도중에 문구가 튄다.
+	#   락업이 작아진 만큼 붙는 간격도 줄여야 셋째 줄로 남는다(고정 46이면 멀찍이 떨어져 별개 문구가 된다).
+	var wm_sc: float = MENU_WM_MAXW_HOME / MENU_WM_MAXW
+	_draw_tagline(fnt, float(wm[1]) + 46.0 * wm_sc, wm_sc)
+	# 버튼은 **로고가 아직 갈 길이 남았을 때** 들어온다(MENU_INTRO_SLOTS 주석). 판정도 같은 함수를 본다.
+	if _menu_slots_live():
+		_draw_menu_slots(fnt)
+
+# 홈의 로고 아래 — 두 갈래 버튼 + 리더보드 진입. 로고와 나눠 둔 건 부팅 전환 때문이다:
+#   미끄러지는 앞부분엔 이것들만 통째로 빠져야 해서, 로고와 별개로 껐다 켤 수 있어야 한다.
+func _draw_menu_slots(fnt: Font) -> void:
 	# Adventure 슬롯 = '어디까지 왔나'(진행 중 목적지 / 완주 프런티어). 소제목은 유저 요청으로 제거(C82).
 	var adv_slot: String = ""
 	if _all_cleared():
@@ -6799,6 +7451,7 @@ func _draw_menu(fnt: Font) -> void:
 	if not LEADERBOARD_ENABLED:
 		return
 	var lb: Rect2 = MENU_LB_BTN
+	_btn_press_begin(lb, _lb_hover)
 	draw_rect(Rect2(lb.position.x, lb.position.y + 5.0, lb.size.x, lb.size.y), Color(0.30, 0.24, 0.05))
 	draw_rect(lb, Color(0.24, 0.22, 0.14) if _lb_hover else Color(0.18, 0.17, 0.11))
 	draw_rect(lb, C_GOLD if _lb_hover else Color(0.55, 0.48, 0.2), false, 2.0)
@@ -6806,6 +7459,7 @@ func _draw_menu(fnt: Font) -> void:
 	_draw_trophy(Vector2(lb.position.x + 34.0, lb_mid), 26.0, C_GOLD)
 	_draw_text_outlined(fnt, Vector2(lb.position.x + 58.0, lb_mid + 7.0), _t("leaderboard"), 22,
 			Color.WHITE if _lb_hover else Color(0.9, 0.88, 0.78))
+	_btn_press_end()
 
 # 키보드 힌트("SPACE = Adventure…")는 제거했다(C80) — 모바일 우선 빌드에 PC 안내가 남아 있었다.
 #   키 입력 자체는 그대로 받는다(데스크톱 테스트용). 글자만 뺀 것.
@@ -6821,6 +7475,7 @@ func _draw_menu_button(fnt: Font, r: Rect2, hot: bool, base: Color, base_dim: Co
 	if locked:
 		body = Color(0.19, 0.20, 0.26)
 		edge = Color(0.12, 0.13, 0.17)
+	_btn_press_begin(r, hot and not locked)
 	_draw_btn_box(r, body, edge, edge, 8.0, 0.06 if locked else 0.16, 4.0,
 			BTN_OFF if locked else (BTN_PRESS if hot else BTN_NORMAL))
 
@@ -6835,12 +7490,15 @@ func _draw_menu_button(fnt: Font, r: Rect2, hot: bool, base: Color, base_dim: Co
 
 	# 라벨: 큰 제목(+ 소제목). 소제목이 없으면 제목을 버튼 세로 중앙에 홀로 앉힌다 —
 	#   위쪽 고정이면 아래가 휑해 '잘린 카드'로 보인다.
+	# ⚠기준선은 **버튼 세로 중앙**에서 잰다(예전엔 위에서 잰 고정값 54/67/88이었다). 높이를 키웠을 때
+	#   글자만 위에 남아 '잘린 카드'가 되지 않게 — 버튼 크기는 앞으로도 조정될 값이다.
 	var lx: float = r.position.x + 128.0
 	var has_sub: bool = sub != ""
-	var title_y: float = r.position.y + (54.0 if has_sub else 67.0)
+	var mid: float = r.position.y + r.size.y * 0.5
+	var title_y: float = mid + (-4.0 if has_sub else 9.0)
 	_draw_text_outlined(fnt, Vector2(lx, title_y), big, 40, ink, Color(edge.r, edge.g, edge.b, 0.95))
 	if has_sub:
-		_draw_text_outlined(fnt, Vector2(lx, r.position.y + 88.0), sub, 18,
+		_draw_text_outlined(fnt, Vector2(lx, mid + 30.0), sub, 18,
 				Color(0.62, 0.64, 0.76) if locked else Color(0.96, 0.98, 1.0, 0.9),
 				Color(edge.r, edge.g, edge.b, 0.95))
 
@@ -6849,10 +7507,17 @@ func _draw_menu_button(fnt: Font, r: Rect2, hot: bool, base: Color, base_dim: Co
 	if locked:
 		_draw_lock(Vector2(r.position.x + r.size.x - 44.0, slot_y), 30.0, Color(0.58, 0.60, 0.70))
 	elif slot != "":
+		# 슬롯은 제목과 **같은 줄**에 앉는다 → 긴 문구("All caught up!")가 제목에 닿을 수 있다.
+		#   닿으면 글자를 줄여 피한다(잘라내거나 겹치게 두지 않는다 — 둘 다 고장으로 읽힌다).
 		var sfs: int = 22
+		var title_end: float = lx + fnt.get_string_size(big, HORIZONTAL_ALIGNMENT_LEFT, -1, 40).x
 		var sw: float = fnt.get_string_size(slot, HORIZONTAL_ALIGNMENT_LEFT, -1, sfs).x
-		_draw_text_outlined(fnt, Vector2(r.position.x + r.size.x - sw - 24.0, slot_y + 8.0),
+		while sfs > 16 and r.position.x + r.size.x - sw - 28.0 < title_end + 20.0:
+			sfs -= 2
+			sw = fnt.get_string_size(slot, HORIZONTAL_ALIGNMENT_LEFT, -1, sfs).x
+		_draw_text_outlined(fnt, Vector2(r.position.x + r.size.x - sw - 28.0, slot_y + 8.0),
 				slot, sfs, C_GOLD, Color(edge.r, edge.g, edge.b, 0.95))
+	_btn_press_end()
 
 # ∞ 심볼(두 원 윤곽) — 무한 모드 표식
 func _draw_infinity(c: Vector2, s: float, col: Color) -> void:
@@ -6970,7 +7635,7 @@ func _draw_leaderboard(fnt: Font) -> void:
 		draw_circle(Vector2(72.0, by), 17.0, mc)
 		var rn: String = str(rank)
 		var rnw: float = fnt.get_string_size(rn, HORIZONTAL_ALIGNMENT_LEFT, -1, 20).x
-		_draw_text_outlined(fnt, Vector2(72.0 - rnw * 0.5, by + 7.0), rn, 20, Color(0.1, 0.1, 0.14))
+		_draw_text_outlined(fnt, Vector2(72.0 - rnw * 0.5, by + 7.0), rn, 20, Color(0.1, 0.1, 0.14), C_NO_OUT)
 		# 이름(YOU면 금색 + ★). '나' 행의 표기는 서비스가 아니라 화면이 소유한다(로케일 대상).
 		var nm: String = ("★ " + _t("lb_you")) if you else String(row["name"])
 		_draw_text_outlined(fnt, Vector2(104.0, by + 7.0), nm, 22,
@@ -7000,6 +7665,7 @@ func _draw_leaderboard(fnt: Font) -> void:
 		_draw_lock(Vector2(lin_l + 14.0, cmid), 26.0, Color(0.58, 0.60, 0.70))
 		_draw_text_outlined(fnt, Vector2(lin_l + 40.0, cmid + 8.0), llab, lfs2, Color(0.72, 0.74, 0.86))
 	else:
+		_btn_press_begin(cta, _lb_play_hover)
 		draw_rect(Rect2(cta.position.x, cta.position.y + 7.0, cta.size.x, cta.size.y), Color(0.10, 0.28, 0.14))
 		draw_rect(cta, Color(0.42, 0.82, 0.32) if _lb_play_hover else Color(0.34, 0.72, 0.26))
 		draw_rect(Rect2(cta.position.x, cta.position.y, cta.size.x, cta.size.y * 0.32), Color(1.0, 1.0, 1.0, 0.16))
@@ -7011,6 +7677,7 @@ func _draw_leaderboard(fnt: Font) -> void:
 		var cin_l: float = cta.position.x + cta.size.x * 0.5 - cin_w * 0.5
 		_draw_play_icon(Vector2(cin_l + 13.0, cmid), 14.0, Color.WHITE)
 		_draw_text_outlined(fnt, Vector2(cin_l + 40.0, cmid + 12.0), clab, cfs, Color.WHITE, Color(0.10, 0.28, 0.14, 0.95))
+		_btn_press_end()
 
 	# ── 정직 주석: 친구·퍼센타일은 플랫폼 연결 전 미리보기 ──
 	if not _leaderboard.has_platform():
@@ -7031,6 +7698,7 @@ func _medal_color(rank: int) -> Color:
 # select → 메뉴 복귀 버튼(좌상단 화살표 + 라벨)
 func _draw_back_button(fnt: Font) -> void:
 	var r: Rect2 = BACK_BTN
+	_btn_press_begin(r, _back_hover)
 	_draw_btn_box(r, Color(0.20, 0.21, 0.30) if _back_hover else Color(0.15, 0.16, 0.24),
 			Color.TRANSPARENT, Color(0.45, 0.47, 0.60), 0.0, 0.0, 2.0,
 			BTN_PRESS if _back_hover else BTN_NORMAL, true)
@@ -7040,6 +7708,7 @@ func _draw_back_button(fnt: Font) -> void:
 		Vector2(ax + 7.0, ay - 9.0), Vector2(ax - 7.0, ay), Vector2(ax + 7.0, ay + 9.0),
 	]), Color.WHITE)
 	_draw_text_outlined(fnt, Vector2(r.position.x + 46.0, ay + 7.0), _t("home"), 20, Color.WHITE)
+	_btn_press_end()
 
 # ⚠플테 전용 초기화 버튼. 스토어 빌드에선 그리지도, 눌리지도 않는다([[_playtest_tools_on]]).
 func _draw_dev_reset(fnt: Font) -> void:
@@ -7049,6 +7718,7 @@ func _draw_dev_reset(fnt: Font) -> void:
 	var armed: bool = _dev_reset_arm > 0.0
 	# 무장 상태는 색으로 말한다(경고 주황 → 실행 임박 빨강). 진짜 UI와 안 헷갈리게 채도를 낮게 유지.
 	var base: Color = Color(0.42, 0.14, 0.16) if armed else Color(0.20, 0.16, 0.16)
+	_btn_press_begin(r, _dev_reset_hover)
 	draw_rect(r, base.lightened(0.10) if _dev_reset_hover else base)
 	draw_rect(r, Color(0.85, 0.35, 0.30) if armed else Color(0.50, 0.40, 0.40), false, 2.0)
 	# 외부 테스터도 보는 버튼이라 'DEV WIPE'(내부 은어)에서 'RESET'으로 바꿨다.
@@ -7056,6 +7726,7 @@ func _draw_dev_reset(fnt: Font) -> void:
 	var lw: float = fnt.get_string_size(label, HORIZONTAL_ALIGNMENT_LEFT, -1, 18).x
 	_draw_text_outlined(fnt, Vector2(r.position.x + r.size.x * 0.5 - lw * 0.5, r.position.y + 34.0), label, 18,
 			Color(1.0, 0.8, 0.75) if armed else Color(0.80, 0.70, 0.70))
+	_btn_press_end()
 
 func _draw_select(fnt: Font) -> void:
 	# 배경은 _draw()가 이미 그렸다(오프셋 밖). 여기선 콘텐츠만.
@@ -7197,6 +7868,7 @@ func _draw_play_button(fnt: Font, cur: int) -> void:
 	var r: Rect2 = PLAY_BTN
 	# 입체감: 아래 그림자 → 본체 → 상단 하이라이트 (결과 팝업 주CTA와 같은 초록 '진행' 문법)
 	var base: Color = Color(0.42, 0.82, 0.32) if hot else Color(0.34, 0.72, 0.26)
+	_btn_press_begin(r, hot)
 	_draw_btn_box(r, base, Color(0.10, 0.28, 0.14), Color(0.16, 0.42, 0.18), 8.0, 0.16, 4.0,
 			BTN_PRESS if hot else BTN_NORMAL)
 
@@ -7211,6 +7883,7 @@ func _draw_play_button(fnt: Font, cur: int) -> void:
 	var nw: float = fnt.get_string_size(nm, HORIZONTAL_ALIGNMENT_LEFT, -1, nfs).x
 	_draw_text_outlined(fnt, Vector2(400.0 - nw * 0.5, r.position.y + 98.0), nm, nfs, Color(0.92, 1.0, 0.88),
 			Color(0.10, 0.28, 0.14, 0.95))
+	_btn_press_end()
 
 # 체크 표식(절차적) — 깬 스테이지 우상단. 언어 중립(도감/글자 대신 기호)
 func _draw_check(c: Vector2, s: float, col: Color, w: float = 3.0) -> void:
@@ -7250,8 +7923,19 @@ func _draw_card(r: Rect2, accent: Color) -> void:
 	draw_rect(r, accent, false, 3.0)
 
 # 간단한 적 토큰 아이콘 — 붉은 사각 + 눈 2개(아트 전 임시)
+# 해골(처치 대상 기호). ⚠**틴트 없음** — 뼈색+어두운 눈의 2색이라 색을 그림이 갖는다(적 스프라이트와 같은 예외).
+# ⚠밝은 판(결과 팝업) 위에선 그 뼈색이 배경과 거의 같은 값이 된다 — 실측 크림 대비 **1.16:1**로,
+#   눈구멍·이빨만 남아 '해골'이 아니라 검은 점 몇 개로 읽혔다. 색을 못 바꾸므로(위 예외) 해법은
+#   **같은 형태를 조금 키워 뒤에 까는 것**이다 — 블록 rim·적 강조와 같은 장치라([[sprite-swap-keeps-signal-channel]])
+#   면을 안 덮고, 2색 납품본이 와도 그대로 먹는다. 어두운 판에선 배경이 이미 어두워 필요 없다.
+const SKULL_RIM: float = 0.07   # s 대비 테 두께
 func _draw_enemy_icon(center: Vector2, s: float) -> void:
-	if _blit_icon("skull", center, s * 1.0):   # ⚠틴트 없음(흰색) — 해골은 뼈색+어두운 눈이라 2색이다. 단색으로 받으면 색은 이미지가 갖는다
+	var rim: float = s * SKULL_RIM if _ink_light else 0.0
+	if _blit_icon("skull", center, s * 1.0):
+		if rim > 0.0:
+			# 텍스처 경로 — 같은 그림을 키워 어두운 실루엣으로 먼저 깐다(면은 원본이 덮는다)
+			_blit_icon("skull", center, s + rim * 2.0, C_INK_TITLE)
+			_blit_icon("skull", center, s * 1.0)
 		return
 	# 목표=밀려오는 적 전부 처치(타입 무관, 못 없애면 거점 hp↓). 특정 타입 대신
 	# 타입 중립 "처치 대상" 기호=해골로 그린다. 뼈색+어두운 눈·코·이빨.
@@ -7259,6 +7943,10 @@ func _draw_enemy_icon(center: Vector2, s: float) -> void:
 	var dark: Color = Color(0.14, 0.11, 0.1)
 	var cx: float = center.x
 	var cy: float = center.y
+	# 도형 경로의 같은 처리 — 실루엣을 이루는 두 형태(턱·두개골)만 키워 어둡게 먼저 깐다.
+	if rim > 0.0:
+		draw_rect(Rect2(cx - s * 0.24 - rim, cy + s * 0.08 - rim, s * 0.48 + rim * 2.0, s * 0.32 + rim * 2.0), C_INK_TITLE)
+		draw_circle(Vector2(cx, cy - s * 0.06), s * 0.42 + rim, C_INK_TITLE)
 	# 아래턱(뼈색 사각) + 두개골(뼈색 원)
 	draw_rect(Rect2(cx - s * 0.24, cy + s * 0.08, s * 0.48, s * 0.32), bone)
 	draw_circle(Vector2(cx, cy - s * 0.06), s * 0.42, bone)
@@ -7307,7 +7995,9 @@ func _draw_hud(fnt: Font) -> void:
 		_draw_boss_cards(fnt, goal_r, adv_r, gw, aw, box_y)
 		if not game_over and not game_clear:
 			var gcb: Vector2 = gear_rect.position + gear_rect.size * 0.5
+			_btn_press_begin(gear_rect, _gear_hover)
 			_draw_gear_icon(gcb, 16.0, Color(0.9, 0.92, 1.0) if _gear_hover else Color(0.55, 0.58, 0.72))
+			_btn_press_end()
 		return
 
 	# 받기형 수집: GOAL 카드 = 보석 수집(N/K). ADVANCE 카드(적 전진 시계)는 아래서 그대로 유지 — 적이 밀려오니까.
@@ -7387,7 +8077,9 @@ func _draw_hud(fnt: Font) -> void:
 	# 우상단 설정 기어 — 활성 플레이 중에만(결과/설정 모달은 자체 스크림이 이 위를 덮는다).
 	if not game_over and not game_clear:
 		var gc: Vector2 = gear_rect.position + gear_rect.size * 0.5
+		_btn_press_begin(gear_rect, _gear_hover)
 		_draw_gear_icon(gc, 16.0, Color(0.9, 0.92, 1.0) if _gear_hover else Color(0.55, 0.58, 0.72))
+		_btn_press_end()
 
 # 보스(감시자) HUD 카드 — GOAL 자리에 보스 HP, ADVANCE 자리에 '다음 잔해까지' 카운트다운.
 # 기존 두-카드 레이아웃/셈을 그대로 재사용(새 위젯 없음). 남은 적 대신 boss_hp, 전진시계 대신 파울시계.
@@ -7712,8 +8404,71 @@ func _blit_9s(name: String, r: Rect2, col: Color = Color.WHITE) -> bool:
 		sy += shs[iy]
 	return true
 
+# 라운드 칩 배경(사유 알약·AD 배지). 매 프레임 새로 만들지 않게 한 장을 들고 색·반경만 갈아 쓴다.
+var _chip_sb: StyleBoxFlat = null
+
+# 지금 그리는 판이 밝은가. _draw_result·_draw_settings가 자기 시작점에서 켜고, _ink()가 이걸 읽는다.
+var _ink_light: bool = false
+
+# 밝은 판 ↔ 다크 폴백을 한 자리에서 가른다. 호출부는 두 색을 나란히 적어두기만 하면 된다.
+func _ink(on_dark: Color, on_light: Color) -> Color:
+	return on_light if _ink_light else on_dark
+
+# 라운드 칩 한 장. 반투명일 때 '사각+양끝 원'으로 그리면 겹치는 부분만 알파가 두 번 쌓여
+#   양끝이 진한 반달로 보인다(사유 알약에서 실제로 걸렸다) → 한 번에 그린다.
+# ⚠§8의 draw_style_box 금지는 **StyleBoxTexture** 얘기다(모서리를 텍스처 픽셀 그대로 그려
+#   2배 납품본의 라운드가 부푼다). 벡터로 그리는 Flat엔 해당하지 않는다.
+func _chip(col: Color, rad: float) -> StyleBoxFlat:
+	if _chip_sb == null:
+		_chip_sb = StyleBoxFlat.new()
+	_chip_sb.bg_color = col
+	_chip_sb.set_corner_radius_all(int(rad))
+	return _chip_sb
+
+# 밝은 판 위에선 외곽선을 **아예 끈다**(알파 0). 톤만 낮추면 안 된다 —
+#   _draw_text_outlined는 같은 글자를 8방향 ±2px로 덧그리는 방식이라, 흰색을 옅게 깔아도
+#   여덟 겹이 쌓여 **글자 뒤에 크림보다 밝은 판**이 생긴다(A/B 렌더로 확인). 획도 안쪽에서
+#   갉아먹혀 가늘어 보인다. 어두운 글자는 배경 명도차만으로 이미 선다(실측 5~7.5:1).
+#   ⚠어두운 판(폴백·클리어 무대)에서는 검은 테가 여전히 필요하다 — 거기선 흰 글자다.
+func _ink_out() -> Color:
+	return Color(1.0, 1.0, 1.0, 0.0) if _ink_light else Color(0.0, 0.0, 0.0, 0.9)
+
+# ── 캔버스 변환 추적 + 버튼 눌림 스케일 ──────────────────────────────────
+# Godot는 **현재 캔버스 변환을 돌려주는 함수가 없다**. 눌림 스케일을 이미 걸려 있는 변환
+#   (화면 오프셋 draw_ofs·결과 카드 팝·겹침 펼치기) **위에 곱하려면** 우리가 들고 있어야 한다
+#   → 화면 그리기의 모든 변환을 _xf()로 통과시키고 _xf_cur에 남긴다.
+var _xf_cur: Transform2D = Transform2D.IDENTITY
+var _xf_stack: Array = []
+
+func _xf(origin: Vector2 = Vector2.ZERO, rot: float = 0.0, sc: Vector2 = Vector2.ONE) -> void:
+	_xf_cur = Transform2D(rot, sc, 0.0, origin)
+	draw_set_transform_matrix(_xf_cur)
+
+# 눌림 = 버튼이 **살짝 들어간다**. 손가락이 닿아 있는 동안만이고, 떼면(=동작이 끝나면) 원래 크기다.
+#   색 변화(상태 텍스처·틴트) 위에 얹는 것이지 대체가 아니다 — 색은 '어떤 버튼인가', 크기는 '지금 눌렀다'.
+# ⚠**히트박스는 안 줄인다.** 그림만 작아진다 — 손가락이 이미 닿은 버튼이 판정에서 빠지면 안 된다.
+# ⚠호출부의 hover 불리언이 곧 '눌림'이다 — 데스크톱도 마찬가지(C144). 예전엔 마우스를 올리기만 해도
+#   들어가 보였고 색까지 바뀌었다: 출고 대상인 터치엔 없는 상태라, 폰에서 못 보는 그림이 PC에만 있었다.
+const BTN_PRESS_SCALE: float = 0.95
+
+# begin/end는 **짝으로** 부른다. 안 눌렸어도 push한다 — 그래야 end가 조건 없이 pop할 수 있다.
+func _btn_press_begin(r: Rect2, pressed: bool) -> void:
+	_xf_stack.push_back(_xf_cur)
+	if not pressed:
+		return
+	var c: Vector2 = r.position + r.size * 0.5
+	var sc: float = BTN_PRESS_SCALE
+	_xf_cur = _xf_cur * Transform2D(0.0, Vector2(sc, sc), 0.0, c * (1.0 - sc))
+	draw_set_transform_matrix(_xf_cur)
+
+func _btn_press_end() -> void:
+	if _xf_stack.is_empty():
+		return
+	_xf_cur = _xf_stack.pop_back()
+	draw_set_transform_matrix(_xf_cur)
+
 # 모달 패널 한 장 = 그림자 → 본체 → 상단 강조바 → 테두리. 결과 팝업과 설정 모달이 **같은 부품**이다.
-#   body는 폴백 전용 색이다 — 납품 패널은 다크 톤 그림 자체를 받으므로 틴트하지 않는다(§4 P0).
+#   body는 폴백 전용 색이다 — 납품 패널은 그림이 색을 갖고 있어(밝은 크림) 틴트하지 않는다(§4 P0).
 #   accent만 계속 코드가 쥔다(클리어=금색 / 실패=붉은색 — '색만 바뀐다'가 기획).
 const PANEL_DROP: Vector2 = Vector2(6.0, 10.0)   # 그림자 오프셋. 텍스처 경로도 같은 값으로 실루엣을 깐다
 const PANEL_BAR_H: float = 8.0
@@ -7795,7 +8550,7 @@ func _blit_cell(r: Rect2) -> void:
 		return
 	draw_texture_rect(cell_tex, r, false)
 
-const RIM_PX: float = 3.0   # 블록 뒤로 삐져나오는 테 두께. 셀 간격(bpad=5)보다 좁게 = 옆 칸 안 침범
+const RIM_PX: float = 1.0   # 블록 뒤로 삐져나오는 테 두께. 블록 여백(그림 1px)과 같게 = 옆 칸 안 침범
 func _blit_block(r: Rect2, col: Color, white: float = 0.0, rim: float = 0.0) -> void:
 	# LOD — 트레이 프리뷰는 셀 17px(5.3배 축소)라 텍스처를 넣으면 뭉갠다. 여기선 사각형이 낫다(§8).
 	if block_tex == null or r.size.x < BLOCK_TEX_MIN_PX:
@@ -7818,7 +8573,7 @@ func _draw_tut_target() -> void:
 	var pulse: float = 0.5 + 0.5 * sin(anim_t * 5.0)
 	var col: Color = _color_of("Y")
 	var ghost: Color = col.lerp(Color.WHITE, 0.3)   # 밝혀서 어두운 셀 위 알파 블렌딩의 칙칙함 상쇄 → 트레이 조각과 같은 밝은 노랑
-	var bpad: float = 5.0
+	var bpad: float = BLOCK_PAD
 	# 목표 칸마다 조각색 반투명 고스트 + 흰 테두리(트레이 조각과 같은 문법)로 "이 노란 블록이 여기".
 	var minx: float = 1e9; var miny: float = 1e9; var maxx: float = -1e9; var maxy: float = -1e9
 	for cell in tut_cells:
@@ -7858,7 +8613,7 @@ func _draw_board(fnt: Font) -> void:
 		chg = clampf(resolve_timer / charge_dur, 0.0, 1.0)
 		for ci in clear_cells:
 			charging[ci] = true
-	var bpad: float = 5.0
+	var bpad: float = BLOCK_PAD
 	for r in range(ROWS):
 		for c in range(COLS):
 			var rx: float = BOARD_X + c * CELL
@@ -8192,7 +8947,7 @@ func _draw_board(fnt: Font) -> void:
 			st_sc = (0.62 if st_n == 2 else (0.48 if st_n == 3 else 0.40))
 			var st_gap: float = CELL * (0.42 if st_n == 2 else (0.28 if st_n == 3 else 0.22))
 			st_dx = (float(st_k) - float(st_n - 1) * 0.5) * st_gap
-			draw_set_transform(draw_ofs + Vector2(cx, cy) * (1.0 - st_sc) + Vector2(st_dx, 0.0),
+			_xf(draw_ofs + Vector2(cx, cy) * (1.0 - st_sc) + Vector2(st_dx, 0.0),
 					0.0, Vector2(st_sc, st_sc))
 		var ratio: float = clampf(float(e["hp"]) / float(e["maxhp"]), 0.0, 1.0)
 		var etype: String = e["etype"]
@@ -8411,7 +9166,7 @@ func _draw_board(fnt: Font) -> void:
 			var heart_cx: float = bx + heart_s * 0.72 + 3.0
 			_draw_heart(Vector2(heart_cx, by + bar_h * 0.5), heart_s, Color(0.55, 1.0, 0.55))
 		if st_sc < 1.0:
-			draw_set_transform(draw_ofs)   # 겹침 변환 해제 — 다음 적/이후 레이어는 다시 화면 좌표로
+			_xf(draw_ofs)   # 겹침 변환 해제 — 다음 적/이후 레이어는 다시 화면 좌표로
 
 	# ── 놓을 곳 없음: 빈 칸이 아래에서 위로 메워진다. 꽉 찬 보드가 곧 패배 사유의 진술이다
 	#    ("놓을 곳이 없다"를 글이 아니라 사실로 보여준다). 물결이 지난 줄의 적은 위에서 이미 지웠다.
@@ -8604,7 +9359,7 @@ func _draw_collapse() -> void:
 		draw_rect(Rect2(float(BOARD_X), sy, sw, 32.0), Color(1.0, 0.35, 0.30, 0.7), false, 2.0)
 
 	# ② 받칠 게 사라진 블록이 열마다 시차를 두고 쏟아진다
-	var bpad: float = 5.0
+	var bpad: float = BLOCK_PAD
 	for r in range(ROWS):
 		for c in range(COLS):
 			if board[r][c] == "":

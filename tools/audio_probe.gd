@@ -255,6 +255,17 @@ func _pass(idle: int) -> Array:
 	seed(SEED_CAMPAIGN)
 	g.seed_game(SEED_CAMPAIGN)
 	g._start_stage(0)
+	# ⚠**인트로 카드가 도는 동안은 봇도 기다린다.** 그 1.13초는 `_input`이 판 입력을 통째로 막는
+	#   구간이라(카드 뒤 오배치 방지) 사람은 조각을 못 놓는다.
+	# ⚠**스트레스 패스에선 인트로를 아예 끈다.** 그 패스는 14수를 14프레임에 넣는 '인간 불가능' 속도인데,
+	#   거기에 인트로(고정 1.4초 사건)를 얹으면 **현실에 없는 겹침**이 만들어진다 — R25에서 실제로
+	#   19발/초가 찍혔다. 인트로 창의 예산은 패스 I가 따로 잰다(거기선 8발/초로 여유 안이다).
+	#   사람 템포(1.8초/수)에선 그대로 둔다 — 거긴 진짜로 그렇게 들리는 순서다.
+	if idle <= IDLE_STRESS:
+		g.intro_t = -1.0
+	else:
+		while g.intro_t >= 0.0:
+			g._process(1.0 / 60.0)
 	var placed: int = _play(PLACES, idle)
 	return [g._sfx_log.duplicate(true), placed]
 
@@ -311,6 +322,9 @@ func _click(pos: Vector2) -> void:
 	ev.button_index = MOUSE_BUTTON_LEFT
 	ev.pressed = true
 	ev.position = pos
+	g._input(ev)
+	# 버튼은 **뗄 때** 발동한다(C144) — 누름만 보내면 걸리기만 하고 아무 일도 안 일어난다.
+	ev.pressed = false
 	g._input(ev)
 	_idle(6)          # 발화 간 최소 간격(0.05s)보다 길게 — 안 그러면 뒤 탭이 gap으로 드롭된다
 
@@ -415,7 +429,9 @@ func _pass_clear() -> Dictionary:
 	g.seed_game(SEED_CAMPAIGN)
 	g._start_stage(0)
 	g.intro_t = -1.0
-	_idle(2)
+	# ⚠12프레임을 흘린다(2가 아니라) — 진입 카드의 예약 음(goal_in 2·3번째, +0.085·0.17초)이
+	#   아래 로그 초기화 **뒤에** 떨어지면 무대 로그에 섞여 '무대 안 무음'이 실제보다 작게 나온다.
+	_idle(12)
 	# 보드에 블록을 깔아 둔다 — 스윕은 **블록이 있는 행만** 울리므로 빈 판이면 0발이 정상이 되어
 	#   검사가 공허해진다. 아래 세 행 + 맨 윗행(= 스윕 종료 타격의 조건)을 채운다.
 	# ⚠**보드를 먼저 비운다.** _start_stage(0)가 남기는 판은 앞 패스와 **유저 세이브**에 따라 달라진다
@@ -446,6 +462,185 @@ func _pass_clear() -> Dictionary:
 			continue
 		ev.append({"t": float(e["t"]) - t0 - float(g.CLEAR_HOLD), "kind": String(e["kind"]), "semi": int(e["semi"])})
 	return {"ev": ev, "rows": rows.size(), "log": g._sfx_log.duplicate(true)}
+
+# 패스 H — 결과 팝업 개봉(R22 · §22 B-15). 봇 패스(A~C)에서도 팝업은 뜨지만 거기선 **개봉이
+#   한 번뿐**이라 이 자리의 진짜 위험이 안 드러난다: `result_t`는 팝업이 닫힐 때까지 계속 오르므로
+#   경계가 아니라 값으로 조건을 쓰면 **매 프레임 운다**. 그래서 개봉 뒤를 2.5초 더 굴려 총 발화를 센다.
+# ⚠승·패를 따로 세운다 — 어휘가 갈리는 자리라 한쪽만 재면 반대쪽 배선이 빠져도 초록이다.
+func _pass_result(win: bool) -> Dictionary:
+	g.sfx_log_on = true
+	g.sound_on = true
+	g._sfx_log = []
+	g._sfx_t = 0.0
+	seed(SEED_CAMPAIGN)
+	g.seed_game(SEED_CAMPAIGN)
+	g._start_stage(0)
+	g.intro_t = -1.0
+	g.result_t = -1.0
+	_idle(2)
+	if win:
+		# 축하 무대를 실제로 태운다(팝업은 무대가 끝나야 뜬다). 보드는 비워 둔다 — 스윕 발수는
+		#   여기 관심이 아니고, 판이 앞 패스·유저 세이브에 따라 달라지는 걸 막는다(패스 G의 교훈).
+		for r0 in range(g.ROWS):
+			for c0 in range(g.COLS):
+				g.board[r0][c0] = ""
+		g.game_over = false
+		g.game_clear = true
+		g._plan_clear_fx()
+		g.clear_show_t = -float(g.CLEAR_HOLD)
+		g._fb("finish")
+	else:
+		# ⚠`pending_core_dead = true`로 세우면 안 된다 — `_end_turn` 안의 `advance_step`이
+		#   `core_hp <= 0`으로 **재계산해 덮는다**(R11에서 이 함정에 한 번 걸렸다).
+		g.core_hp = 0
+		g._end_turn()
+	# 팝업이 열릴 때까지 굴린다(죽음 연출·축하 무대가 끝나야 뜬다).
+	var t0: float = -1.0
+	for _i in range(int(15.0 * 60.0)):
+		g._process(1.0 / 60.0)
+		if g.result_t >= 0.0:
+			t0 = g._sfx_t
+			break
+	_idle(150)          # 개봉 뒤 2.5초 — 매 프레임 발화라면 여기서 150발로 터진다
+	var ev: Array = []
+	var ring: float = t0
+	var hole: float = 0.0
+	for e0 in g._sfx_log:
+		var e: Dictionary = e0 as Dictionary
+		if String(e["drop"]) != "" or t0 < 0.0 or float(e["t"]) < t0 - 0.001:
+			continue
+		var t: float = float(e["t"])
+		if t - ring > hole:
+			hole = t - ring
+		ring = maxf(ring, t + _dur(String(e["kind"]), int(e["semi"])))
+		ev.append({"t": t - t0, "kind": String(e["kind"])})
+	return {"open": t0, "ev": ev, "hole": hole, "cover": ring - t0}
+
+# 패스 I — 판 진입 목표 카드(R23 · §31). 인트로는 **캠페인 진입에서만** 켜지는데 다른 패스는
+#   전부 `intro_t = -1.0`으로 꺼 두고 재므로(카드가 떠 있으면 첫 클릭이 스킵으로 삼켜진다),
+#   3박(등장 3발 · 홀드 무음 · 안착 1발)이 제대로 갈리는지는 여기서만 드러난다.
+func _pass_intro(skip: bool) -> Dictionary:
+	g.sfx_log_on = true
+	g.sound_on = true
+	g._sfx_log = []
+	g._sfx_t = 0.0
+	seed(SEED_CAMPAIGN)
+	g.seed_game(SEED_CAMPAIGN)
+	var t0: float = g._sfx_t
+	g._start_stage(0)          # ← 여기서 goal_in이 나간다(호출부 배선 검사)
+	if skip:
+		_idle(15)              # 0.25초 뒤 아무 키나 = 스킵(도킹을 건너뛴다)
+		var ev0 := InputEventKey.new()
+		ev0.keycode = KEY_SPACE
+		ev0.pressed = true
+		g._input(ev0)
+	_idle(int((float(g.INTRO_TOTAL) + 0.5) * 60.0))
+	var ev: Array = []
+	for e0 in g._sfx_log:
+		var e: Dictionary = e0 as Dictionary
+		if String(e["drop"]) != "":
+			continue
+		ev.append({"t": float(e["t"]) - t0, "kind": String(e["kind"]), "semi": int(e["semi"])})
+	return {"ev": ev, "ev_raw": g._sfx_log.duplicate(true)}
+
+# 패스 J — 보석 수집(R24 신설 · R26에서 다시 씀). **수집 스테이지에서만** 나는 소리라 봇 패스엔
+#   한 발도 안 나온다 — 여기서 안 재면 배선이 통째로 빠져 있어도 초록이다.
+#   R26부터는 소리뿐 아니라 **세 박자 연출**(제자리 대기 → 발사 → 도착)까지 같이 본다: 소리가
+#   발사에 맞춰 나가야 마지막 틱이 도착에 앉으므로, 연출 상수가 바뀌면 소리도 어긋난다.
+func _pass_gem() -> Dictionary:
+	g.sfx_log_on = true
+	g.sound_on = true
+	g._sfx_log = []
+	g._sfx_t = 0.0
+	seed(SEED_CAMPAIGN)
+	g.seed_game(SEED_CAMPAIGN)
+	# ⚠**스테이지 번호를 박지 않는다** — 수집판의 위치는 밸런스 작업마다 바뀐다(지금은 5번째지만
+	#   이름은 st9다). 박아 두면 순서가 바뀐 날 검사가 조용히 '보석 0발'로 초록이 된다.
+	var sidx: int = -1
+	for si in range((g.STAGES as Array).size()):
+		if not (g.STAGES[si] as Dictionary).get("collect_targets", []).is_empty():
+			sidx = si
+			break
+	if sidx < 0:
+		return {"n": -1, "semis": [], "hold": -1.0, "gap": -1.0, "arrivals": []}
+	g._start_stage(sidx)
+	g.intro_t = -1.0
+	_idle(12)
+	# ① 보석 하나 — 잡은 뒤 **바로 안 들어간다**(홀드). 카운트가 오르는 프레임까지 재고,
+	#    소리가 그 사이 어디서 나가는지 본다.
+	for c0 in range(int(g.COLS)):
+		g.board[0][c0] = ""
+	g._spawn_gem(0)
+	var gid: int = -1
+	for e0 in g.enemies:
+		if String((e0 as Dictionary)["etype"]) == "gem":
+			gid = int((e0 as Dictionary)["id"])
+	g._sfx_log = []
+	var got0: int = int(g.collected_by_type[0])
+	g._apply_hit({"id": gid, "dmg": 1, "kb": 0})     # 낚아챔(여기선 chain이 운다)
+	var t_grab: float = g._sfx_t
+	var t_count: float = -1.0
+	for _i in range(120):
+		g._process(1.0 / 60.0)
+		if t_count < 0.0 and int(g.collected_by_type[0]) > got0:
+			t_count = g._sfx_t
+	var semis: Array = []
+	var t_first: float = -1.0
+	var t_last: float = -1.0
+	for e1 in g._sfx_log:
+		var e: Dictionary = e1 as Dictionary
+		if String(e["drop"]) != "" or String(e["kind"]) != "collect":
+			continue
+		semis.append(int(e["semi"]))
+		if t_first < 0.0:
+			t_first = float(e["t"])
+		t_last = float(e["t"])
+	# ② 여러 개 동시 — 같은 프레임에 다섯을 잡아도 도착은 **순차**여야 한다(개수가 세어져야 한다).
+	g._sfx_log = []
+	var arrivals: Array = []
+	var before: Array = []
+	for gt in range((g.collected_by_type as Array).size()):
+		before.append(int(g.collected_by_type[gt]))
+	for _k in range(5):
+		for c1 in range(int(g.COLS)):
+			g.board[0][c1] = ""
+		g._spawn_gem(_k % int(g.COLS))
+		var gid2: int = -1
+		for e2 in g.enemies:
+			if String((e2 as Dictionary)["etype"]) == "gem":
+				gid2 = int((e2 as Dictionary)["id"])
+		if gid2 >= 0:
+			g._apply_hit({"id": gid2, "dmg": 1, "kb": 0})
+	var tot0: int = 0
+	for v in before:
+		tot0 += int(v)
+	var seen: int = tot0
+	for _i2 in range(240):
+		g._process(1.0 / 60.0)
+		var tot: int = 0
+		for gt2 in range((g.collected_by_type as Array).size()):
+			tot += int(g.collected_by_type[gt2])
+		while tot > seen:
+			arrivals.append(g._sfx_t)
+			seen += 1
+	var burst: int = 0
+	var burst_drop: int = 0
+	for e3 in g._sfx_log:
+		var e4: Dictionary = e3 as Dictionary
+		if String(e4["kind"]) != "collect":
+			continue
+		if String(e4["drop"]) == "":
+			burst += 1
+		else:
+			burst_drop += 1
+	var min_gap: float = 999.0
+	for i in range(1, arrivals.size()):
+		min_gap = minf(min_gap, float(arrivals[i]) - float(arrivals[i - 1]))
+	return {"n": semis.size(), "semis": semis, "hold": t_first - t_grab,
+			"to_count": t_count - t_first, "span": t_last - t_first,
+			"burst": burst, "burst_drop": burst_drop, "arrivals": arrivals.size(),
+			"gap": (min_gap if min_gap < 999.0 else -1.0),
+			"music": int(_analyze(g._sfx_log)["max_fires_1s"])}
 
 func _run() -> void:
 	g = load("res://Main.tscn").instantiate()
@@ -545,12 +740,20 @@ func _run() -> void:
 	var allowed: Array = ["grab", "place", "clear2", "chain", "score", "fail",
 			"tap", "tap_go", "tap_back", "tap_off", "fanfare", "climax", "praise", "leak",
 			"sweep", "clear_hit", "clear_note", "rocket", "letter", "chord", "logo",
-			"fw_rise", "fw_pop"]
+			"fw_rise", "fw_pop",
+			# 결과 팝업(R22) — 패스 A에는 **아직 안 나온다**(승리 후 1초만 더 굴리는데 팝업은 죽음
+			#   연출 1.6초·축하 무대 3.6초 뒤에 뜬다). 그래도 설계표에 있으니 여기 적어 둔다 —
+			#   나중에 패스 A를 더 길게 굴리면 정상 동작이 FAIL로 나오는 자리다.
+			"result_win", "result_lose", "result_cta",
+			# 목표 카드(R23) — 이건 패스 A에도 **나온다**(캠페인 진입에서 켜지므로 봇 패스의 첫 소리다).
+			"goal_in", "goal_dock",
+			# 보석 도착(R24) — 수집 스테이지 전용이라 패스 A(스테이지 1)엔 안 나온다. 패스 J가 잰다.
+			"collect"]
 	var unexpected: Array = []
 	for k in kinds_a.keys():
 		if not allowed.has(String(k)):
 			unexpected.append(k)
-	_check("⑦ 어휘는 설계표(23) 안", unexpected.is_empty(),
+	_check("⑦ 어휘는 설계표(29) 안", unexpected.is_empty(),
 			"예상 밖: %s" % str(unexpected))
 
 	# ── 패스 D: 어휘 직접 타격(fanfare 1회 상한·판 경계 리셋)
@@ -732,6 +935,169 @@ func _run() -> void:
 			int(mg["max_voices"]) <= MAX_VOICES and int(mg["max_music"]) <= MAX_MUSIC_VOICES
 					and int(mg["max_fires_1s"]) <= MAX_FIRES_IN_1S,
 			"타격 %d · 선율 %d · 1초 %d발" % [int(mg["max_voices"]), int(mg["max_music"]), int(mg["max_fires_1s"])])
+
+	# ── 패스 H: 결과 팝업 개봉(R22 · §22 B-15)
+	for win in [true, false]:
+		var rs: Dictionary = _pass_result(win)
+		var tag: String = "클리어" if win else "실패"
+		var rev: Array = rs["ev"]
+		var rcnt: Dictionary = {}
+		for e0 in rev:
+			var k: String = String((e0 as Dictionary)["kind"])
+			rcnt[k] = int(rcnt.get(k, 0)) + 1
+		var open_word: String = "result_win" if win else "result_lose"
+		var cta_t: float = -1.0
+		for e0 in rev:
+			if String((e0 as Dictionary)["kind"]) == "result_cta":
+				cta_t = float((e0 as Dictionary)["t"])
+		print("── 결과 팝업(%s): %s · 최대 무음 %.2fs · 소리가 덮는 길이 %.2fs"
+				% [tag, str(rcnt), float(rs["hole"]), float(rs["cover"])])
+		_check("㉓ 팝업 개봉 배선(%s → %s)" % [tag, open_word],
+				int(rcnt.get(open_word, 0)) == 1 and int(rcnt.get("result_win" if not win else "result_lose", 0)) == 0,
+				str(rcnt))
+		# 버튼 도착 = **상태 변화**다(그 전까지 _input이 팝업을 통째로 막는다) → 시각까지 본다.
+		_check("㉓ 버튼 도착 배선(RESULT_BTN_IN=%.2f)" % float(g.RESULT_BTN_IN),
+				int(rcnt.get("result_cta", 0)) == 1 and absf(cta_t - float(g.RESULT_BTN_IN)) < 0.05,
+				"%d발 · %.3fs" % [int(rcnt.get("result_cta", 0)), cta_t])
+		# ⚠**이 검사가 요점이다.** result_t는 팝업이 닫힐 때까지 계속 오르므로 조건을 경계가 아니라
+		#   값으로 쓰면 개봉음이 2.5초 동안 150발 난다 — 진흙이 아니라 굉음이다.
+		var rn: int = int(rcnt.get("result_win", 0)) + int(rcnt.get("result_lose", 0)) + int(rcnt.get("result_cta", 0))
+		_check("㉔ 개봉 뒤 2.5초 동안 정확히 2발(경계에서만)", rn == 2, "%d발" % rn)
+		# 개봉 창에 구멍이 없나 — 지속음 한 발이 개봉 3박(카드·내용·버튼 0.30s)을 통째로 덮어야 한다.
+		#   ⚠상한이 아니라 **하한**이고, 기준은 0.8초다: 타격 파형으로 되돌리면 0.1초쯤에서 끊기므로
+		#   여기서 즉시 터진다. 승·패가 0.93 / 1.87초로 갈리는 건 음정 차(같은 파형을 +7 / −5로 쓴다).
+		_check("㉔ 개봉 창을 소리가 ≥0.8초 덮는다", float(rs["cover"]) >= 0.8, "%.2fs" % float(rs["cover"]))
+
+	# ── 패스 I: 판 진입 목표 카드(R23 · §31)
+	var it: Dictionary = _pass_intro(false)
+	var iev: Array = it["ev"]
+	var in_semis: Array = []
+	var dock_t: float = -1.0
+	var dock_semis: Array = []
+	var dock_ts: Array = []
+	var hold_hits: Array = []
+	for e0 in iev:
+		var e4: Dictionary = e0 as Dictionary
+		var k4: String = String(e4["kind"])
+		if k4 == "goal_in":
+			in_semis.append(int(e4["semi"]))
+		elif k4 == "goal_dock":
+			if dock_t < 0.0:
+				dock_t = float(e4["t"])       # 열차의 **첫 발**이 화면의 '툭'과 같은 프레임이어야 한다
+			dock_semis.append(int(e4["semi"]))
+			dock_ts.append(float(e4["t"]))
+		# 홀드 구간(등장 끝 ~ 도킹 시작)은 **일부러 비운 자리**다(레퍼런스도 0.35초 무음).
+		if float(e4["t"]) > float(g.INTRO_APPEAR) and float(e4["t"]) < float(g.INTRO_APPEAR) + float(g.INTRO_HOLD):
+			hold_hits.append(k4)
+	print("── 목표 카드: %s · 등장 음정 %s · 안착 %.2fs(INTRO_TOTAL %.2f) · 안착 롤 %s"
+			% [str(iev.size()) + "발", str(in_semis), dock_t, float(g.INTRO_TOTAL), str(dock_semis)])
+	_check("㉕ 카드 등장 배선(_start_stage → goal_in 3발 상승)",
+			in_semis == [0, 4, 7], str(in_semis))
+	_check("㉕ 도킹 안착 배선(INTRO_TOTAL → goal_dock 첫 발)",
+			dock_t >= 0.0 and absf(dock_t - float(g.INTRO_TOTAL)) < 0.05, "%.3fs" % dock_t)
+	# ⚠**이 검사를 두 번 다시 썼다.** R25 전엔 "안착 = 1발"을 보고 있었고 그 1발이 유저가 지적한
+	#   결함이었다. R26에선 글로켄 8발 롤을 보고 있었는데 그것도 결함이었다(보석 도착과 따로 놀았다).
+	#   → 지금은 **보석 도착과 같은 열차**인지, 그리고 폭이 `TICK_GAP`대로인지를 본다(§34).
+	# 열차 길이 = 들어가는 칩 개수(R28). 패스 I는 스테이지 1 = 적 처치판이라 **칩 하나 = TICK_N_GEM발**이다.
+	var tick_run: Array = g.TICK_RUN
+	var dock_n: int = int(g.TICK_N_GEM)
+	var want_dock: Array = []
+	for i in range(dock_n):
+		want_dock.append(int(tick_run[mini(i, tick_run.size() - 1)]))
+	var roll_span: float = (float(dock_ts[dock_ts.size() - 1]) - float(dock_ts[0])) if dock_ts.size() > 1 else 0.0
+	_check("㉕ 안착 = 틱 열차 %d발(보석 도착과 같은 figure)" % dock_n,
+			dock_semis == want_dock, "%s (기대 %s)" % [str(dock_semis), str(want_dock)])
+	_check("㉕ 열차 폭 = %d발 × %.0fms" % [dock_n - 1, float(g.TICK_GAP) * 1000.0],
+			absf(roll_span - float(g.TICK_GAP) * float(dock_n - 1)) < 0.03,
+			"%.3fs" % roll_span)
+	_check("㉕ 홀드 구간(%.2fs)은 무음" % float(g.INTRO_HOLD), hold_hits.is_empty(), str(hold_hits))
+	# 스킵 — 도킹 연출을 건너뛰었으면 안착음도 없어야 한다(소리가 화면에 없는 사건을 말하면 안 된다).
+	var it2: Dictionary = _pass_intro(true)
+	var skipped: Dictionary = {}
+	for e0 in it2["ev"]:
+		var k5: String = String((e0 as Dictionary)["kind"])
+		skipped[k5] = int(skipped.get(k5, 0)) + 1
+	_check("㉖ 인트로 스킵 = 닫기음만(안착음 없음)",
+			int(skipped.get("goal_dock", 0)) == 0 and int(skipped.get("tap_back", 0)) == 1, str(skipped))
+	# 착지점(R28) — **HUD가 이번 프레임에 그린 목표 수 자리**를 쓰는지. 하드코딩 (293,66)으로
+	#   되돌아가면 여기서 잡힌다(그 값은 어느 동사에서도 카드 안 숫자와 안 맞았다).
+	# ⚠**진짜 프레임을 그려야 한다.** `_goal_num_cs`는 `_draw_hud`가 채우는데 프로브는 `_process`만
+	#   손으로 돌리므로 그리기가 한 번도 안 일어난다 → 처음엔 선언부 기본값 (400,80)을 읽고 검사가
+	#   **조용히 초록**이었다. `queue_redraw()` + 실제 프레임 대기로 그리게 한 뒤 읽는다.
+	g.queue_redraw()
+	await process_frame
+	await process_frame
+	var dp: Vector2 = g._goal_dock_pos(0)
+	var card_y: float = g._hud_card_y()
+	# 적 판은 **카드 중앙**으로 들어간다(유저 결정). 하드코딩 (293,66)으로 되돌아가면 여기서 잡힌다.
+	var cc: Vector2 = g._goal_card_center()
+	_check("㉖ 적 판 도킹 착지점 = 목표 카드 중앙",
+			cc.is_equal_approx(Vector2(400.0, card_y + float(g.HUD_CARD_H) * 0.5))
+					and dp.y >= card_y and dp.y <= card_y + float(g.HUD_CARD_H),
+			"중앙 (%.0f, %.0f) · 카드 수 자리 (%.0f, %.0f)" % [cc.x, cc.y, dp.x, dp.y])
+	# 안착 열차가 예산·풀을 넘기지 않나 — 8발이 0.28초에 몰리는 자리라 여기가 인트로의 천장이다.
+	var mi: Dictionary = _analyze(it["ev_raw"])
+	_check("㉖ 인트로 예산(선율 %d · 롤링 %d)" % [MAX_MUSIC_VOICES, MAX_FIRES_IN_1S],
+			int(mi["max_music"]) <= MAX_MUSIC_VOICES and int(mi["max_fires_1s"]) <= MAX_FIRES_IN_1S,
+			"선율 %d · 1초 %d발" % [int(mi["max_music"]), int(mi["max_fires_1s"])])
+
+	# ── 패스 J: 보석 수집 — 세 박자 + 틱 열차(R26 · §34)
+	var gm: Dictionary = _pass_gem()
+	print("── 보석: 열차 %d발 %s · 홀드 %.2fs · 열차→카운트 %.2fs · 폭 %.3fs · 동시5 도착 %d(최소간격 %.2fs) · 롤링 %d"
+			% [int(gm["n"]), str(gm["semis"]), float(gm["hold"]), float(gm["to_count"]),
+			float(gm["span"]), int(gm["arrivals"]), float(gm["gap"]), int(gm["music"])])
+	var want_gem: Array = []
+	for i in range(int(g.TICK_N_GEM)):
+		want_gem.append(int((g.TICK_RUN as Array)[mini(i, (g.TICK_RUN as Array).size() - 1)]))
+	_check("㉗ 도착 = 틱 열차 %d발(한 방 아님)" % int(g.TICK_N_GEM),
+			gm["semis"] == want_gem, "%s (기대 %s)" % [str(gm["semis"]), str(want_gem)])
+	# ⚠**세 박자의 핵심**: 잡히면 바로 안 들어간다. 홀드가 사라지면 여기서 즉시 터진다.
+	# ⚠상한이 GEM_HOLD보다 넉넉한 이유: 낚아채는 순간 **히트스톱 0.05초**가 걸려 게임 타이머가
+	#   통째로 멎는다(_apply_hit). 그 시간만큼 대기가 뒤로 밀리는 건 정상이고, 실측 0.67초다.
+	_check("㉗ 잡은 뒤 %.2f초 기다렸다 발사한다(+히트스톱)" % float(g.GEM_HOLD),
+			float(gm["hold"]) >= float(g.GEM_HOLD) - 0.02 and float(gm["hold"]) <= float(g.GEM_HOLD) + 0.12,
+			"%.3fs" % float(gm["hold"]))
+	# 열차의 **마지막(가장 큰) 발이 도착과 같은 프레임**에 앉는가 — 열차가 비행보다 길거나 짧으면 어긋난다.
+	_check("㉗ 열차 마지막 발 ≈ 도착(오차 <40ms)",
+			absf(float(gm["to_count"]) - float(gm["span"])) < 0.040,
+			"열차폭 %.3fs · 발사→카운트 %.3fs" % [float(gm["span"]), float(gm["to_count"])])
+	# 수집판은 **색마다 자기 카운터**로 간다(R28) — 한 점으로 뭉쳐 날아가면 어느 색이 어디로
+	#   들어가는지가 안 보인다. 색이 둘 이상인 판에서 x가 갈리는지 본다.
+	# ⚠여기도 실제 프레임을 그린 뒤에 읽는다(위 ㉖과 같은 함정).
+	g.queue_redraw()
+	await process_frame
+	await process_frame
+	var dxs: Array = []
+	for gt3 in range(maxi(1, (g.st.get("collect_targets", [1]) as Array).size())):
+		dxs.append((g._goal_dock_pos(gt3) as Vector2).x)
+	# ⚠1색 판만 재면 이 검사는 **공허하게 초록**이다(갈릴 게 없다) → 2색 이상인 판을 따로 찾아 잰다.
+	var midx: int = -1
+	for si2 in range((g.STAGES as Array).size()):
+		if ((g.STAGES[si2] as Dictionary).get("collect_targets", []) as Array).size() >= 2:
+			midx = si2
+			break
+	if midx >= 0:
+		g._start_stage(midx)
+		g.intro_t = -1.0
+		g.queue_redraw()
+		await process_frame
+		await process_frame
+		dxs = []
+		for gt4 in range(((g.STAGES[midx] as Dictionary)["collect_targets"] as Array).size()):
+			dxs.append((g._goal_dock_pos(gt4) as Vector2).x)
+	_check("㉗ 수집 착지점이 **색마다** 갈린다(2색 판)",
+			midx >= 0 and dxs.size() >= 2 and absf(float(dxs[0]) - float(dxs[1])) > 20.0, str(dxs))
+	# ⚠**동시에 잡히면 도착도 같이 온다** — 순차로 벌리면 카운트 시각이 밀리고 그게 곧 밸런스다
+	#   (회귀 실측: 수집판 승률 20/20 → 0/20). 개수는 소리가 나른다 = 열차가 겹쳐 촘촘해진다.
+	#   이 검사는 **총 지연이 GEM_TOTAL로 고정**돼 있는지를 지킨다(늘리면 골든이 깨진다).
+	_check("㉘ 동시 5개 = 5개 다 카운트(지연 %.2fs 고정)" % float(g.GEM_TOTAL),
+			int(gm["arrivals"]) == 5, "%d개" % int(gm["arrivals"]))
+	# ⚠**5개가 같이 도착해도 열차는 한 줄**(길어질 뿐)이다 — 개당 한 줄씩 쏘면 15발이 0.08초에
+	#   몰려 예산을 넘고, 넘으면 조용히 드롭돼서 **개수가 오히려 덜 들린다**.
+	_check("㉘ 동시 5개 = 열차 한 줄이 길어짐(롤링 ≤ %d · 드롭 0)" % MAX_FIRES_IN_1S,
+			int(gm["burst"]) == mini(int(g.TICK_N_GEM) + 4, int(g.TICK_N_MAX)) and int(gm["burst_drop"]) == 0
+					and int(gm["music"]) <= MAX_FIRES_IN_1S,
+			"%d발 · 드롭 %d · 롤링 %d" % [int(gm["burst"]), int(gm["burst_drop"]), int(gm["music"])])
 
 	print("=== %s (실패 %d) ===" % ["PASS" if fails == 0 else "FAIL", fails])
 	quit(1 if fails > 0 else 0)
