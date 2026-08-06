@@ -5061,6 +5061,11 @@ func _input(event: InputEvent) -> void:
 	# ── 메인 메뉴(허브): Adventure(스테이지) / Classic(무한) ──
 	# 세로 중앙 오프셋(_ui_dy)만큼 화면을 내려 그리므로, 입력 좌표는 그만큼 되돌려 히트테스트한다.
 	if mode == "menu":
+		# 부팅 미끄러짐 초반엔 버튼이 아직 안 그려져 있다 — 그동안은 판정도 없다(_menu_slots_live).
+		#   로고 화면을 탭으로 건너뛴 손가락이 그대로 남아 있는 구간이라, 안 보이는 버튼이 살아 있으면
+		#   '누른 적 없는 판'이 시작된다.
+		if not _menu_slots_live():
+			return
 		var mdy: Vector2 = Vector2(0.0, _ui_dy())
 		if event is InputEventMouseMotion:
 			_hot_menu((event as InputEventMouseMotion).position - mdy)
@@ -5420,6 +5425,14 @@ func _process(delta: float) -> void:
 			_logo_done()
 		queue_redraw()
 		return
+	# 로고 → 홈 미끄러짐. 홈을 떠나면 즉시 끝낸다(허브로 되돌아올 때 다시 미끄러지면 안 된다).
+	if menu_intro >= 0.0:
+		if mode == "menu":
+			menu_intro += delta
+			if menu_intro >= MENU_INTRO:
+				menu_intro = -1.0
+		else:
+			menu_intro = -1.0
 	if mode == "menu" or mode == "select" or mode == "leaderboard":
 		if _dev_reset_arm > 0.0:
 			_dev_reset_arm = maxf(0.0, _dev_reset_arm - delta)   # 무장은 저절로 풀린다(오발 방지)
@@ -5788,6 +5801,9 @@ const C_BG_TOP := Color("#2a2358")   # 발광 중심색
 const BG_GLOW_CY: float = 0.47       # 발광 중심(화면 세로 비율) = 스플래시 워드마크의 광학 중심
 const BG_GLOW_RINGS: int = 48        # 48단계면 8비트에서 계단이 안 보인다
 
+# ⚠이 배경으로 무언가를 **반투명하게 가리려 하지 말 것**(부팅 전환에서 버튼 페이드인으로 시도했다가 걷어냄).
+#   48겹이 겹쳐 칠해지므로 겹당 알파를 낮춰도 누적 불투명도가 1-(1-a)^48 ≈ 1이다 — 알파가 뭐든 결과는
+#   '완전히 가림'뿐이라, 실측 diff가 페이드 없이 90에서 0으로 한 번에 떨어졌다. 가리려면 안 그리면 된다.
 func _draw_bg_glow() -> void:
 	draw_rect(Rect2(-20.0, -20.0, VW_BASE + 40.0, vh + 40.0), C_BG)
 	var cy: float = vh * BG_GLOW_CY
@@ -5815,7 +5831,7 @@ func _draw() -> void:
 
 	if mode == "logo":
 		# 홈과 **같은 배경·같은 락업**이다. 다른 건 락업이 앉는 높이(47% vs 23%) 하나뿐 —
-		#   그래서 이 화면이 꺼지고 홈이 뜨는 순간, 로고가 위로 옮겨간 것 말고는 아무것도 안 바뀐다.
+		#   그래서 이 화면이 홈으로 넘어갈 때, 로고가 그 높이차만큼 미끄러지는 것 말고는 아무것도 안 바뀐다.
 		_draw_bg_glow()
 		_draw_logo(fnt)
 		return
@@ -7161,12 +7177,34 @@ func _sel_scroll_by(dy: float) -> void:
 #   이유는 둘: ①세 화면의 배경이 픽셀 단위로 같고 ②게임 로고가 사라지지 않고 **같은 크기 그대로**
 #   위로 평행이동만 한다. 스튜디오 카드가 게임 로고보다 **먼저·아래(거의 정중앙)·흰 단색**인 것도 실측값이다.
 # 그래서 이 화면은 새 그림이 아니라 홈과 **같은 락업**(_draw_wm_static + _draw_tagline)을 47%에 놓은 것이다.
-#   홈은 같은 물건을 23%(MENU_WM_CENTER_Y)에 놓는다 → 컷 순간 로고만 위로 올라간다.
+#   홈은 같은 물건을 23%(MENU_WM_CENTER_Y)에 놓는다 → 넘어갈 때 로고만 위로 올라간다.
+# ⚠단 스튜디오→로고와 달리 **로고→홈은 컷이 아니다**: 그 구간만 실제로 미끄러진다(MENU_INTRO 주석).
+#   위 실측을 그대로 컷으로 옮겼더니 유저가 "뚝 끊긴다"고 했다 — 두 자리의 거리(180px)가 레퍼런스와 다르면
+#   같은 컷이 다른 물건이 된다. 레퍼런스 값은 배경·크기·순서에 대한 것이지 '컷이면 된다'가 아니었다.
 # ⚠art/studio.png(엔진 스플래시)의 배경과 _draw_bg_glow는 같은 값이어야 한다. 한쪽만 손대면 컷이 보인다.
 #   그림은 tools/studio_shot.gd가 굽는다(`-- <dir> ship`).
 const LOGO_HOLD: float = 0.60          # 레퍼런스 스튜디오 카드가 0.52초. 엔진 스플래시(700ms) 뒤에 이어 붙는다
 const LOGO_CENTER_RATIO: float = 0.47  # 워드마크 광학 중심 — 기하 중심 50%는 처져 보인다
 var logo_t: float = 0.0                # 경과(초). -1 = 이 화면 지났음
+
+# 로고 화면 → 홈은 **하드컷이 아니라 미끄러짐**이다(유저 실플레이 지적: "뚝 끊긴다").
+#   위 주석대로 이 컷의 전제는 "로고가 사라지지 않고 같은 크기 그대로 위로 평행이동만 한다"인데,
+#   컷으로 붙이면 그 평행이동이 **한 프레임에 180px 순간이동**으로 일어난다 — 눈은 그걸 이동이 아니라
+#   장면 교체로 읽는다. 그래서 그 이동을 실제 시간축에 올린다: 로고는 47%→23%로 미끄러지고,
+#   홈의 나머지(버튼)는 그 도중에 들어온다. 크기·색·배경은 그대로 — 움직이는 건 자리 하나뿐이다.
+const MENU_INTRO: float = 0.28         # 미끄러지는 시간. 더 길면 '연출'로 읽혀 홈 진입이 굼떠진다
+# 버튼이 들어오는 시점(0~1). 로고가 **아직 갈 길이 남았을 때**여야 한다 — 여기서 이동의 42%(=75px)가
+#   남는다. 눈이 움직이는 로고를 쫓는 동안이라 버튼이 나타난 순간이 안 잡힌다(모션 마스킹).
+#   ⚠페이드인은 기각됐다: 배경이 48겹이라 반투명 덮개가 알파와 무관하게 '완전히 가림'이 되고(그 실측이
+#     _draw_bg_glow 주석에), 버튼 겹마다 알파를 꿰면 4px 어긋난 그림자가 본체에 비쳐 탁해진다.
+#   ⚠끝(1.0)에 붙이지 말 것 — 로고가 멈춘 자리에서 버튼이 튀어나오면 고치려던 그 '뚝'이 된다.
+const MENU_INTRO_SLOTS: float = 0.35
+var menu_intro: float = -1.0           # 경과(초). <0 = 전환 아님(평상시 홈)
+
+# 버튼이 지금 화면에 있나 — **그리기와 판정이 이 함수 하나를 같이 본다.**
+#   갈라 두면 부팅 첫 0.1초에 '안 보이는데 눌리는' 버튼이 생긴다(그린 자리 vs 판정 rect와 같은 종류의 사고).
+func _menu_slots_live() -> bool:
+	return menu_intro < 0.0 or menu_intro / MENU_INTRO >= MENU_INTRO_SLOTS
 
 func _draw_logo(fnt: Font) -> void:
 	var f: Font = _font_display if _font_display != null else fnt
@@ -7178,6 +7216,7 @@ func _logo_done() -> void:
 		return
 	logo_t = -1.0
 	mode = "menu"
+	menu_intro = 0.0   # 컷이 아니라 여기서부터 로고가 홈 자리로 미끄러진다
 	queue_redraw()
 
 # 태그라인 한 줄 — 로고 락업의 셋째 줄. **로고 화면과 홈이 같은 코드를 쓴다**:
@@ -7207,11 +7246,28 @@ func _draw_menu(fnt: Font) -> void:
 	# ⚠'BLOCK CASTLE' 한 줄 텍스트로 되돌리지 말 것 — 두 줄 락업이라 단어 경계가 조판으로 이미 서 있다
 	#   (붙여 쓴 BlockCastle은 스토어 제목·패키지명 전용).
 	var f: Font = _font_display if _font_display != null else fnt
-	var wm: Array = _draw_wm_static(f, MENU_WM_CENTER_Y, MENU_WM_MAXW)
-	# 태그라인은 락업의 일부처럼 앉힌다(레퍼런스도 로고의 셋째 줄로 조판돼 있다).
-	#   ⚠부팅 로고 화면과 **같은 함수**를 쓴다 — 둘은 하드컷으로 붙어 있어 갈리면 그 컷에서 튄다.
-	_draw_tagline(fnt, float(wm[1]) + 46.0)
 
+	# 부팅 직후엔 락업이 로고 화면 자리(47%)에서 홈 자리(23%)로 미끄러져 온다(MENU_INTRO 주석).
+	#   k=0에서 두 화면의 절대 좌표가 정확히 일치한다: 로고 화면은 오프셋 없이 vh*0.47에 그리고,
+	#   여기선 _ui_dy() 안이라 그만큼 빼야 같은 자리다. 어긋나면 첫 프레임에 로고가 튄다.
+	var wm_cy: float = MENU_WM_CENTER_Y
+	if menu_intro >= 0.0:
+		var k: float = clampf(menu_intro / MENU_INTRO, 0.0, 1.0)
+		# ease-out 2제곱 — 곧장 출발해 끝에서 눕는다(감속이 '도착'을 만든다).
+		#   ⚠3제곱은 안 된다: 절반 시점에 이미 87%가 끝나 있어 '미끄러짐'이 아니라 '점프 후 안착'으로 읽힌다.
+		var e: float = 1.0 - (1.0 - k) * (1.0 - k)
+		wm_cy = lerpf(vh * LOGO_CENTER_RATIO - _ui_dy(), MENU_WM_CENTER_Y, e)
+	var wm: Array = _draw_wm_static(f, wm_cy, MENU_WM_MAXW)
+	# 태그라인은 락업의 일부처럼 앉힌다(레퍼런스도 로고의 셋째 줄로 조판돼 있다).
+	#   ⚠부팅 로고 화면과 **같은 함수**를 쓴다 — 둘은 붙어 있어 갈리면 미끄러지는 도중에 문구가 튄다.
+	_draw_tagline(fnt, float(wm[1]) + 46.0)
+	# 버튼은 **로고가 아직 갈 길이 남았을 때** 들어온다(MENU_INTRO_SLOTS 주석). 판정도 같은 함수를 본다.
+	if _menu_slots_live():
+		_draw_menu_slots(fnt)
+
+# 홈의 로고 아래 — 두 갈래 버튼 + 리더보드 진입. 로고와 나눠 둔 건 부팅 전환 때문이다:
+#   미끄러지는 앞부분엔 이것들만 통째로 빠져야 해서, 로고와 별개로 껐다 켤 수 있어야 한다.
+func _draw_menu_slots(fnt: Font) -> void:
 	# Adventure 슬롯 = '어디까지 왔나'(진행 중 목적지 / 완주 프런티어). 소제목은 유저 요청으로 제거(C82).
 	var adv_slot: String = ""
 	if _all_cleared():

@@ -43,8 +43,12 @@ func _run() -> void:
 	g.set("logo_t", 0.0)
 	await _shot("b1_logo.png")
 
-	# 2) 홈 — 하드컷 뒤. 같은 락업이 위로 올라가 있어야 한다.
+	# 2) 홈 — 전환이 끝난 뒤. 같은 락업이 위로 올라가 있어야 한다.
+	#   ⚠_logo_done은 이제 컷이 아니라 **미끄러짐을 시작**한다(menu_intro) — 그대로 찍으면 로고가
+	#     아직 옛 자리에 있는 프레임이 잡혀 이 도구가 "안 움직였다"고 잘못 말한다. 여기선 끝난 상태를 본다.
+	#     미끄러지는 도중은 tools/logo_slide_shot.gd 몫이다.
 	g.call("_logo_done")
+	g.set("menu_intro", -1.0)
 	await _shot("b2_home.png")
 
 	print("mode_after=", g.get("mode"), " logo_t=", g.get("logo_t"))
