@@ -4404,13 +4404,45 @@ func _wm_line_w(f: Font, text: String, size: int) -> float:
 		w += f.get_string_size(text[i], HORIZONTAL_ALIGNMENT_LEFT, -1, size).x + _wm_track(size)
 	return w - _wm_track(size)
 
-func _wm_fit(f: Font, text: String) -> int:
+func _wm_fit(f: Font, text: String, maxw: float = WM_MAXW) -> int:
 	var s: int = 400
 	while s > 40:
-		if _wm_line_w(f, text, s) <= WM_MAXW:
+		if _wm_line_w(f, text, s) <= maxw:
 			return s
 		s -= 2
 	return s
+
+# 애니메이션 없는 워드마크 — 허브(홈)와 부트 스플래시가 같은 물건을 쓰기 위한 정지 조판.
+#   center_y = 락업의 시각 중심. [윗변, 아랫변]을 돌려준다(태그라인을 붙일 기준).
+#   ⚠클리어 연출(_draw_clear_stage)과 코드를 공유해야 한다 — 락업이 갈리면 세 화면의 로고가 서로 다른 물건이 된다.
+#   ⚠호출부의 변환을 반드시 되돌린다. _draw_wm_line은 글자마다 _xf()로 기울기를 걸고 **원점으로**
+#     초기화하며 끝난다 — 허브는 콘텐츠 전체를 _ui_dy()만큼 내린 상태에서 부르므로, 그냥 두면
+#     워드마크 다음에 그려지는 버튼이 그 오프셋(1280 화면서 140px)을 잃고 위로 뜬다. 판정은 오프셋을
+#     그대로 쓰므로 **보이는 자리와 눌리는 자리가 어긋난다**(실기기에서 버튼이 안 눌린 원인).
+func _draw_wm_static(f: Font, center_y: float, maxw: float) -> Array:
+	var prev_xf: Transform2D = _xf_cur
+	var s1: int = _wm_fit(f, WM_L1, maxw)
+	var s2: int = _wm_fit(f, WM_L2, maxw)
+	var gap: float = float(s1) * 0.72
+	var top_rel: float = -0.75 * float(s1)
+	var bot_rel: float = gap + 0.22 * float(s2)
+	var b1: float = center_y - (top_rel + bot_rel) * 0.5
+	var ones1: Array = []
+	var ones2: Array = []
+	for i in range(WM_L1.length()):
+		ones1.append(1.0)
+	for j in range(WM_L2.length()):
+		ones2.append(1.0)
+	var c1: Array = [C_RED, C_GREEN, C_ORANGE, C_BLUE, C_PURPLE]   # 웜·쿨 교차(시안② 확정)
+	# _draw_wm_line은 글자마다 **절대** 변환을 걸어 호출부 오프셋을 무시한다 → 세로 좌표에 직접 더해 그린다.
+	#   (가로 오프셋은 어느 화면도 쓰지 않으므로 y만 본다.)
+	var dy: float = prev_xf.origin.y
+	var gc: Vector2 = Vector2(400.0, center_y + dy)
+	_draw_wm_line(f, WM_L1, s1, b1 + dy, c1, 1.0, 1.0, gc, ones1, ones1)
+	_draw_wm_line(f, WM_L2, s2, b1 + gap + dy, [C_YELL], 0.3, 1.0, gc, ones2, ones2)
+	_xf_cur = prev_xf
+	draw_set_transform_matrix(prev_xf)
+	return [b1 + top_rel, b1 + bot_rel]      # 반환값은 **콘텐츠 좌표** — 호출부가 그 좌표계로 이어 그린다
 
 # 한 줄. 패스를 나눠야 뒤 글자의 블롭이 앞 글자의 면을 덮지 않는다.
 #   gs/gc = 그룹 스케일과 그 중심(조립되며 워드마크 전체가 커진다). ls/la = 글자별 스케일·알파(하나씩 튀어 들어옴).
@@ -5554,6 +5586,30 @@ func _process(delta: float) -> void:
 	queue_redraw()
 
 # ===== 그리기 =====
+# 홈 배경 — 가운데만 밝은 인디고 타원, 가장자리는 C_BG. 순평면 어두운 화면은 OLED에서 '꺼진 화면'과
+#   구분이 안 된다. **부트 스플래시 그림(tools/splash_shot.gd)과 같은 식·같은 값**이어야 한다 —
+#   스플래시가 꺼지고 이 화면이 뜨는 순간 배경이 달라지면 그 컷이 그대로 보인다.
+# 세로 그라데이션이 아니라 타원인 이유: 엔진은 스플래시 그림을 화면 비율에 맞춰 레터박스로 앉히고 남는
+#   자리를 bg_color로 칠한다. 그림 가장자리가 bg_color와 다르면 경계가 띠로 보인다 → 네 변을 C_BG로 맞췄고,
+#   홈은 그 그림과 같아 보여야 하므로 여기도 같은 모양으로 그린다.
+const C_BG_TOP := Color("#2a2358")   # 발광 중심색
+const BG_GLOW_CY: float = 0.47       # 발광 중심(화면 세로 비율) = 스플래시 워드마크의 광학 중심
+const BG_GLOW_RINGS: int = 48        # 48단계면 8비트에서 계단이 안 보인다
+
+func _draw_bg_glow() -> void:
+	draw_rect(Rect2(-20.0, -20.0, VW_BASE + 40.0, vh + 40.0), C_BG)
+	var cy: float = vh * BG_GLOW_CY
+	var rx: float = VW_BASE * 0.52       # ⚠반폭을 크게 넘기면 좌우 가장자리가 밝아져 위 목적이 깨진다
+	var ry: float = vh * 0.58
+	for i in range(BG_GLOW_RINGS, 0, -1):
+		var k: float = float(i) / float(BG_GLOW_RINGS)   # 1=가장 바깥
+		var pts := PackedVector2Array()
+		for a in range(40):
+			var th: float = TAU * float(a) / 40.0
+			pts.append(Vector2(VW_BASE * 0.5 + cos(th) * rx * k, cy + sin(th) * ry * k))
+		draw_polygon(pts, PackedColorArray([C_BG.lerp(C_BG_TOP, (1.0 - k) * (1.0 - k))]))
+
+
 func _draw() -> void:
 	# 눌림 스케일 스택은 프레임마다 새로 시작한다 — 어딘가 begin/end 짝이 어긋나도 다음 프레임으로 안 샌다.
 	_xf_stack.clear()
@@ -5567,7 +5623,10 @@ func _draw() -> void:
 
 	if mode == "menu":
 		# 배경은 전체를 덮고, 콘텐츠만 세로 중앙으로 내린다(입력도 같은 오프셋으로 되돌림).
-		draw_rect(Rect2(-20, -20, VW_BASE + 40.0, vh + 40.0), C_BG)
+		# 홈만 그라데이션이다 — 부트 스플래시 그림과 같은 재질이라, 스플래시가 꺼지고 홈이 뜨는 순간이
+		#   배경에서 안 보인다(레퍼런스 실측: 스튜디오·스플래시·홈 세 화면의 배경이 픽셀 단위로 같다).
+		#   게임 화면은 평면 C_BG 그대로다 — 보드가 깔리면 어차피 화면이 통째로 바뀐다.
+		_draw_bg_glow()
 		_xf(Vector2(0.0, _ui_dy()))
 		_draw_menu(fnt)
 		_xf(Vector2.ZERO)
@@ -6840,6 +6899,12 @@ const PLAY_BTN: Rect2 = Rect2(150.0, 742.0, 500.0, 126.0)
 #   (C81: 목록 칩·허브 기어는 유저 요청으로 제거 — 어색했다.)
 # 재도전 경로는 '없음'으로 확정(유저: 이미 깬 판은 재도전 니즈가 없다). 진행 중엔 목록에 못 가고
 #   다음 판으로만 이어진다 = 캠페인의 정상 동선. 전부 깬 뒤의 select는 재도전이 아니라 완주 진열장이다.
+const MENU_WM_MAXW: float = 560.0     # 워드마크 폭 = 화면의 70%. **부트 스플래시와 같은 값이어야 한다**
+const MENU_WM_CENTER_Y: float = 290.0 # 락업 시각 중심(화면의 23%). 스플래시는 같은 물건을 47%에 놓는다
+const MENU_TAGLINE: String = "CASTLE KEEPER"   # 후보 검토 중 — 장르 설명 아님, 플레이어 자칭(레퍼런스 수법)
+const C_TAGLINE := Color("#cbc0a8")   # 저채도 크림. 색 주도권은 워드마크가 독점한다
+const MENU_TAG_SIZE: int = 26         # 스플래시 그림과 같은 치수(논리 800폭 기준)
+const MENU_TAG_TRACK: float = 7.0     # 자간
 const MENU_ADV_BTN: Rect2 = Rect2(150.0, 600.0, 500.0, 116.0)     # 오렌지 = 스테이지(모험) — 이어하기
 const MENU_CLASSIC_BTN: Rect2 = Rect2(150.0, 740.0, 500.0, 116.0) # 블루 = 무한(∞)
 const MENU_LB_BTN: Rect2 = Rect2(560.0, 40.0, 216.0, 60.0)       # 우상단 트로피 = 리더보드(opt-in 천장, 모드 아님)
@@ -6895,17 +6960,28 @@ func _sel_scroll_by(dy: float) -> void:
 func _draw_menu(fnt: Font) -> void:
 	# 배경은 _draw()가 이미 그렸다(오프셋 밖). 여기선 콘텐츠만.
 
-	# 로고: 게임명 + 태그라인(레퍼런스의 상단 로고 자리)
-	# ⚠화면에선 띄어 쓴다 — 대문자로 붙이면(BLOCKCASTLE) 단어 경계가 사라져 한눈에 안 읽힌다.
-	#   스토어 제목·패키지명은 붙여 쓴 BlockCastle이 정본이다.
-	var title: String = "BLOCK CASTLE"
-	var tfs: int = 64
-	var tw: float = fnt.get_string_size(title, HORIZONTAL_ALIGNMENT_LEFT, -1, tfs).x
-	_draw_text_outlined(fnt, Vector2(400.0 - tw * 0.5, 300.0), title, tfs, C_GOLD)
-	var tag: String = "PACKING DEFENSE"
-	var tgfs: int = 22
-	var tgw: float = fnt.get_string_size(tag, HORIZONTAL_ALIGNMENT_LEFT, -1, tgfs).x
-	_draw_text_outlined(fnt, Vector2(400.0 - tgw * 0.5, 340.0), tag, tgfs, Color(0.55, 0.72, 0.95))
+	# 로고 = 클리어 연출과 **같은 브릭 워드마크**를 정지 조판한 것.
+	#   왜 골드 텍스트를 버렸나 — 부트 스플래시가 이 워드마크를 화면 중앙에 띄우는데, 홈이 다른 글자면
+	#   스플래시가 꺼지는 순간이 그대로 보인다. 레퍼런스(Block Blast) 실측: 로고 폭 71%·**크기 불변**·
+	#   위로 평행이동만, 배경색은 세 화면(스튜디오·스플래시·홈)이 동일 → 전환이 아예 안 느껴진다.
+	#   그래서 여기 폭(MENU_WM_MAXW)은 스플래시와 같아야 한다. 손대면 둘 다 손댈 것.
+	# ⚠'BLOCK CASTLE' 한 줄 텍스트로 되돌리지 말 것 — 두 줄 락업이라 단어 경계가 조판으로 이미 서 있다
+	#   (붙여 쓴 BlockCastle은 스토어 제목·패키지명 전용).
+	var f: Font = _font_display if _font_display != null else fnt
+	var wm: Array = _draw_wm_static(f, MENU_WM_CENTER_Y, MENU_WM_MAXW)
+	# 태그라인은 락업의 일부처럼 앉힌다(레퍼런스도 로고의 셋째 줄로 조판돼 있다) — 색은 저채도 크림.
+	#   외곽선 없음: 색을 쓰는 요소는 워드마크 하나여야 한다.
+	#   자간을 벌려 그린다 — 짧은 대문자 한 줄은 자간이 없으면 덩어리로 뭉쳐 로고의 일부로 안 읽힌다.
+	#   ⚠스플래시 그림과 같은 값이어야 한다(MENU_TAG_SIZE·MENU_TAG_TRACK).
+	var tgw: float = 0.0
+	for i in range(MENU_TAGLINE.length()):
+		tgw += fnt.get_string_size(MENU_TAGLINE[i], HORIZONTAL_ALIGNMENT_LEFT, -1, MENU_TAG_SIZE).x + MENU_TAG_TRACK
+	tgw -= MENU_TAG_TRACK
+	var tgx: float = 400.0 - tgw * 0.5
+	var tgy: float = float(wm[1]) + 46.0
+	for j in range(MENU_TAGLINE.length()):
+		draw_string(fnt, Vector2(tgx, tgy), MENU_TAGLINE[j], HORIZONTAL_ALIGNMENT_LEFT, -1, MENU_TAG_SIZE, C_TAGLINE)
+		tgx += fnt.get_string_size(MENU_TAGLINE[j], HORIZONTAL_ALIGNMENT_LEFT, -1, MENU_TAG_SIZE).x + MENU_TAG_TRACK
 
 	# Adventure 슬롯 = '어디까지 왔나'(진행 중 목적지 / 완주 프런티어). 소제목은 유저 요청으로 제거(C82).
 	var adv_slot: String = ""
