@@ -127,9 +127,16 @@ const STAGES: Array = [
 		"weights": {"basic": 40, "fast": 0, "tank": 0, "swarm": 60, "split": 0}, "pool": POOL_RICH,
 	},
 	{
+		# 속공 도입. total 34→32(S14): S10이 시작 적을 basic→fast로 바꾸며 −8pt를 치렀는데, 그 값이
+		#   **곡선을 뒤집었다** — 이 판 53.5%가 다음 판(st4 57.0%)보다 낮아졌다(시드베이스 2개×N=100,
+		#   campaign_probe). 세 번째 판이 네 번째보다 어려우면 계단이 아니다.
+		#   ⚠core_hp는 이 판에서 눈금이 너무 굵다: 4→5가 +19pt(50.0→69.0, debut_tune_probe 2×N=100)라
+		#   −8pt를 갚으려다 st2(74.5%) 코앞까지 올라간다. total이 맞는 눈금이다 — 34→32 = +7.5pt에
+		#   판도 1~2배치 짧아진다. ⚠total 30은 오히려 +2pt(두 시드 일치) = 더 줄인다고 더 쉬워지지 않는다.
+		#   검증 tools/debut_tune_probe.gd SWEEP=st3.
 		"name": "st3_name", "tag": "st3_tag",
 		"plane_cd": 8,
-		"total": 34, "core_hp": 4, "base_hp": 34, "hp_ramp": 0.5, "tank_mult": 2.5,
+		"total": 32, "core_hp": 4, "base_hp": 34, "hp_ramp": 0.5, "tank_mult": 2.5,
 		"spawn_every": 2, "step_every": 3, "onboard": 3, "floor": 5, "surge_at": 0.80,
 		"weights": {"basic": 40, "fast": 50, "tank": 0, "swarm": 10, "split": 0}, "pool": POOL_STD,
 	},
@@ -160,11 +167,22 @@ const STAGES: Array = [
 	#   놓치면 제자리서 터져 거점 bomb_dmg 피해(일반 누수 -1보다 큼) = 데드라인 위협. 새 결정 = "이 라인을 폭탄에 쓸까".
 	# 격리 도입(basic↔bomb만) = 난이도가 전적으로 새 기전에서(split 도입판 S7과 동형). core_hp 4 = 한두 번 실수 여유.
 	{
+		# 폭탄 15→22% + core_hp 6→7(S14): S10으로 **첫** 폭탄은 배치 0에 확정됐지만, 그 뒤가 얇았다 —
+		#   26마리 중 폭탄이 4.4개뿐이라 폭탄을 가르치는 판인데 대부분의 시간이 일반 청소였다.
+		#   ⚠가중치만 올리면 값이 비싸다(debut_tune_probe SWEEP=bombw, 시드베이스 2개×N=100):
+		#     15% 75.5% → 22% 63.5%(−12) → 30% 49.5%(−26) → 38% 47.0%. 죽음이 전부 거점사로 이동한다.
+		#   ⇒ 밀도와 여유를 **짝으로** 올린다 = "폭탄을 더 자주 보되 더 관대하게"(가르치는 판의 모양).
+		#     22%+hp7 = 승률 72.0%(현행 75.5%, R1 목표 ~71%)에 폭탄 4.4→6.3개/판(+43%) ·
+		#     폭발 1.29→1.73회 · 두 번째 폭탄 배치 9→8 · 배치 수 불변(52).
+		#   ⚠기각 30%+hp9: 승률이 시드에 따라 75/92로 갈려 N=100으로는 못 믿는다. core_hp 9는
+		#     클라이맥스(4)보다 후해 '격리 도입판'이 아니라 놀이터가 된다.
+		#   ⚠두 번째 폭탄이 '한참 뒤'라던 전제는 실측에서 틀렸다 — 중앙 9배치(52배치 판)였다.
+		#     진짜 결함은 타이밍이 아니라 총량이었고, 그래서 레버도 시점이 아니라 밀도다.
 		"name": "st11_name", "tag": "st11_tag", "bomb_fuse": 8, "bomb_dmg": 2,
 		"plane_cd": 20,
-		"total": 26, "core_hp": 6, "base_hp": 30, "hp_ramp": 0.2, "tank_mult": 2.5,
+		"total": 26, "core_hp": 7, "base_hp": 30, "hp_ramp": 0.2, "tank_mult": 2.5,
 		"spawn_every": 3, "step_every": 3, "onboard": 3, "floor": 2, "surge_at": 0.80,
-		"weights": {"basic": 85, "bomb": 15}, "pool": POOL_STD,
+		"weights": {"basic": 78, "bomb": 22}, "pool": POOL_STD,
 	},
 	{
 		# tank HP를 콤보3(240) 구간에 앉힌다: base 44~50 × 4.5 = 198~227 → 콤보2(180)로는 안 뚫림.
@@ -201,9 +219,13 @@ const STAGES: Array = [
 		# core_hp 3→4(S5): 무릎 실측(N=120) hp3 36.6% / **4 55.0%** / 5 65.8%. 목표 48%엔 4가 가깝다
 		#   (3은 11pt 미달). 결과적으로 복습판(50.8%)과 거의 동률인데, 새 기전 도입판이 복습판보다
 		#   물러야 한다는 저작 의도(위 ⚠주석)와 어긋나지 않는다 — 둘 다 클라이맥스보다 확실히 위다.
+		# core_hp 4→5(S14): S10이 시작 적을 basic→split로 바꾸며 −8.5pt를 치렀고, 그 값이 이 판을
+		#   47.5%로 내려 **복습판(st6 50.5%) 아래**로 보냈다 = 바로 위 저작 의도가 뒤집혔다.
+		#   hp5 = +7.5pt(debut_tune_probe 2×N=100) → S10 이전 자리(57%) 부근 복원. S5 무릎 실측의
+		#   hp5=65.8%와 어긋나지 않는다 — 그때보다 시작 적 한 마리가 split로 바뀐 상태다.
 		"name": "st7_name", "tag": "st7_tag",
 		"plane_cd": 24,
-		"total": 48, "core_hp": 4, "base_hp": 44, "hp_ramp": 0.35, "tank_mult": 4.2,
+		"total": 48, "core_hp": 5, "base_hp": 44, "hp_ramp": 0.35, "tank_mult": 4.2,
 		"spawn_every": 2, "step_every": 3, "onboard": 3, "floor": 6, "surge_at": 0.80,
 		"weights": {"basic": 60, "fast": 0, "tank": 0, "swarm": 0, "split": 40}, "pool": POOL_STD,
 	},
