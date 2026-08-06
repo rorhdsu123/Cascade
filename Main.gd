@@ -28,7 +28,12 @@ const SPLIT_CHILD_FRAC: float = 0.5
 const SPLIT_ROW: int = 5
 const SLIDE_SPEED: float = 8.0   # 적 전진 표시 이징 속도(칸/초)
 const ROCKET_DUR: float = 0.16  # 로켓 비행 지속(빠르게 질주)
-const CALLOUT_DUR: float = 1.6  # 첫 등장 콜아웃 배너 지속
+# 첫 등장 콜아웃(대상 머리 위 말풍선) 지속. 1.6초는 **읽기 전에 사라졌다**(유저 실플레이 확인) —
+#   상단 고정 배너 시절의 값이고, 그땐 어차피 안 읽혔으니 짧은 게 티도 안 났다. 말풍선은 읽으라고
+#   띄우는 물건이니 읽을 시간을 준다. 마지막 CALLOUT_FADE 동안 페이드.
+const CALLOUT_DUR: float = 3.4
+const CALLOUT_FADE: float = 0.6
+const CALLOUT_LINE: float = 36.0   # 접힌 문구의 줄 간격(32px 글자)
 # 스테이지 인트로 카드 — 캠페인 진입 시 중앙 팝업(이름·태그·목표)이 떠서 잠깐 머물다 상단
 # 목표 카드로 축소·이동하며 녹아든다(BlockBlast 목표 배너 관찰). 탭하면 즉시 스킵.
 const INTRO_APPEAR: float = 0.28
@@ -4016,6 +4021,26 @@ func _split_enemy(parent: Dictionary) -> void:
 	# 갈라지는 순간 파랑 링 버스트 = "지금 둘이 됐다"
 	impacts.append({"pos": _enemy_pos(pcol, prow), "life": 0.24, "max": 0.24, "color": C_E_SPLIT, "radius": CELL * 0.42})
 
+# 콜아웃 문구를 maxw 안에 들어가게 낱말 단위로 접는다. 한 낱말이 그보다 길면 그 줄만 넘치게 두고
+#   자르지 않는다(문구를 잘라 먹느니 한 줄이 삐져나오는 게 낫다 — 실제 문구엔 그런 낱말이 없다).
+func _wrap_callout(fnt: Font, text: String, maxw: float) -> PackedStringArray:
+	var out: PackedStringArray = PackedStringArray()
+	if fnt.get_string_size(text, HORIZONTAL_ALIGNMENT_LEFT, -1, 32).x <= maxw:
+		out.append(text)
+		return out
+	var line: String = ""
+	for w in text.split(" ", false):
+		var probe: String = w if line == "" else line + " " + w
+		if line != "" and fnt.get_string_size(probe, HORIZONTAL_ALIGNMENT_LEFT, -1, 32).x > maxw:
+			out.append(line)
+			line = w
+		else:
+			line = probe
+	if line != "":
+		out.append(line)
+	return out
+
+
 func _set_callout(text: String, anchor_id: int = -1) -> void:
 	callout_text = text
 	callout_timer = CALLOUT_DUR
@@ -5649,8 +5674,14 @@ func _draw() -> void:
 
 	# 첫 등장 콜아웃 — 대상 머리에 붙는 말풍선(꼬리가 인과를 만든다). 앵커가 없으면 옛 상단 배너.
 	if callout_timer > 0.0 and not game_over and not game_clear:
-		var ca: float = clampf(callout_timer / 0.4, 0.0, 1.0)   # 마지막 0.4s 페이드
-		var cow: float = fnt.get_string_size(callout_text, HORIZONTAL_ALIGNMENT_LEFT, -1, 32).x
+		var ca: float = clampf(callout_timer / CALLOUT_FADE, 0.0, 1.0)   # 마지막 CALLOUT_FADE 동안 페이드
+		# 긴 문구는 접는다 — 비행기·도둑처럼 한 줄로 판보다 넓은 문구가 있고, 그런 문구는 클램프로도
+		#   못 구한다(말풍선이 판보다 넓으면 어디에 두든 화면 밖으로 샌다. 유저 확인). 폭을 먼저 정하고
+		#   글을 거기 맞춰 접는 게 순서다.
+		var clines: PackedStringArray = _wrap_callout(fnt, callout_text, float(COLS) * CELL - 44.0)
+		var cow: float = 0.0
+		for ln in clines:
+			cow = maxf(cow, fnt.get_string_size(ln, HORIZONTAL_ALIGNMENT_LEFT, -1, 32).x)
 		# 앵커 추적 — 살아 있으면 매 프레임 따라간다(전진하면 말풍선도 같이 내려온다).
 		#   죽었으면 마지막 자리에 남겨 페이드한다(대상이 사라졌다고 문구가 화면을 가로질러 튀면 안 된다).
 		var avr: float = -1.0
@@ -5665,22 +5696,27 @@ func _draw() -> void:
 		if callout_anchor_pos.x < 0.0:
 			# 폴백 = 옛 상단-중앙 배너(앵커 없는 콜아웃 / 대상이 그려지기도 전에 사라진 경우)
 			var cbx: float = 400.0 - cow * 0.5
-			draw_rect(Rect2(cbx - 16.0, float(board_y) - 33.0, cow + 32.0, 46.0), Color(0.05, 0.02, 0.08, 0.62 * ca))
-			_draw_text_outlined(fnt, Vector2(cbx, float(board_y)), callout_text, 32, Color(1.0, 0.9, 0.4, ca))
+			var fh: float = 46.0 + float(clines.size() - 1) * CALLOUT_LINE
+			draw_rect(Rect2(cbx - 16.0, float(board_y) - 33.0, cow + 32.0, fh), Color(0.05, 0.02, 0.08, 0.62 * ca))
+			for i in range(clines.size()):
+				_draw_text_outlined(fnt, Vector2(cbx, float(board_y) + float(i) * CALLOUT_LINE),
+						clines[i], 32, Color(1.0, 0.9, 0.4, ca))
 		else:
 			var bw: float = cow + 34.0
-			var bh: float = 48.0
+			var bh: float = 14.0 + float(clines.size()) * CALLOUT_LINE
 			var tail: float = 16.0                    # 꼬리 높이
 			var ap: Vector2 = callout_anchor_pos
 			# 맨 윗줄이면 위에 자리가 없다(HUD 목표 카드를 파고든다) → 아래로 뒤집어 꼬리를 위로 세운다.
 			#   기준은 실제 표시 행(vis_row) — 이징 중이라도 지금 보이는 자리로 판단한다.
 			var below: bool = (avr >= 0.0 and avr <= 0.75) or ap.y - CELL * 0.5 - tail - bh < float(board_y) - 4.0
 			var btop: float = (ap.y + CELL * 0.38 + tail) if below else (ap.y - CELL * 0.38 - tail - bh)
-			# 가로는 보드 안에 가둔다(가장자리 열에서 화면 밖으로 새지 않게). 보드보다 넓으면 그냥 가운데.
+			# 가로는 보드 안에 가둔다(가장자리 열에서 화면 밖으로 새지 않게).
+			#   그래도 넓으면(폰트가 커서 접어도 안 들어가는 경우) 대상이 아니라 **판 가운데**에 둔다 —
+			#   대상에 붙이려다 화면 밖으로 내보내는 것보다, 안 보이는 것보다 낫다.
 			var half: float = bw * 0.5
 			var lo: float = float(BOARD_X) + half + 4.0
 			var hi: float = float(BOARD_X) + float(COLS) * CELL - half - 4.0
-			var bcx: float = ap.x if lo > hi else clampf(ap.x, lo, hi)
+			var bcx: float = (float(BOARD_X) + float(COLS) * CELL * 0.5) if lo > hi else clampf(ap.x, lo, hi)
 			var panel: Color = Color(0.05, 0.02, 0.08, 0.88 * ca)
 			var edge: Color = Color(1.0, 0.9, 0.4, 0.85 * ca)
 			var brect: Rect2 = Rect2(bcx - half, btop, bw, bh)
@@ -5697,8 +5733,10 @@ func _draw() -> void:
 			var tri: PackedVector2Array = PackedVector2Array([
 					apex, Vector2(tx - 12.0, baseY), Vector2(tx + 12.0, baseY)])
 			draw_colored_polygon(tri, edge)
-			_draw_text_outlined(fnt, Vector2(bcx - cow * 0.5, btop + 34.0), callout_text, 32,
-					Color(1.0, 0.9, 0.4, ca))
+			for i in range(clines.size()):
+				var lw: float = fnt.get_string_size(clines[i], HORIZONTAL_ALIGNMENT_LEFT, -1, 32).x
+				_draw_text_outlined(fnt, Vector2(bcx - lw * 0.5, btop + 34.0 + float(i) * CALLOUT_LINE),
+						clines[i], 32, Color(1.0, 0.9, 0.4, ca))
 
 	# 스테이지 인트로 카드 (중앙 팝업 → 상단 목표 카드로 도킹). 캠페인 진입 1회.
 	if intro_t >= 0.0 and not game_over and not game_clear:

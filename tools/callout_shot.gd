@@ -52,12 +52,26 @@ func _run() -> void:
 	await _case(0, 4, "deep_left.png")       # 깊은 행 + 왼쪽 끝 열 → 위로 뒤집히고 가로 클램프
 	await _case(7, 5, "deep_right.png")      # 깊은 행 + 오른쪽 끝 열
 	await _case(0, 0, "top_left.png")        # 맨 윗줄 왼쪽 끝 → 아래로 뒤집힘
+	# ── 긴 문구 — 비행기·도둑은 한 줄로 판보다 넓다. 접혀서 판 안에 들어와야 한다. ──
+	await _long(0, 3, "callout_plane", "long_plane_left.png")
+	await _long(7, 0, "callout_thief", "long_thief_topright.png")
 	# 대상이 죽은 경우 — 마지막 자리에 남아 페이드해야 한다(화면을 가로질러 튀면 안 된다).
 	g.get("enemies").clear()
 	await _shot("anchor_dead.png")
 	print("앵커 소멸 후: 남은 시간=%.2fs (마지막 자리 유지)" % g.get("callout_timer"))
 	print("DONE")
 	quit()
+
+func _long(col: int, row: int, key: String, name: String) -> void:
+	var es: Array = g.get("enemies")
+	if es.is_empty():
+		return
+	var e: Dictionary = es[0]
+	e["col"] = col
+	e["row"] = row
+	e["vis_row"] = float(row)
+	g.call("_set_callout", g.call("_t", key), int(e["id"]))
+	await _shot(name)
 
 func _case(col: int, row: int, name: String) -> void:
 	var es: Array = g.get("enemies")
