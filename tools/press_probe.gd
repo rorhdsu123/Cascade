@@ -63,6 +63,9 @@ func _run() -> void:
 
 	# ── 진행 화면: 목록을 끌다 버튼 위를 지나가도 안 눌린다 ──
 	g.set("mode", "select")
+	# ⚠실유저 진행도를 타면 안 된다 — 전 스테이지 클리어 상태면 시작 버튼이 정상적으로 죽어 있어서
+	#   (`_all_cleared()` 게이트) 눌림 검사가 통째로 거짓 FAIL이 난다. 세션 메모리만 비운다(저장 안 함).
+	g.set("cleared", {})
 	var play: Rect2 = g.get("PLAY_BTN")
 	var pc: Vector2 = play.get_center() + _dy()
 	_btn(Vector2(pc.x, pc.y - 400.0), true)   # 그리드에서 누르기 시작(드래그 스크롤)
