@@ -36,6 +36,9 @@ func _init() -> void:
 	stray.button_index = MOUSE_BUTTON_LEFT
 	stray.pressed = true
 	g._input(stray)
+	# 버튼은 **뗄 때** 발동한다(C144)
+	stray.pressed = false
+	g._input(stray)
 	print("빈 곳 클릭 후 — mode=%s game_over=%s (홈으로 튕기지 않아야 함)" % [g.mode, g.game_over])
 
 	# 재도전 버튼 클릭 → 같은 스테이지 재시작
@@ -43,6 +46,9 @@ func _init() -> void:
 	clk.position = g.RETRY_BTN.get_center()
 	clk.button_index = MOUSE_BUTTON_LEFT
 	clk.pressed = true
+	g._input(clk)
+	# 버튼은 **뗄 때** 발동한다(C144)
+	clk.pressed = false
 	g._input(clk)
 	print("재도전 클릭 후 — mode=%s game_over=%s killed=%d leaked=%d stage=%d"
 			% [g.mode, g.game_over, g.killed, g.leaked, g.stage_idx])

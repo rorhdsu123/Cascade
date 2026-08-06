@@ -323,6 +323,9 @@ func _click(pos: Vector2) -> void:
 	ev.pressed = true
 	ev.position = pos
 	g._input(ev)
+	# 버튼은 **뗄 때** 발동한다(C144) — 누름만 보내면 걸리기만 하고 아무 일도 안 일어난다.
+	ev.pressed = false
+	g._input(ev)
 	_idle(6)          # 발화 간 최소 간격(0.05s)보다 길게 — 안 그러면 뒤 탭이 gap으로 드롭된다
 
 func _pass_ui() -> Array:

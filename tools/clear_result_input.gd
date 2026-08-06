@@ -24,6 +24,9 @@ func _init() -> void:
 	cc.button_index = MOUSE_BUTTON_LEFT
 	cc.pressed = true
 	g._input(cc)
+	# 버튼은 **뗄 때** 발동한다(C144)
+	cc.pressed = false
+	g._input(cc)
 	print("    다음스테이지 클릭 → stage_idx=%d game_clear=%s (4/false 여야)" % [g.stage_idx, g.game_clear])
 
 	# ── B. 클리어 → [홈] 클릭 → 허브
@@ -42,6 +45,9 @@ func _init() -> void:
 	hc.button_index = MOUSE_BUTTON_LEFT
 	hc.pressed = true
 	g2._input(hc)
+	# 버튼은 **뗄 때** 발동한다(C144)
+	hc.pressed = false
+	g2._input(hc)
 	print("[B] 홈클릭 → mode=%s (menu여야)" % g2.mode)
 
 	# ── C. 무대 재생 중엔 같은 좌표를 눌러도 아무 일이 없어야 한다(스킵 제거 + 입력 삼킴)
@@ -59,6 +65,9 @@ func _init() -> void:
 	sc.position = (lay3["retry"] as Rect2).get_center()
 	sc.button_index = MOUSE_BUTTON_LEFT
 	sc.pressed = true
+	g3._input(sc)
+	# 버튼은 **뗄 때** 발동한다(C144)
+	sc.pressed = false
 	g3._input(sc)
 	print("[C] 무대중 버튼자리 클릭 → stage_idx=%d clear_show_t=%.2f (3/음수 유지여야 = 안 잘리고 안 넘어감)"
 			% [g3.stage_idx, g3.clear_show_t])

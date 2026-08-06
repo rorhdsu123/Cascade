@@ -395,6 +395,14 @@ var endless_new_best: bool = false # 이번 런이 신기록인가(결과 팝업
 var endless_beat_best: bool = false # 판 중에 이미 최고를 넘었나(HUD 실시간 갱신 신호)
 # 점수 계수(C58 손맛)는 감독 소유로 이관(C61 seam): EndlessMode.CLEAR_BASE/KILL_MULT.
 #   코어는 director.clear_score()/kill_score()로 묻는다 — 모드 이름 대신 능력.
+# 아래 `_*_hover` 들은 이름만 '호버'고 실제 의미는 **'지금 눌려 있다'**이다(C144).
+#   포인터가 버튼 위에 있고 **동시에 버튼이 눌린 상태**일 때만 참 — 그래서 마우스를 올리기만 해선
+#   아무 일도 안 일어나고, 누르는 동안만 들어갔다가 떼면 돌아온다. 터치는 원래 '올려두기'가 없으므로
+#   폰과 데스크톱이 같은 규칙이 된다(옛 동작: 데스크톱은 마우스만 올려도 색이 바뀌고 눌린 척했다).
+# ⚠읽는 쪽은 전부 그리기다 — 클릭 판정은 이 플래그를 안 본다(rect.has_point을 그 자리에서 다시 쓴다).
+var _ptr_down: bool = false        # 좌클릭/터치가 눌려 있는 동안 참(_input 최상단서 갱신)
+var _armed: String = ""            # 지금 눌려 '걸린' 버튼 id("" = 없음). 뗄 때 같은 버튼 위면 발동.
+#   id는 화면 안에서만 유일하면 된다 — 화면이 바뀌면 뗄 때 그 화면의 처리기가 아예 안 불린다.
 var _adv_hover: bool = false       # 메뉴: Adventure(스테이지) 버튼 호버
 var _classic_hover: bool = false   # 메뉴: Classic(무한) 버튼 호버
 var _lb_hover: bool = false        # 메뉴: 리더보드(우상단 트로피) 버튼 호버
@@ -742,8 +750,9 @@ const ENEMY_TEX_SIDE: float = float(CELL)
 const ENEMY_TEX_RAD: float = float(CELL) * 0.40
 
 # 버튼 상태 3종 — 텍스처 파일이 갈리는 축. 폴백 렌더는 이 값을 안 본다(호출부 색이 이미 상태를 담고 있다).
-# ⚠모바일엔 hover가 없다 — 터치는 마우스로 번역되므로(emulate_mouse_from_touch) hover==손가락이 닿음
-#   = '눌림'이다. 그래서 호출부는 hover 불리언을 그대로 BTN_PRESS로 넘긴다.
+# ⚠모바일엔 hover가 없다(터치는 마우스로 번역 — emulate_mouse_from_touch). 그래서 **데스크톱도 hover를
+#   안 쓴다**: 호출부가 넘기는 `_*_hover` 불리언은 '포인터가 올라감'이 아니라 '지금 눌려 있다'다(C144).
+#   마우스만 올려서는 BTN_PRESS가 안 나온다 = 폰과 PC가 같은 그림.
 const BTN_NORMAL: int = 0
 const BTN_PRESS: int = 1
 const BTN_OFF: int = 2
@@ -4854,6 +4863,12 @@ func _return_held() -> void:
 #   껐으므로 여기서 직접 한 단계씩 되돌린다. 안 그러면 판 중에 뒤로가기 한 번으로 앱이 통째로 꺼진다.
 #   사다리: 모달 닫기 → 결과 팝업은 홈 → 플레이 중엔 일시정지(설정) → 하위 화면은 허브 → 허브에서만 종료.
 func _notification(what: int) -> void:
+	# 창 밖으로 나가거나 포커스를 잃으면 '뗀' 이벤트가 안 온다 → 눌린 그림이 굳는다. 여기서 푼다.
+	if what == NOTIFICATION_WM_MOUSE_EXIT or what == NOTIFICATION_WM_WINDOW_FOCUS_OUT \
+			or what == NOTIFICATION_APPLICATION_FOCUS_OUT:
+		_ptr_down = false
+		_clear_btn_hot()
+		queue_redraw()
 	# 계측 세션 경계 — 모바일에선 '종료'가 잘 안 오고 백그라운드 전환이 실제 세션 끝이다.
 	#   그래서 PAUSED에서 닫고 RESUMED에서 새로 연다(세션 길이가 실제 체류와 맞아떨어지게).
 	if what == NOTIFICATION_WM_CLOSE_REQUEST or what == NOTIFICATION_APPLICATION_PAUSED:
@@ -4882,24 +4897,102 @@ func _notification(what: int) -> void:
 		get_tree().quit()            # 허브에서 한 번 더 = 종료(안드로이드 관례)
 	queue_redraw()
 
+# ── 눌림 갱신 ── 화면마다 버튼 목록이 다르므로 화면별로 하나씩. **이동과 누름 양쪽**에서 부른다:
+#   터치는 손가락이 닿기 전에 이동 이벤트가 없다(에뮬 마우스는 드래그만 motion을 만든다). 이동에서만
+#   계산하면 폰에서 탭 눌림 그림이 통째로 빠진다.
+# 뗄 때는 어느 화면인지 따지지 않고 전부 끈다 — 누른 버튼이 화면을 갈아치우면(재도전·홈) 그 화면의
+#   갱신 함수는 다시 안 불린다. 안 끄면 돌아왔을 때 버튼 하나가 눌린 채로 굳는다.
+func _clear_btn_hot() -> void:
+	_adv_hover = false
+	_classic_hover = false
+	_lb_hover = false
+	_lb_play_hover = false
+	_back_hover = false
+	_dev_reset_hover = false
+	_play_hover = false
+	_retry_hover = false
+	_home_hover = false
+	_cont_hover = false
+	_gear_hover = false
+	_set_close_hover = false
+	_set_home_hover = false
+	_set_replay_hover = false
+	_set_sound_hover = false
+	_set_privacy_hover = false
+	_set_haptic_hover = false
+	_armed = ""
+
+# ── 걸림(armed) ── 누를 때 그 버튼이 '걸리고', 뗄 때 **같은 버튼 위**면 발동한다(C144).
+#   눌린 그림이 보이는 건 이 구조 덕이다: 발동이 누름과 동시면 화면이 그 자리에서 바뀌어서
+#   눌린 프레임이 아예 안 그려진다(0프레임 — 짧아서 안 보이는 게 아니었다).
+#   덤으로 '누른 채 밖으로 끌면 취소'가 공짜로 딸려온다 — 걸린 버튼을 벗어나면 그림도 같이 풀린다.
+# ⚠걸림은 **누를 때 검증까지 끝낸다**(잠금·해금·플테 여부). 뗄 때 다시 묻지 않는다 —
+#   누르고 있는 사이에 조건이 바뀌어도 손가락이 본 그 버튼이 발동해야 한다.
+func _armed_hot(id: String, r: Rect2, p: Vector2) -> bool:
+	return _armed == id and r.has_point(p)
+
+func _settings_row(p: Vector2, lay: Dictionary) -> String:
+	for k in ["close", "sound_tog", "haptic_tog", "home_btn", "replay_btn"]:
+		if (lay[k] as Rect2).has_point(p):
+			return String(k)
+	if bool(lay["privacy_on"]) and (lay["privacy_btn"] as Rect2).has_point(p):
+		return "privacy_btn"
+	return ""
+
+func _hot_settings(p: Vector2, slay: Dictionary) -> void:
+	var row: String = "set:" + _settings_row(p, slay)
+	_set_close_hover = _armed == "set:close" and row == _armed
+	_set_home_hover = _armed == "set:home_btn" and row == _armed
+	_set_replay_hover = _armed == "set:replay_btn" and row == _armed
+	_set_privacy_hover = _armed == "set:privacy_btn" and row == _armed
+	_set_sound_hover = _armed == "set:sound_tog" and row == _armed
+	_set_haptic_hover = _armed == "set:haptic_tog" and row == _armed
+
+func _hot_menu(p: Vector2) -> void:   # p = _ui_dy 보정된 좌표
+	_adv_hover = _armed_hot("adv", MENU_ADV_BTN, p)
+	_classic_hover = _armed_hot("classic", MENU_CLASSIC_BTN, p)
+	_lb_hover = _armed_hot("lb", MENU_LB_BTN, p)
+
+func _hot_leaderboard(p: Vector2) -> void:
+	_back_hover = _armed_hot("back", BACK_BTN, p)
+	_lb_play_hover = _armed_hot("lb_play", LB_PLAY_BTN, p)
+
+func _hot_select(p: Vector2) -> void:
+	_play_hover = _armed_hot("play", PLAY_BTN, p)
+	_back_hover = _armed_hot("back", BACK_BTN, p)
+	_dev_reset_hover = _armed_hot("dev_reset", DEV_RESET_BTN, p)
+
+func _hot_result(p: Vector2, lay: Dictionary) -> void:
+	_retry_hover = _armed_hot("retry", lay["retry"] as Rect2, p)
+	_home_hover = _armed_hot("home", lay["home"] as Rect2, p)
+	_cont_hover = _armed_hot("cont", lay["cont"] as Rect2, p)
+
 func _input(event: InputEvent) -> void:
+	# 포인터 눌림 = 화면과 무관한 전역 사실이라 분기보다 먼저 잡는다(아래 return들이 화면마다 다르다).
+	if event is InputEventMouseButton and (event as InputEventMouseButton).button_index == MOUSE_BUTTON_LEFT:
+		_ptr_down = (event as InputEventMouseButton).pressed
+		if not _ptr_down:
+			# ⚠**지연 해제**다. 뗀 순간 바로 지우면 아래 화면별 처리기가 `_armed`를 못 읽어 아무 버튼도
+			#   발동하지 않는다. 지연이면 이 이벤트 처리가 다 끝난 뒤(같은 프레임) 지워진다.
+			_clear_btn_hot.call_deferred()
+			queue_redraw()
+
 	# ── 설정 모달: 열려 있으면 모달 입력만 처리(닫힐 때까지 뒤쪽 입력 차단) ──
 	#   ⚠최상단이어야 한다 — 허브에서도 기어로 열리므로(C80), 플레이 경로 안에 두면 허브에선 모달이
 	#   떠 있는데 뒤의 메뉴 버튼이 눌린다.
 	if settings_open:
 		var slay: Dictionary = _settings_layout()
 		if event is InputEventMouseMotion:
-			var mp2: Vector2 = (event as InputEventMouseMotion).position
-			_set_close_hover = (slay["close"] as Rect2).has_point(mp2)
-			_set_home_hover = (slay["home_btn"] as Rect2).has_point(mp2)
-			_set_replay_hover = (slay["replay_btn"] as Rect2).has_point(mp2)
-			_set_privacy_hover = (slay["privacy_btn"] as Rect2).has_point(mp2)
-			_set_sound_hover = (slay["sound_tog"] as Rect2).has_point(mp2)
-			_set_haptic_hover = (slay["haptic_tog"] as Rect2).has_point(mp2)
+			_hot_settings((event as InputEventMouseMotion).position, slay)
 		elif event is InputEventMouseButton:
 			var sb: InputEventMouseButton = event as InputEventMouseButton
-			if sb.pressed and sb.button_index == MOUSE_BUTTON_LEFT:
-				_settings_click(sb.position, slay)
+			if sb.button_index == MOUSE_BUTTON_LEFT:
+				var srow: String = _settings_row(sb.position, slay)
+				if sb.pressed:
+					_armed = "" if srow.is_empty() else "set:" + srow
+					_hot_settings(sb.position, slay)   # 누름 시점엔 이동 이벤트가 없다 — 여기서 켜야 보인다
+				elif _armed == "set:" + srow and not srow.is_empty():
+					_settings_click(sb.position, slay)
 		elif event is InputEventKey:
 			var sek: InputEventKey = event as InputEventKey
 			if sek.pressed and sek.keycode == KEY_ESCAPE:
@@ -4912,30 +5005,38 @@ func _input(event: InputEvent) -> void:
 	if mode == "menu":
 		var mdy: Vector2 = Vector2(0.0, _ui_dy())
 		if event is InputEventMouseMotion:
-			var mmp: Vector2 = (event as InputEventMouseMotion).position - mdy
-			_adv_hover = MENU_ADV_BTN.has_point(mmp)
-			_classic_hover = MENU_CLASSIC_BTN.has_point(mmp) and _endless_unlocked()
-			_lb_hover = LEADERBOARD_ENABLED and MENU_LB_BTN.has_point(mmp)
+			_hot_menu((event as InputEventMouseMotion).position - mdy)
 		elif event is InputEventMouseButton:
 			var mb: InputEventMouseButton = event as InputEventMouseButton
-			if mb.pressed and mb.button_index == MOUSE_BUTTON_LEFT:
+			if mb.button_index == MOUSE_BUTTON_LEFT:
+				# ⚠mbp(=dy 보정 좌표)여야 한다. raw position을 쓰면 그리는 자리와 눌리는 자리가
+				#   _ui_dy만큼 어긋나 1000보다 높은 모든 화면(=모든 폰)에서 이 버튼이 죽는다.
+				#   눌림은 보정 좌표라 '불은 들어오는데 안 눌리는' 형태로 숨는다. (tools/ux_hit_probe.gd)
 				var mbp: Vector2 = mb.position - mdy
-				if MENU_ADV_BTN.has_point(mbp):
-					_fb("tap_go")
-					_adventure_go()                # 이어하기 = 다음 스테이지로 바로
-				elif MENU_CLASSIC_BTN.has_point(mbp):
-					if _endless_unlocked():
+				if mb.pressed:
+					_armed = ""
+					if MENU_ADV_BTN.has_point(mbp):
+						_armed = "adv"
+					elif MENU_CLASSIC_BTN.has_point(mbp):
+						# 잠긴 무한은 **걸지 않는다** — 눌린 그림은 '뗴면 된다'는 약속이라 거짓말이 된다.
+						#   대신 거절 소리는 누르는 즉시 낸다(잠긴 카드와 같은 어휘).
+						if _endless_unlocked():
+							_armed = "classic"
+						else:
+							_fb("tap_off")
+					elif LEADERBOARD_ENABLED and MENU_LB_BTN.has_point(mbp):
+						_armed = "lb"
+					_hot_menu(mbp)
+				else:
+					if _armed_hot("adv", MENU_ADV_BTN, mbp):
 						_fb("tap_go")
-						_start_endless()           # 무한 모드 바로 시작
-					else:
-						_fb("tap_off")             # 잠김 — 화면은 여전히 무반응이고 소리만 "여긴 아직"이라 말한다
-					# 잠겼으면 무반응 — 선택화면의 잠긴 카드와 같은 어휘(자물쇠는 이유를 이미 적어 둠)
-				elif LEADERBOARD_ENABLED and MENU_LB_BTN.has_point(mbp):
-					# ⚠mbp(=dy 보정 좌표)여야 한다. raw position을 쓰면 그리는 자리와 눌리는 자리가
-					#   _ui_dy만큼 어긋나 1000보다 높은 모든 화면(=모든 폰)에서 이 버튼이 죽는다.
-					#   호버는 보정 좌표라 '불은 들어오는데 안 눌리는' 형태로 숨는다. (tools/ux_hit_probe.gd)
-					_fb("tap")
-					mode = "leaderboard"           # 우상단 트로피 → 리더보드 peek
+						_adventure_go()                # 이어하기 = 다음 스테이지로 바로
+					elif _armed_hot("classic", MENU_CLASSIC_BTN, mbp):
+						_fb("tap_go")
+						_start_endless()               # 무한 모드 바로 시작
+					elif _armed_hot("lb", MENU_LB_BTN, mbp):
+						_fb("tap")
+						mode = "leaderboard"           # 우상단 트로피 → 리더보드 peek
 		elif event is InputEventKey:
 			# ⚠키 경로도 같은 소리를 태운다 — 버튼에만 달면 키로 눌렀을 때만 조용해져서, 같은 행동이
 			#   입력 방식에 따라 다르게 들린다(데스크톱 플테에서 '가끔 소리가 안 난다'로 보고된다).
@@ -4958,19 +5059,25 @@ func _input(event: InputEvent) -> void:
 	if mode == "leaderboard":
 		var ldy: Vector2 = Vector2(0.0, _ui_dy())   # 그리기와 동일 오프셋(menu/select와 같은 규칙)
 		if event is InputEventMouseMotion:
-			var lp: Vector2 = (event as InputEventMouseMotion).position - ldy
-			_back_hover = BACK_BTN.has_point(lp)
-			_lb_play_hover = LB_PLAY_BTN.has_point(lp) and _endless_unlocked()
+			_hot_leaderboard((event as InputEventMouseMotion).position - ldy)
 		elif event is InputEventMouseButton:
 			var lmb: InputEventMouseButton = event as InputEventMouseButton
-			if lmb.pressed and lmb.button_index == MOUSE_BUTTON_LEFT:
+			if lmb.button_index == MOUSE_BUTTON_LEFT:
 				var lmp: Vector2 = lmb.position - ldy
-				if BACK_BTN.has_point(lmp):
-					_fb("tap_back")
-					mode = "menu"
-				elif LB_PLAY_BTN.has_point(lmp) and _endless_unlocked():
-					_fb("tap_go")
-					_start_endless()   # ⚠허브 버튼과 같은 게이트 — 여기만 열어두면 잠금이 새는 뒷문이 된다
+				if lmb.pressed:
+					_armed = ""
+					if BACK_BTN.has_point(lmp):
+						_armed = "back"
+					elif LB_PLAY_BTN.has_point(lmp) and _endless_unlocked():
+						_armed = "lb_play"   # ⚠허브 버튼과 같은 게이트 — 여기만 열어두면 잠금이 새는 뒷문이 된다
+					_hot_leaderboard(lmp)
+				else:
+					if _armed_hot("back", BACK_BTN, lmp):
+						_fb("tap_back")
+						mode = "menu"
+					elif _armed_hot("lb_play", LB_PLAY_BTN, lmp):
+						_fb("tap_go")
+						_start_endless()
 		elif event is InputEventKey:
 			var lk: InputEventKey = event as InputEventKey
 			if lk.pressed and lk.keycode == KEY_ESCAPE:
@@ -4988,9 +5095,7 @@ func _input(event: InputEvent) -> void:
 		if event is InputEventMouseMotion:
 			var mm: InputEventMouseMotion = event as InputEventMouseMotion
 			var mp: Vector2 = mm.position - sdy
-			_play_hover = PLAY_BTN.has_point(mp) and not _all_cleared()
-			_back_hover = BACK_BTN.has_point(mp)
-			_dev_reset_hover = _playtest_tools_on() and DEV_RESET_BTN.has_point(mp)
+			_hot_select(mp)
 			# 드래그 스크롤 — 버튼(마우스/터치)이 눌린 채 그리드 위를 끌면 스크롤. 터치=에뮬 마우스로 재사용.
 			if _sel_drag_y >= 0.0 and (mm.button_mask & MOUSE_BUTTON_MASK_LEFT) != 0:
 				_sel_scroll_by(_sel_drag_y - mp.y)
@@ -5006,22 +5111,30 @@ func _input(event: InputEvent) -> void:
 				_sel_scroll_by(64.0)
 			elif sm.button_index == MOUSE_BUTTON_LEFT:
 				if sm.pressed:
+					_armed = ""
 					if _playtest_tools_on() and DEV_RESET_BTN.has_point(smp):
+						_armed = "dev_reset"
+					elif BACK_BTN.has_point(smp):
+						_armed = "back"
+					elif PLAY_BTN.has_point(smp) and not _all_cleared():
+						_armed = "play"
+					elif smp.y > SEL_TOP and smp.y < SEL_VIEW_BOT:
+						_sel_drag_y = smp.y                 # 그리드 영역 프레스 = 드래그 스크롤 시작
+					_hot_select(smp)
+				else:
+					_sel_drag_y = -1.0
+					if _armed_hot("dev_reset", DEV_RESET_BTN, smp):
 						if _dev_reset_arm > 0.0:
 							_dev_wipe_progress()            # 두 번째 탭 = 실행
 						else:
 							_dev_reset_arm = DEV_RESET_ARM  # 첫 탭 = 무장(시간 지나면 저절로 풀림)
 							queue_redraw()
-					elif BACK_BTN.has_point(smp):
+					elif _armed_hot("back", BACK_BTN, smp):
 						_fb("tap_back")
 						mode = "menu"                       # 허브로 복귀
-					elif PLAY_BTN.has_point(smp) and not _all_cleared():
+					elif _armed_hot("play", PLAY_BTN, smp):
 						_fb("tap_go")
 						_start_stage(_current_stage())      # 하단 버튼 = 프런티어(다음 판)로 진행
-					elif smp.y > SEL_TOP and smp.y < SEL_VIEW_BOT:
-						_sel_drag_y = smp.y                 # 그리드 영역 프레스 = 드래그 스크롤 시작
-				else:
-					_sel_drag_y = -1.0
 		elif event is InputEventKey:
 			var sk: InputEventKey = event as InputEventKey
 			if sk.pressed and (sk.keycode == KEY_SPACE or sk.keycode == KEY_ENTER):
@@ -5065,24 +5178,31 @@ func _input(event: InputEvent) -> void:
 		if _ad_pending:
 			return
 		if event is InputEventMouseMotion:
-			var rp: Vector2 = (event as InputEventMouseMotion).position
-			_retry_hover = (lay["retry"] as Rect2).has_point(rp)
-			_home_hover = (lay["home"] as Rect2).has_point(rp)
-			_cont_hover = has_cont and (lay["cont"] as Rect2).has_point(rp)
+			_hot_result((event as InputEventMouseMotion).position, lay)
 		elif event is InputEventMouseButton:
 			var mbe: InputEventMouseButton = event as InputEventMouseButton
-			if mbe.pressed and mbe.button_index == MOUSE_BUTTON_LEFT:
-				if has_cont and (lay["cont"] as Rect2).has_point(mbe.position):
-					_fb("tap_go")
-					_request_revive_ad()
-				elif (lay["retry"] as Rect2).has_point(mbe.position):
-					_fb("tap_go")
-					_track_revive_dismissed("retry")
-					_result_advance()
-				elif (lay["home"] as Rect2).has_point(mbe.position):
-					_fb("tap_back")
-					_track_revive_dismissed("home")
-					mode = _home_mode()
+			if mbe.button_index == MOUSE_BUTTON_LEFT:
+				if mbe.pressed:
+					_armed = ""
+					if has_cont and (lay["cont"] as Rect2).has_point(mbe.position):
+						_armed = "cont"
+					elif (lay["retry"] as Rect2).has_point(mbe.position):
+						_armed = "retry"
+					elif (lay["home"] as Rect2).has_point(mbe.position):
+						_armed = "home"
+					_hot_result(mbe.position, lay)
+				else:
+					if _armed_hot("cont", lay["cont"] as Rect2, mbe.position):
+						_fb("tap_go")
+						_request_revive_ad()
+					elif _armed_hot("retry", lay["retry"] as Rect2, mbe.position):
+						_fb("tap_go")
+						_track_revive_dismissed("retry")
+						_result_advance()
+					elif _armed_hot("home", lay["home"] as Rect2, mbe.position):
+						_fb("tap_back")
+						_track_revive_dismissed("home")
+						mode = _home_mode()
 		elif event is InputEventKey:
 			var ke: InputEventKey = event as InputEventKey
 			# SPACE = 주 동작. 부활 가능하면 '광고 이어하기', 아니면 재도전/다음.
@@ -5139,9 +5259,9 @@ func _input(event: InputEvent) -> void:
 	if resolving:
 		return
 
-	# 우상단 기어 호버 (플레이 중 언제나)
+	# 우상단 기어 눌림 (플레이 중 언제나)
 	if event is InputEventMouseMotion:
-		_gear_hover = gear_rect.has_point((event as InputEventMouseMotion).position)
+		_gear_hover = _armed_hot("gear", gear_rect, (event as InputEventMouseMotion).position)
 
 	# 들고 있는 조각은 두 모드 모두 포인터를 따라온다 — 화면 규칙(스냅=가능/부유=불가)이 같아진다.
 	if event is InputEventMouseMotion and dragging:
@@ -5153,8 +5273,16 @@ func _input(event: InputEvent) -> void:
 		if mbe.button_index != MOUSE_BUTTON_LEFT:
 			return
 
-		# 설정 기어 → 모달 열기(들고 있던 조각은 트레이로 되돌림)
-		if mbe.pressed and gear_rect.has_point(mbe.position):
+		# 설정 기어 → 모달 열기(들고 있던 조각은 트레이로 되돌림).
+		#   기어만 뗄 때 열린다(UI 버튼 규칙). 누름은 여기서 **삼킨다** — 안 그러면 기어를 누른 손이
+		#   그대로 조각 집기·조준 해제로 새어 들어간다.
+		if mbe.pressed:
+			if gear_rect.has_point(mbe.position):
+				_armed = "gear"
+				_gear_hover = true
+				return
+			_armed = ""       # 판 위 누름은 UI 버튼이 아니다 — 걸린 게 있으면 푼다
+		elif _armed_hot("gear", gear_rect, mbe.position):
 			_fb("tap")
 			settings_open = true
 			plane_armed = false   # 모달 뒤에 조준이 살아 있으면 돌아왔을 때 유령 링이 떠 있다
@@ -7994,8 +8122,8 @@ func _xf(origin: Vector2 = Vector2.ZERO, rot: float = 0.0, sc: Vector2 = Vector2
 # 눌림 = 버튼이 **살짝 들어간다**. 손가락이 닿아 있는 동안만이고, 떼면(=동작이 끝나면) 원래 크기다.
 #   색 변화(상태 텍스처·틴트) 위에 얹는 것이지 대체가 아니다 — 색은 '어떤 버튼인가', 크기는 '지금 눌렀다'.
 # ⚠**히트박스는 안 줄인다.** 그림만 작아진다 — 손가락이 이미 닿은 버튼이 판정에서 빠지면 안 된다.
-# ⚠모바일엔 hover가 없다(터치는 마우스로 번역) → 호출부의 hover 불리언이 곧 '눌림'이다.
-#   데스크톱에선 마우스만 올려도 들어가 보이는데, 출고 대상이 터치라 그쪽 진실을 따른다.
+# ⚠호출부의 hover 불리언이 곧 '눌림'이다 — 데스크톱도 마찬가지(C144). 예전엔 마우스를 올리기만 해도
+#   들어가 보였고 색까지 바뀌었다: 출고 대상인 터치엔 없는 상태라, 폰에서 못 보는 그림이 PC에만 있었다.
 const BTN_PRESS_SCALE: float = 0.95
 
 # begin/end는 **짝으로** 부른다. 안 눌렸어도 push한다 — 그래야 end가 조건 없이 pop할 수 있다.
