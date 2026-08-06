@@ -29,7 +29,8 @@ func _init() -> void:
 	if sh_env != "":
 		shares = []
 		for tok in sh_env.split(","):
-			shares.append(int(tok))
+			if int(tok) > 0:
+				shares.append(int(tok))   # SHARES=0 = 5바 조건 통째로 빼기(기각된 레버라 대개 안 본다)
 
 	var S: GDScript = load("res://Main.gd")
 	var g: Node = S.new()
@@ -43,10 +44,16 @@ func _init() -> void:
 		for tok in only_env.split(","):
 			only.append(int(tok))
 
+	# T## 조건이 걸리는 연속 실패 수. 기본 3(=출고 사다리의 3패 칸: 줄-완성 배급 + 비행기 완화).
+	#   ⚠2로 낮추면 god과 fail_streak이 같아져 **차이가 조각 풀 하나로 좁혀진다** — 비행기 픽업은
+	#   보드에 실제로 떨어지는 물체라 봇이 안 쏴도 스폰·점유·RNG를 건드린다(3패 조건은 두 개가 겹친 값).
+	var t_streak: int = int(OS.get_environment("T_STREAK")) if OS.get_environment("T_STREAK") != "" else 3
 	# 조건 목록 = [라벨, dda, fail_streak, 5바 목표비중(0=기본 풀), 풀 통째 교체(비면 없음)]
-	var conds: Array = [["base", false, 0, 0.0, {}], ["god", true, 2, 0.0, {}]]
+	#   god3 = 3패 케어의 **대조군**. 이게 없으면 T##(3패+5바)를 god(2패)과 비교하게 되어
+	#   비행기 완화의 몫이 5바의 공으로 딸려 들어간다.
+	var conds: Array = [["base", false, 0, 0.0, {}], ["god", true, 2, 0.0, {}], ["god3", true, 3, 0.0, {}]]
 	for s in shares:
-		conds.append(["T%d" % int(s), true, 3, float(s) / 100.0, {}])
+		conds.append(["T%d" % int(s), true, t_streak, float(s) / 100.0, {}])
 	# POOLS=onboard,lean,rich → 그 프리셋을 통째로 끼운 조건을 덧붙인다. '조각을 큼직하게'가
 	#   막힘사를 줄이는지 보려면 5바 비중이 아니라 **조각 크기 분포 자체**를 바꿔 봐야 한다.
 	var SD: GDScript = load("res://stage_data.gd")
@@ -59,12 +66,38 @@ func _init() -> void:
 				print("(알 수 없는 풀: %s — 건너뜀)" % key)
 				continue
 			conds.append([key.substr(0, 5).to_lower(), true, 2, 0.0, p])
+	# LEVERS="step_every=4|core_hp=5,step_every=4" → 각 토막이 조건 하나(필드는 쉼표로 겹쳐 쌓기).
+	#   케어 사다리 위에 **판 데이터를 눅이는 레버**를 얹어 본다. 기준선은 T##과 같은 칸
+	#   (3패 케어 + LEVER_SHARE% 5바)이라 차이가 그 레버 하나로 좁혀진다.
+	#   ⚠여기서 좋게 나온 값은 '케어 레버 후보'일 뿐이다 — 판 데이터를 그대로 바꾸는 뜻이 아니다.
+	var lv_share: float = float(int(OS.get_environment("LEVER_SHARE")) if OS.get_environment("LEVER_SHARE") != "" else 41) / 100.0
+	var lv_env: String = OS.get_environment("LEVERS")
+	if lv_env != "":
+		for chunk in lv_env.split("|"):
+			var ov: Dictionary = {}
+			var label: String = ""
+			for kv in String(chunk).split(","):
+				var parts: PackedStringArray = String(kv).strip_edges().split("=")
+				if parts.size() != 2:
+					continue
+				var key2: String = String(parts[0]).strip_edges()
+				var val: String = String(parts[1]).strip_edges()
+				ov[key2] = float(val) if val.contains(".") else int(val)
+				label += ("+" if label != "" else "") + key2.substr(0, 4) + val
+			if ov.is_empty():
+				continue
+			conds.append([label.substr(0, 12), true, t_streak, lv_share, {}, ov])
+	# CARE_AB=1 → 3패 칸에서 밴드 완화만 꺼본다. 같은 칸에 배급·비행기 완화가 같이 있어서,
+	#   켜둔 채로는 밴드가 낸 승률과 나머지가 낸 승률이 안 갈린다.
+	if OS.get_environment("CARE_AB") != "":
+		conds.append(["3패-밴드off", true, 3, 0.0, {}, {}, {"care_band_enabled": false}])
+		conds.append(["3패-밴드on", true, 3, 0.0, {}, {}, {"care_band_enabled": true}])
 
 	print("(seed=%d TRIALS=%d)" % [base_seed, TRIALS])
 	# FULL=1 = 승률 대신 사인별 분해. '케어가 어느 죽음을 고쳤나'를 봐야 막힘사에 듣는지 알 수 있다.
 	if OS.get_environment("FULL") != "":
-		print("판 | 조건  | 승률   | 막힘사 | 거점사 | 배치  | 선택지 | 동시2 | 동시3 | 콤보")
-		print("---+-------+--------+--------+--------+-------+--------+-------+-------+-----")
+		print("판 | 조건         | 승률   | 막힘사 | 거점사 | 배치  | 선택지 | 동시2 | 동시3 | 콤보 | 처치/클리어")
+		print("---+--------------+--------+--------+--------+-------+--------+-------+-------+------+-----------")
 		for si in range(g.STAGES.size()):
 			if not only.is_empty() and not only.has(si):
 				continue
@@ -77,11 +110,13 @@ func _init() -> void:
 					pl = c[4]                       # 프리셋 통째 교체
 				elif float(c[3]) > 0.0:
 					pl = _care_pool(bp, float(c[3]))
-				var r: Dictionary = _run_full(g, si, bool(c[1]), int(c[2]), pl, TRIALS)
-				print("%2d | %-5s | %5.1f%% | %5.1f%% | %5.1f%% | %5.1f | %6.1f | %5.2f | %5.2f | %4.1f" % [
+				_apply_props(g, c)
+				var r: Dictionary = _run_full(g, si, bool(c[1]), int(c[2]), pl, TRIALS, _ov(c))
+				print("%2d | %-12s | %5.1f%% | %5.1f%% | %5.1f%% | %5.1f | %6.1f | %5.2f | %5.2f | %4.1f | %6.2f" % [
 					si + 1, String(c[0]), r["win"], r["stuck"], r["core"], r["places"], r["opts"],
-					r["m2"], r["m3"], r["combo"]])
+					r["m2"], r["m3"], r["combo"], r["kpc"]])
 		quit()
+		return   # ⚠quit()는 프레임 끝에 걸리는 예약이라 아래 승률 표까지 한 번 더 돈다(= 실행시간 2배)
 	var head: String = "idx | 5바%  "
 	for c in conds:
 		head += "| %-6s " % String(c[0])
@@ -102,12 +137,46 @@ func _init() -> void:
 			var pool: Dictionary = {}
 			if float(c[3]) > 0.0:
 				pool = _care_pool(base_pool, float(c[3]))
-			var w: int = _run(g, si, bool(c[1]), int(c[2]), pool, TRIALS)
+			_apply_props(g, c)
+			var w: int = _run(g, si, bool(c[1]), int(c[2]), pool, TRIALS, _ov(c))
 			wins.append(w)
 			row += "| %5.1f%% " % [100.0 * float(w) / float(TRIALS)]
 		row += "| %s" % String(g.STAGES[si]["name"])
 		print(row)
 	quit()
+
+const SM: GDScript = preload("res://modes/stage_mode.gd")
+
+# 조건의 판-데이터 오버라이드(6번째 원소). 없는 조건은 빈 사전.
+func _ov(c: Array) -> Dictionary:
+	return (c[5] as Dictionary) if c.size() > 5 else {}
+
+# 조건의 Main 속성 오버라이드(7번째 원소) = 케어 레버 A/B 노브. 안 준 조건은 게임 기본값(둘 다 ON)으로
+#   되돌린다 — 조건 사이에 노브가 새면 앞 조건이 뒤 조건을 오염시킨다.
+func _apply_props(g: Node, c: Array) -> void:
+	g.care_band_enabled = true
+	if c.size() > 6:
+		for k in (c[6] as Dictionary):
+			g.set(String(k), (c[6] as Dictionary)[k])
+
+# 판 데이터를 눅인 사본으로 스테이지를 시작한다. STAGES는 const(런타임 읽기전용)라 원본을 못 고치므로
+#   **_start_stage를 손수 재현**해 st·director를 _init_game **앞에서** 갈아끼운다 —
+#   뒤에서 바꾸면 온보딩 적이 이미 원래 값으로 스폰돼 조건이 반만 걸린다.
+func _start(g: Node, si: int, ov: Dictionary) -> void:
+	if ov.is_empty():
+		g._start_stage(si)
+		return
+	var mod: Dictionary = (g.STAGES[si] as Dictionary).duplicate(true)
+	for k in ov:
+		mod[k] = ov[k]
+	g.endless = false
+	g.featured = false
+	g.stage_idx = si
+	g.st = mod
+	g.director = SM.new(mod)
+	g.mode = "play"
+	g._init_game()
+	g.intro_t = 0.0
 
 # 5바(I5h+I5v)가 배급에서 차지하는 비중. 유저가 눈으로 잡아내는 그 숫자 = 완화 폭의 상한 단위.
 func _i5_share(w: Dictionary) -> float:
@@ -151,7 +220,7 @@ func _care_pool(base: Dictionary, target: float) -> Dictionary:
 #   5바를 더 주는 개입은 줄을 늘리는 대신 조각을 크게 만들어 **막힘을 악화시킬 수 있다**.
 #   그래서 사인별·선택지 수까지 같이 낸다. opts = 매 턴 트레이 3장의 합법 배치 수 평균
 #   = '놓을 곳이 얼마나 많은가' = 유저가 말한 결정 스트레스의 대리 지표.
-func _run_full(g: Node, si: int, dda: bool, streak: int, pool: Dictionary, trials: int) -> Dictionary:
+func _run_full(g: Node, si: int, dda: bool, streak: int, pool: Dictionary, trials: int, ov: Dictionary = {}) -> Dictionary:
 	var wins: int = 0
 	var stuck: int = 0
 	var core: int = 0
@@ -161,10 +230,11 @@ func _run_full(g: Node, si: int, dda: bool, streak: int, pool: Dictionary, trial
 	var m2: float = 0.0
 	var m3: float = 0.0
 	var combo: float = 0.0
+	var kpc: float = 0.0
 	for t in range(trials):
 		g.dda_enabled = dda
 		g.fail_streak[si] = streak
-		g._start_stage(si)
+		_start(g, si, ov)
 		g.pool_override = pool
 		var r: Dictionary = _play_full(g)
 		if bool(r["win"]):
@@ -179,12 +249,13 @@ func _run_full(g: Node, si: int, dda: bool, streak: int, pool: Dictionary, trial
 		m2 += float(r["m2"])
 		m3 += float(r["m3"])
 		combo += float(r["combo"])
+		kpc += float(r["kpc"])
 	var n: float = float(trials)
 	return {
 		"win": 100.0 * float(wins) / n, "stuck": 100.0 * float(stuck) / n,
 		"core": 100.0 * float(core) / n, "places": places / n,
 		"opts": (opts / opt_n) if opt_n > 0.0 else 0.0,
-		"m2": m2 / n, "m3": m3 / n, "combo": combo / n,
+		"m2": m2 / n, "m3": m3 / n, "combo": combo / n, "kpc": kpc / n,
 	}
 
 func _play_full(g: Node) -> Dictionary:
@@ -196,6 +267,9 @@ func _play_full(g: Node) -> Dictionary:
 	#   구제'인지 '조용히 이기게 해주는 구제'인지를 가르는 유일한 지표다(유저 지적, 2026-08-04).
 	var m2: int = 0
 	var m3: int = 0
+	# 밴드(콤보=청소 범위) 레버는 '줄을 몇 개 냈나'가 아니라 '한 클리어가 몇 마리를 잡았나'를 움직인다.
+	#   동시2·3만 보면 그 레버의 효과가 통계에서 통째로 사라진다 — S6에서 콤보만 보다 겪은 것과 같은 함정.
+	var clears: int = 0
 	while not g.game_over and not g.game_clear and guard < 3000:
 		guard += 1
 		var s: int = 0
@@ -215,6 +289,8 @@ func _play_full(g: Node) -> Dictionary:
 		var nl: int = _lines_of(g, mv)   # 놓기 전에 센다 = 엔진 훅 없이 정확(campaign_probe와 동형)
 		g._place_piece()
 		places += 1
+		if nl >= 1:
+			clears += 1
 		if nl >= 2:
 			m2 += 1
 		if nl >= 3:
@@ -228,7 +304,8 @@ func _play_full(g: Node) -> Dictionary:
 		g._process(0.05)
 		s2 += 1
 	return {"win": g.game_clear, "stuck": g.game_over and g.stuck, "places": places,
-		"opts": opts, "opt_n": opt_n, "m2": m2, "m3": m3, "combo": g.run_max_combo}
+		"opts": opts, "opt_n": opt_n, "m2": m2, "m3": m3, "combo": g.run_max_combo,
+		"kpc": (float(g.killed) / float(clears)) if clears > 0 else 0.0}
 
 # 이 수가 완성시키는 행+열 수 (campaign_probe에서 복사 — 이 저장소 관례대로 인라인)
 func _lines_of(g: Node, mv: Dictionary) -> int:
@@ -282,12 +359,12 @@ func _legal_placements(g: Node) -> int:
 					n += 1
 	return n
 
-func _run(g: Node, si: int, dda: bool, streak: int, pool: Dictionary, trials: int) -> int:
+func _run(g: Node, si: int, dda: bool, streak: int, pool: Dictionary, trials: int, ov: Dictionary = {}) -> int:
 	var wins: int = 0
 	for t in range(trials):
 		g.dda_enabled = dda
 		g.fail_streak[si] = streak
-		g._start_stage(si)
+		_start(g, si, ov)
 		# ⚠_start_stage 뒤에 덮는다 — _init_game이 CARE_I5_SHARE로 이미 계산해 둔 값을 스윕 값으로 바꾼다.
 		#   실제 코드 경로(Main.care_pool)를 그대로 타므로 프로브와 게임이 어긋나지 않는다.
 		#   부작용: 첫 트레이 3장은 기본 풀로 뽑힌 뒤다 = 케어 효과가 아주 살짝 과소평가된다.

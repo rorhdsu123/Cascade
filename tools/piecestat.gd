@@ -11,11 +11,18 @@ func _init() -> void:
 	var S: GDScript = load("res://Main.gd")
 	var g: Node = S.new()
 	root.add_child(g)
+	g.set("persist_enabled", false)   # ⚠add_child가 _ready를 돌려 true로 켠다 — 안 끄면 봇의 클리어가
+	                                  #   실유저 진행도에 각인된다(다른 프로브 전부 이 가드가 있다)
 	var sd: String = OS.get_environment("PROBE_SEED")
 	if sd != "":
 		seed(int(sd))
 		g.seed_game(int(sd))
 	g.cleared[0] = true   # 튜토리얼 비활성 — 스크립트 트레이가 통계에 섞이면 안 된다
+	# 케어가 걸린 상태의 배급도 재려고 둔 손잡이(care_probe의 조건과 짝을 맞춘다).
+	#   CARE_STREAK=3 SHARE=41 → 3패 케어 + 5바 가중 41% 사본. 둘 다 0/빈값이면 기본 배급.
+	#   ⚠'가중치 41%'가 손에 들어오는 비율로 몇 %인지는 fit-guard 때문에 따로 재야 한다(파일 머리 주석).
+	var care_streak: int = int(OS.get_environment("CARE_STREAK")) if OS.get_environment("CARE_STREAK") != "" else 0
+	var share: float = (float(OS.get_environment("SHARE")) / 100.0) if OS.get_environment("SHARE") != "" else 0.0
 	var only: Array = []
 	var only_env: String = OS.get_environment("STAGE_IDX")
 	if only_env != "":
@@ -34,7 +41,11 @@ func _init() -> void:
 			continue
 		n_stage += 1
 		for t in range(TRIALS):
+			g.dda_enabled = care_streak > 0
+			g.fail_streak[si] = care_streak
 			g._start_stage(si)
+			if share > 0.0:
+				g.pool_override = _care_pool(g.STAGES[si].get("pool", {}), share)   # ⚠_start_stage 뒤에 덮는다
 			var guard: int = 0
 			while not g.game_over and not g.game_clear and guard < 3000:
 				guard += 1
@@ -89,7 +100,32 @@ func _init() -> void:
 	print("배치 시점 보드 여유 f 분포:  <0.30 %4.1f%% | <0.45 %4.1f%% | <0.60 %4.1f%% | <0.75 %4.1f%% | >=0.75 %4.1f%%" % [
 		100.0 * float(f_hist[0]) / fh, 100.0 * float(f_hist[1]) / fh, 100.0 * float(f_hist[2]) / fh,
 		100.0 * float(f_hist[3]) / fh, 100.0 * float(f_hist[4]) / fh])
+	var i5: float = 100.0 * float(int(count.get("I5h", 0)) + int(count.get("I5v", 0))) / n
+	print("5바(I5h+I5v) 실배급: %.2f%%   (CARE_STREAK=%d SHARE=%s)" % [
+		i5, care_streak, ("기본" if share <= 0.0 else "%d%%" % int(round(share * 100.0)))])
 	quit()
+
+# 5바 비중만 목표까지 끌어올린 사본 (tools/care_probe.gd에서 복사 — 이 저장소 관례대로 인라인)
+func _care_pool(base: Dictionary, target: float) -> Dictionary:
+	if base.is_empty() or not base.has("I5h") or not base.has("I5v"):
+		return {}
+	var total: int = 0
+	var i5: int = 0
+	for k in base:
+		total += int(base[k])
+		if k == "I5h" or k == "I5v":
+			i5 += int(base[k])
+	if i5 <= 0 or target <= 0.0 or target >= 1.0:
+		return {}
+	var rest: int = total - i5
+	var want: float = target * float(rest) / (1.0 - target)
+	if want <= float(i5):
+		return {}
+	var scale: float = want / float(i5)
+	var out: Dictionary = base.duplicate()
+	out["I5h"] = maxi(1, int(round(float(base["I5h"]) * scale)))
+	out["I5v"] = maxi(1, int(round(float(base["I5v"]) * scale)))
+	return out
 
 func _best_move(g: Node) -> Dictionary:
 	var best: Dictionary = {}
