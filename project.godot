@@ -15,7 +15,7 @@ run/main_scene="res://Main.tscn"
 config/quit_on_go_back=false
 config/features=PackedStringArray("4.6", "GL Compatibility")
 boot_splash/bg_color=Color(0.0509804, 0.0509804, 0.101961, 1)
-boot_splash/image="res://art/splash.png"
+boot_splash/image="res://art/studio.png"
 config/icon="res://icons/icon_512.png"
 boot_splash/minimum_display_time=700
 

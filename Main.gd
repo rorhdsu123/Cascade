@@ -40,7 +40,7 @@ const INTRO_TOTAL: float = 1.13   # APPEAR+HOLD+DOCK
 const LINE_BASE: int = 120
 const STREAK_STEP: float = 0.5
 const BLAST_RING_DELAY: float = 0.26  # 링(추가 레인) 간 순차 발사 텀 (물결 확산 속도. 클수록 극적·느림).
-                                      #   0.4→0.26(C83): 콤보2~4 꼬리가 길어 '느린 템포'로 체감 → 조임. 스펙터클은 열색·칭찬·축포가 채움.
+									  #   0.4→0.26(C83): 콤보2~4 꼬리가 길어 '느린 템포'로 체감 → 조임. 스펙터클은 열색·칭찬·축포가 채움.
 # 유도 종이비행기(2줄+ 동시 삭제 시 자동 발사) — 임시 OFF.
 #   이유: 이 보너스가 "줄을 지우면 그 줄 위의 적이 죽는다"는 기본 규칙 위에 겹쳐 얹히는 바람에,
 #   신규 플레이어가 무엇 때문에 적이 죽었는지 귀속을 못 한다(규칙 인지 실패). 규칙이 몸에 붙은 뒤
@@ -856,7 +856,11 @@ func _ready() -> void:
 		_font_display = _font
 	_relayout()
 	get_viewport().size_changed.connect(_relayout)
-	mode = "menu"
+	# 부팅 첫 화면 = 게임 로고(스튜디오 스플래시 다음). 자세한 근거는 아래 LOGO_HOLD 주석.
+	#   ⚠`--script` 도구 실행에선 건너뛴다 — 프로브 69개가 전부 "menu에서 시작"을 전제로 짜여 있고,
+	#     여기서 화면을 하나 끼우면 그게 전부 첫 클릭부터 어긋난다(analytics.gd가 쓰는 것과 같은 게이트).
+	mode = "menu" if OS.get_cmdline_args().has("--script") else "logo"
+	logo_t = 0.0
 
 # 세로 레이아웃을 현재 뷰포트 높이에서 파생한다. portrait+expand라 폭은 800 고정, 높이만 실기기 비율로 늘어난다.
 # 앵커: HUD=상단 고정 · 트레이=하단 고정(엄지 그라운드) · 보드=그 사이 중앙. 폭 90%(CELL 90)로 키운 뒤
@@ -4206,7 +4210,7 @@ const CLEAR_SWEEP_TOTAL: float = CLEAR_SWEEP_STAGGER * float(ROWS - 1) + CLEAR_S
 #   (t=63.4~63.75): 아이콘보다 크게 튀어 들어와 제 크기로 안착하고, 암전 뒤에도 그대로 남는다.
 #   축하에서 '쫓던 목표가 주인공'이라는 레퍼런스의 통찰을 이게 전부 담당한다(시간 비용 0, 동사별 자기 자리).
 const CLEAR_CHECK_AT: float = 0.14    # 승리 후 이만큼은 '수'를 그대로 보여준다 → 그 다음 체크가 들어온다
-                                      #   (레퍼런스도 숫자 노출 후 0.22s 뒤에 체크. 동시면 '이미 체크였던' 것으로 읽힌다)
+									  #   (레퍼런스도 숫자 노출 후 0.22s 뒤에 체크. 동시면 '이미 체크였던' 것으로 읽힌다)
 const CLEAR_CHECK_POP: float = 0.20   # 오버슛 → 안착
 # 스윕이 끝난 뒤 '빈 판'을 한 박 쥐고 무대가 열린다(레퍼런스도 비운 판을 한 박 보여준다).
 #   ⚠목표 배지(HUD→중앙 상승 + 0→N 카운트업 + 도장)는 2026-07-30 유저 결정으로 제거했다. 이유:
@@ -4237,12 +4241,12 @@ const CLEAR_LETTER_POP: float = 0.20   # 글자 하나가 튀어 안착하는 �
 const CLEAR_L2_IN: float = 0.56        # 1행 조립 완료 직후 CASTLE 등장
 const CLEAR_L2_PEAK: float = 2.5       # 오버슛 배율 — 1행을 다 가릴 만큼 커졌다가 튕겨 돌아온다
 const CLEAR_L2_PUNCH: float = 0.40     # 폭주가 멈추고 되튀는 순간 = 연출 유일의 강펀치(_clear_l2_scale)
-                                       #   ⚠소리(`logo`)가 이 상수를 읽는다 — 애니메이션과 어긋나면 안 되므로 상수로 뺐다
+									   #   ⚠소리(`logo`)가 이 상수를 읽는다 — 애니메이션과 어긋나면 안 되므로 상수로 뺐다
 const CLEAR_CONFETTI_AT: float = 1.00  # 색종이 낙하 시작 — 로고가 다 선 뒤에야 쏟아진다(레퍼런스 순서)
 const CLEAR_ROCKET_N: int = 7          # 폭죽 발수
 const CLEAR_ROCKET_FIRST: float = 1.20 # 첫 로켓 발사 — 색종이보다 0.2s 늦게(층을 겹치지 않고 쌓는다)
 const CLEAR_ROCKET_LAST: float = 2.05  # 2.35였을 때 7번째 발이 컷(2.80) 0.05s 전에 점화 → 3프레임 만에
-                                       #   사라졌다(만들어 던져버리는 발 + '반짝하다 끊김'으로 보임)
+									   #   사라졌다(만들어 던져버리는 발 + '반짝하다 끊김'으로 보임)
 const CLEAR_ROCKET_RISE: float = 0.40  # 올라가는 시간. '올라감→터짐'이 예비동작을 만든다
 const CLEAR_BURST_LIFE: float = 0.75
 const CLEAR_SHOW_TOTAL: float = 2.80   # 무대 유지 총 시간 → 이후 결과 팝업
@@ -4285,7 +4289,7 @@ const RESULT_PANEL_W: float = 520.0
 const RESULT_PANEL_X: float = (VW_BASE - RESULT_PANEL_W) * 0.5
 const RESULT_CARD_POP: float = 0.18
 const RESULT_CONTENT_IN: float = 0.06   # 카드가 헤드라인을 '들고' 올라온다. 0.14였을 때는 빈 노란 상자가
-                                        #   8프레임 떠 있어 개봉이 아니라 로딩으로 보였다(성적 3줄이 없어진 뒤로).
+										#   8프레임 떠 있어 개봉이 아니라 로딩으로 보였다(성적 3줄이 없어진 뒤로).
 const RESULT_BTN_IN: float = 0.30
 var result_t: float = -1.0             # 팝업 등장 타이머(-1=아직 안 뜸)
 var clear_show_t: float = CLEAR_OFF     # 무대 타이머. -CLEAR_HOLD에서 시작해 0에서 무대가 열린다
@@ -5000,6 +5004,18 @@ func _input(event: InputEvent) -> void:
 				settings_open = false   # ESC = 모달 닫기(홈 아님)
 		return
 
+	# ── 부팅 로고 화면: 아무 입력이나 건너뛴다 ──
+	#   ⚠여기서 안 막으면 아래 플레이 경로가 판 없는 상태로 돈다.
+	#   누를 때 발동이다(버튼 규약인 '뗄 때'와 다르다) — 버튼이 아니라 '넘기기'라 즉각성이 맞고,
+	#   뗄 때 발동으로 두면 그 손뗌이 홈의 버튼 위에서 일어난다.
+	if mode == "logo":
+		var lp: bool = (event is InputEventMouseButton and (event as InputEventMouseButton).pressed) \
+				or (event is InputEventKey and (event as InputEventKey).pressed) \
+				or (event is InputEventScreenTouch and (event as InputEventScreenTouch).pressed)
+		if lp:
+			_logo_done()
+		return
+
 	# ── 메인 메뉴(허브): Adventure(스테이지) / Classic(무한) ──
 	# 세로 중앙 오프셋(_ui_dy)만큼 화면을 내려 그리므로, 입력 좌표는 그만큼 되돌려 히트테스트한다.
 	if mode == "menu":
@@ -5356,6 +5372,12 @@ func _process(delta: float) -> void:
 		_ad_seam_t += delta
 		if _ad_seam_t >= AD_SEAM_TIMEOUT:
 			_ad_seam_done()
+	if mode == "logo":
+		logo_t += delta
+		if logo_t >= LOGO_HOLD:
+			_logo_done()
+		queue_redraw()
+		return
 	if mode == "menu" or mode == "select" or mode == "leaderboard":
 		if _dev_reset_arm > 0.0:
 			_dev_reset_arm = maxf(0.0, _dev_reset_arm - delta)   # 무장은 저절로 풀린다(오발 방지)
@@ -5748,6 +5770,13 @@ func _draw() -> void:
 	if _glow != null:
 		_glow.quads.clear()
 		_glow.queue_redraw()
+
+	if mode == "logo":
+		# 홈과 **같은 배경·같은 락업**이다. 다른 건 락업이 앉는 높이(47% vs 23%) 하나뿐 —
+		#   그래서 이 화면이 꺼지고 홈이 뜨는 순간, 로고가 위로 옮겨간 것 말고는 아무것도 안 바뀐다.
+		_draw_bg_glow()
+		_draw_logo(fnt)
+		return
 
 	if mode == "menu":
 		# 배경은 전체를 덮고, 콘텐츠만 세로 중앙으로 내린다(입력도 같은 오프셋으로 되돌림).
@@ -7084,6 +7113,46 @@ func _sel_scroll_by(dy: float) -> void:
 		sel_scroll = ns
 		queue_redraw()
 
+# ── 부팅 로고 화면(엔진 스플래시와 홈 사이) ──
+# 앱을 켜면 화면이 세 칸을 지난다: [엔진 스플래시 = EGGTART STUDIO 그림] → [이 화면 = 게임 로고] → [홈].
+#   레퍼런스(Block Blast) 60fps 실측이 이 구조의 근거다 — 세 화면이 전부 **하드컷**인데 전환이 안 느껴진다.
+#   이유는 둘: ①세 화면의 배경이 픽셀 단위로 같고 ②게임 로고가 사라지지 않고 **같은 크기 그대로**
+#   위로 평행이동만 한다. 스튜디오 카드가 게임 로고보다 **먼저·아래(거의 정중앙)·흰 단색**인 것도 실측값이다.
+# 그래서 이 화면은 새 그림이 아니라 홈과 **같은 락업**(_draw_wm_static + _draw_tagline)을 47%에 놓은 것이다.
+#   홈은 같은 물건을 23%(MENU_WM_CENTER_Y)에 놓는다 → 컷 순간 로고만 위로 올라간다.
+# ⚠art/studio.png(엔진 스플래시)의 배경과 _draw_bg_glow는 같은 값이어야 한다. 한쪽만 손대면 컷이 보인다.
+#   그림은 tools/studio_shot.gd가 굽는다(`-- <dir> ship`).
+const LOGO_HOLD: float = 0.60          # 레퍼런스 스튜디오 카드가 0.52초. 엔진 스플래시(700ms) 뒤에 이어 붙는다
+const LOGO_CENTER_RATIO: float = 0.47  # 워드마크 광학 중심 — 기하 중심 50%는 처져 보인다
+var logo_t: float = 0.0                # 경과(초). -1 = 이 화면 지났음
+
+func _draw_logo(fnt: Font) -> void:
+	var f: Font = _font_display if _font_display != null else fnt
+	var wm: Array = _draw_wm_static(f, vh * LOGO_CENTER_RATIO, MENU_WM_MAXW)
+	_draw_tagline(fnt, float(wm[1]) + 46.0)
+
+func _logo_done() -> void:
+	if mode != "logo":
+		return
+	logo_t = -1.0
+	mode = "menu"
+	queue_redraw()
+
+# 태그라인 한 줄 — 로고 락업의 셋째 줄. **로고 화면과 홈이 같은 코드를 쓴다**:
+#   두 화면이 하드컷으로 붙어 있어서, 값이 갈리면 컷에서 문구가 튀는 게 그대로 보인다.
+#   자간을 벌려 그린다 — 짧은 대문자 한 줄은 자간이 없으면 덩어리로 뭉쳐 로고의 일부로 안 읽힌다.
+#   외곽선 없음: 색을 쓰는 요소는 워드마크 하나여야 한다.
+func _draw_tagline(fnt: Font, y: float) -> void:
+	var tgw: float = 0.0
+	for i in range(MENU_TAGLINE.length()):
+		tgw += fnt.get_string_size(MENU_TAGLINE[i], HORIZONTAL_ALIGNMENT_LEFT, -1, MENU_TAG_SIZE).x + MENU_TAG_TRACK
+	tgw -= MENU_TAG_TRACK
+	var tgx: float = 400.0 - tgw * 0.5
+	for j in range(MENU_TAGLINE.length()):
+		draw_string(fnt, Vector2(tgx, y), MENU_TAGLINE[j], HORIZONTAL_ALIGNMENT_LEFT, -1, MENU_TAG_SIZE, C_TAGLINE)
+		tgx += fnt.get_string_size(MENU_TAGLINE[j], HORIZONTAL_ALIGNMENT_LEFT, -1, MENU_TAG_SIZE).x + MENU_TAG_TRACK
+
+
 # ── 메인 메뉴(허브): 위 로고, 아래 두 갈래 버튼 ──
 func _draw_menu(fnt: Font) -> void:
 	# 배경은 _draw()가 이미 그렸다(오프셋 밖). 여기선 콘텐츠만.
@@ -7097,19 +7166,9 @@ func _draw_menu(fnt: Font) -> void:
 	#   (붙여 쓴 BlockCastle은 스토어 제목·패키지명 전용).
 	var f: Font = _font_display if _font_display != null else fnt
 	var wm: Array = _draw_wm_static(f, MENU_WM_CENTER_Y, MENU_WM_MAXW)
-	# 태그라인은 락업의 일부처럼 앉힌다(레퍼런스도 로고의 셋째 줄로 조판돼 있다) — 색은 저채도 크림.
-	#   외곽선 없음: 색을 쓰는 요소는 워드마크 하나여야 한다.
-	#   자간을 벌려 그린다 — 짧은 대문자 한 줄은 자간이 없으면 덩어리로 뭉쳐 로고의 일부로 안 읽힌다.
-	#   ⚠스플래시 그림과 같은 값이어야 한다(MENU_TAG_SIZE·MENU_TAG_TRACK).
-	var tgw: float = 0.0
-	for i in range(MENU_TAGLINE.length()):
-		tgw += fnt.get_string_size(MENU_TAGLINE[i], HORIZONTAL_ALIGNMENT_LEFT, -1, MENU_TAG_SIZE).x + MENU_TAG_TRACK
-	tgw -= MENU_TAG_TRACK
-	var tgx: float = 400.0 - tgw * 0.5
-	var tgy: float = float(wm[1]) + 46.0
-	for j in range(MENU_TAGLINE.length()):
-		draw_string(fnt, Vector2(tgx, tgy), MENU_TAGLINE[j], HORIZONTAL_ALIGNMENT_LEFT, -1, MENU_TAG_SIZE, C_TAGLINE)
-		tgx += fnt.get_string_size(MENU_TAGLINE[j], HORIZONTAL_ALIGNMENT_LEFT, -1, MENU_TAG_SIZE).x + MENU_TAG_TRACK
+	# 태그라인은 락업의 일부처럼 앉힌다(레퍼런스도 로고의 셋째 줄로 조판돼 있다).
+	#   ⚠부팅 로고 화면과 **같은 함수**를 쓴다 — 둘은 하드컷으로 붙어 있어 갈리면 그 컷에서 튄다.
+	_draw_tagline(fnt, float(wm[1]) + 46.0)
 
 	# Adventure 슬롯 = '어디까지 왔나'(진행 중 목적지 / 완주 프런티어). 소제목은 유저 요청으로 제거(C82).
 	var adv_slot: String = ""
