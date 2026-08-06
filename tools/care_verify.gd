@@ -33,10 +33,14 @@ func _init() -> void:
 		g._start_stage(2)
 		var clear_on: bool = g._care_level() >= g.CARE_CLEAR_FAILS
 		var plane_on: bool = g.plane_cd_left == g.CARE_PLANE_FIRST_CD
+		var band_on: bool = g._care_band_bonus() > 0
 		_ok(clear_on == bool(row[1]), "%d패 → 줄-완성 케어 %s" % [n, "ON" if bool(row[1]) else "off"],
 			"실제=%s" % ("ON" if clear_on else "off"))
 		_ok(plane_on == bool(row[2]), "%d패 → 비행기 케어 %s" % [n, "ON" if bool(row[2]) else "off"],
 			"실제=%s" % ("ON" if plane_on else "off"))
+		# 밴드 완화는 비행기와 같은 칸(3패). 같은 칸이라도 따로 본다 — 한쪽만 조정될 수 있다.
+		_ok(band_on == bool(row[2]), "%d패 → 밴드 완화 %s" % [n, "ON" if bool(row[2]) else "off"],
+			"실제=%s" % ("ON" if band_on else "off"))
 	# 2패에서 줄-완성만 걸리고 비행기는 아직 안 걸린다 = 계단이 실제로 두 칸이다(한 칸이면 천장이 무의미).
 	g.fail_streak[2] = 2
 	g._start_stage(2)
@@ -56,11 +60,28 @@ func _init() -> void:
 	_ok(g._care_level() == 0, "dda_enabled=false면 케어 단계 0")
 	_ok(g.plane_cd_left == int(g.st.get("plane_cd", 10)), "dda_enabled=false면 비행기 배급 원본",
 		"plane_cd_left=%d" % g.plane_cd_left)
+	_ok(g._care_band_bonus() == 0, "dda_enabled=false면 밴드 완화 0 (회귀 골든 불변의 전제)")
 	g.dda_enabled = true
 	g.fail_streak[-1] = 5
 	g._start_endless()
 	_ok(g._care_level() == 0, "무한모드는 케어 없음(랭크 공정성)")
 	_ok((g.pool_override as Dictionary).is_empty(), "풀 오버라이드는 게임 코드가 절대 안 세운다(프로브 전용)")
+
+	# 밴드 완화가 실제로 레인을 넓히는지 + **전멸 임계는 안 건드리는지**.
+	#   보너스가 전멸까지 앞당기면 케어가 판당 클라이맥스 횟수를 바꿔 연출 위계(C24)를 흔든다.
+	g.dda_enabled = true
+	g.fail_streak[9] = 3
+	g._start_stage(9)
+	g.care_band_enabled = true
+	var band_on2: Dictionary = g._blast_band([], [0], 2)
+	g.care_band_enabled = false
+	var band_off2: Dictionary = g._blast_band([], [0], 2)
+	g.care_band_enabled = true
+	_ok((band_on2["cols"] as Dictionary).size() == (band_off2["cols"] as Dictionary).size() + g.CARE_BAND_BONUS,
+		"케어 3패: 밴드가 %d레인 넓어진다" % g.CARE_BAND_BONUS,
+		"%d vs %d" % [(band_on2["cols"] as Dictionary).size(), (band_off2["cols"] as Dictionary).size()])
+	var near: Dictionary = g._blast_band([], [3], g.CLIMAX_COMBO - 1)
+	_ok(not bool(near["full_board"]), "전멸 임계는 원래 콤보로 판정한다(보너스로 앞당겨지지 않는다)")
 
 	print("\n── ③ 배급: 트레이 3장이 어떤 순서로든 다 놓인다 ──")
 	# S4 ①. 옛 가드는 '하나라도 놓이면 통과'라 한 장을 놓는 순간 나머지가 갇히는 딜이 그대로 나갔다.
