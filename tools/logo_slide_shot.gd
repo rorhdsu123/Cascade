@@ -103,7 +103,33 @@ func _run() -> void:
 	var f_end: Image = await _shot("s1_slide_end.png")
 	print("end_vs_home_bg_diff=", _bg_diff(f_end, f_home))
 
-	# ④ 실시간 — 위 셋은 내가 k를 손으로 놓고 본 것이다. 부팅을 **실제로** 굴려(_process가 logo_t·menu_intro를
+	# ④ 축소 계단 — 홈 로고는 로고 화면보다 작다(560→380). 폭 보간은 **폰트 크기(정수)로 양자화**되므로
+	#   한 프레임에 폭이 왕창 줄어드는 칸이 있으면 그게 눈에 띈다. 프레임마다 실제 폭을 재서 계단을 본다.
+	var prev_w: int = -1
+	var worst_step: int = 0
+	for i in range(14):
+		g.set("menu_intro", mi * float(i) / 13.0)
+		g.call("queue_redraw")
+		await process_frame
+		await RenderingServer.frame_post_draw
+		var im2: Image = root.get_texture().get_image()
+		var lo: int = 800
+		var hi: int = 0
+		# ⚠y 상한은 버튼(736~1040)보다 위여야 한다. 처음엔 900까지 재서 버튼이 등장하는 프레임의
+		#   폭 540을 로고 폭으로 읽었고, 그게 '한 프레임에 70px' 가짜 계단으로 나왔다.
+		for y in range(120, 725, 3):
+			for x in range(0, 800, 2):
+				var c: Color = im2.get_pixel(x, y)
+				if maxf(maxf(c.r, c.g), c.b) > 0.55 and c.v > 0.45:
+					lo = mini(lo, x)
+					hi = maxi(hi, x)
+		var wpx: int = maxi(0, hi - lo)
+		if prev_w >= 0:
+			worst_step = maxi(worst_step, absi(prev_w - wpx))
+		prev_w = wpx
+	print("shrink_worst_step(px/frame)=", worst_step)   # 한 프레임에 폭이 이만큼 변한다. 튀는 칸이 없어야 한다
+
+	# ⑤ 실시간 — 위 셋은 내가 k를 손으로 놓고 본 것이다. 부팅을 **실제로** 굴려(_process가 logo_t·menu_intro를
 	#   밀게) 상태가 logo → menu(미끄러짐) → 평상시 홈으로 흘러가고 **끝나는지** 본다.
 	#   여기서 안 끝나면(menu_intro가 -1로 안 돌아오면) 홈이 영영 전환 중인 화면이 된다.
 	g.set_process(true)

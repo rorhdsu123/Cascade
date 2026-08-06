@@ -7125,14 +7125,26 @@ const PLAY_BTN: Rect2 = Rect2(150.0, 742.0, 500.0, 126.0)
 #   (C81: 목록 칩·허브 기어는 유저 요청으로 제거 — 어색했다.)
 # 재도전 경로는 '없음'으로 확정(유저: 이미 깬 판은 재도전 니즈가 없다). 진행 중엔 목록에 못 가고
 #   다음 판으로만 이어진다 = 캠페인의 정상 동선. 전부 깬 뒤의 select는 재도전이 아니라 완주 진열장이다.
-const MENU_WM_MAXW: float = 560.0     # 워드마크 폭 = 화면의 70%. **부트 스플래시와 같은 값이어야 한다**
-const MENU_WM_CENTER_Y: float = 290.0 # 락업 시각 중심(화면의 23%). 스플래시는 같은 물건을 47%에 놓는다
+const MENU_WM_MAXW: float = 560.0     # 워드마크 폭 = 화면의 70%. **부트 스플래시·로고 화면과 같은 값이어야 한다**
+# 홈에서는 로고가 작아진다(560 → 380). 유저 지적: "가장 눈에 띄어야 할 건 플레이 버튼인데 로고가 이긴다."
+#   실측이 그대로였다 — 로고 잉크 118,313px vs 버튼 두 개 합 109,475px. 색은 이미 버튼이 이기고 있었고
+#   (채도 0.85 vs 0.72) 지고 있던 건 면적 하나라, 면적으로 풀었다. 380에서 버튼이 로고의 2.7배가 된다.
+# ⚠340 밑으로 내리지 말 것: 브릭 베벨이 뭉개져 로고가 '알록달록한 글자'가 되고, 비율로 딸려 내려가는
+#   태그라인이 16px 밑으로 떨어져 실기기에서 안 읽힌다(논리 800폭 기준이라 폰에선 더 작다).
+# 부팅에서 홈으로 미끄러질 때 이 두 값 사이를 **보간한다** — 양 끝은 정확히 560과 380이라 이음매도
+#   도착도 안 튄다. 크기 변화는 그 0.28초 움직임이 덮는다("로고가 머리글 자리로 접힌다").
+const MENU_WM_MAXW_HOME: float = 380.0
+const MENU_WM_CENTER_Y: float = 230.0 # 락업 시각 중심(화면의 18%). 로고 화면은 같은 물건을 47%에 놓는다
+                                      #   ⚠290이던 값이다 — 로고를 줄이기만 하니 위 여백이 324로 늘어
+                                      #     화면이 위로 떠 보였다(유저 지적). 올려서 여백을 264로 정리했다.
 const MENU_TAGLINE: String = "CASTLE KEEPER"   # 후보 검토 중 — 장르 설명 아님, 플레이어 자칭(레퍼런스 수법)
 const C_TAGLINE := Color("#cbc0a8")   # 저채도 크림. 색 주도권은 워드마크가 독점한다
 const MENU_TAG_SIZE: int = 26         # 스플래시 그림과 같은 치수(논리 800폭 기준)
 const MENU_TAG_TRACK: float = 7.0     # 자간
-const MENU_ADV_BTN: Rect2 = Rect2(150.0, 600.0, 500.0, 116.0)     # 오렌지 = 스테이지(모험) — 이어하기
-const MENU_CLASSIC_BTN: Rect2 = Rect2(150.0, 740.0, 500.0, 116.0) # 블루 = 무한(∞)
+# 두 갈래 버튼 = 홈에서 **가장 무거워야 하는 물건**(위 MENU_WM_MAXW_HOME 주석). 500×116에서 키웠다.
+#   ⚠버튼 속 조판은 높이를 세로 중앙 기준으로 잡는다(_draw_menu_button) — 여기 높이를 바꿔도 따라온다.
+const MENU_ADV_BTN: Rect2 = Rect2(130.0, 596.0, 540.0, 140.0)     # 오렌지 = 스테이지(모험) — 이어하기
+const MENU_CLASSIC_BTN: Rect2 = Rect2(130.0, 760.0, 540.0, 140.0) # 블루 = 무한(∞)
 const MENU_LB_BTN: Rect2 = Rect2(560.0, 40.0, 216.0, 60.0)       # 우상단 트로피 = 리더보드(opt-in 천장, 모드 아님)
 const BACK_BTN: Rect2 = Rect2(24.0, 24.0, 132.0, 54.0)           # select/리더보드 → 메뉴 복귀
 # ⚠플테 전용: 진행도 초기화 버튼(우상단, BACK_BTN과 대칭). 디버그 빌드에서만 그려지고 눌린다.
@@ -7234,15 +7246,19 @@ func _logo_done() -> void:
 #   두 화면이 하드컷으로 붙어 있어서, 값이 갈리면 컷에서 문구가 튀는 게 그대로 보인다.
 #   자간을 벌려 그린다 — 짧은 대문자 한 줄은 자간이 없으면 덩어리로 뭉쳐 로고의 일부로 안 읽힌다.
 #   외곽선 없음: 색을 쓰는 요소는 워드마크 하나여야 한다.
-func _draw_tagline(fnt: Font, y: float) -> void:
+#   sc = 락업 배율(로고 화면 1.0, 홈 380/560). 태그라인은 락업의 셋째 줄이라 **글자와 자간이 같이** 줄어야
+#     한다 — 워드마크만 줄이면 태그라인이 상대적으로 커져 락업이 아니라 별개 문구로 읽힌다.
+func _draw_tagline(fnt: Font, y: float, sc: float = 1.0) -> void:
+	var fs: int = maxi(10, int(round(float(MENU_TAG_SIZE) * sc)))
+	var tr: float = MENU_TAG_TRACK * sc
 	var tgw: float = 0.0
 	for i in range(MENU_TAGLINE.length()):
-		tgw += fnt.get_string_size(MENU_TAGLINE[i], HORIZONTAL_ALIGNMENT_LEFT, -1, MENU_TAG_SIZE).x + MENU_TAG_TRACK
-	tgw -= MENU_TAG_TRACK
+		tgw += fnt.get_string_size(MENU_TAGLINE[i], HORIZONTAL_ALIGNMENT_LEFT, -1, fs).x + tr
+	tgw -= tr
 	var tgx: float = 400.0 - tgw * 0.5
 	for j in range(MENU_TAGLINE.length()):
-		draw_string(fnt, Vector2(tgx, y), MENU_TAGLINE[j], HORIZONTAL_ALIGNMENT_LEFT, -1, MENU_TAG_SIZE, C_TAGLINE)
-		tgx += fnt.get_string_size(MENU_TAGLINE[j], HORIZONTAL_ALIGNMENT_LEFT, -1, MENU_TAG_SIZE).x + MENU_TAG_TRACK
+		draw_string(fnt, Vector2(tgx, y), MENU_TAGLINE[j], HORIZONTAL_ALIGNMENT_LEFT, -1, fs, C_TAGLINE)
+		tgx += fnt.get_string_size(MENU_TAGLINE[j], HORIZONTAL_ALIGNMENT_LEFT, -1, fs).x + tr
 
 
 # ── 메인 메뉴(허브): 위 로고, 아래 두 갈래 버튼 ──
@@ -7262,16 +7278,20 @@ func _draw_menu(fnt: Font) -> void:
 	#   k=0에서 두 화면의 절대 좌표가 정확히 일치한다: 로고 화면은 오프셋 없이 vh*0.47에 그리고,
 	#   여기선 _ui_dy() 안이라 그만큼 빼야 같은 자리다. 어긋나면 첫 프레임에 로고가 튄다.
 	var wm_cy: float = MENU_WM_CENTER_Y
+	var wm_w: float = MENU_WM_MAXW_HOME
 	if menu_intro >= 0.0:
 		var k: float = clampf(menu_intro / MENU_INTRO, 0.0, 1.0)
 		# ease-out 2제곱 — 곧장 출발해 끝에서 눕는다(감속이 '도착'을 만든다).
 		#   ⚠3제곱은 안 된다: 절반 시점에 이미 87%가 끝나 있어 '미끄러짐'이 아니라 '점프 후 안착'으로 읽힌다.
 		var e: float = 1.0 - (1.0 - k) * (1.0 - k)
 		wm_cy = lerpf(vh * LOGO_CENTER_RATIO - _ui_dy(), MENU_WM_CENTER_Y, e)
-	var wm: Array = _draw_wm_static(f, wm_cy, MENU_WM_MAXW)
+		wm_w = lerpf(MENU_WM_MAXW, MENU_WM_MAXW_HOME, e)   # 올라가면서 같이 줄어든다(560 → 380)
+	var wm: Array = _draw_wm_static(f, wm_cy, wm_w)
 	# 태그라인은 락업의 일부처럼 앉힌다(레퍼런스도 로고의 셋째 줄로 조판돼 있다).
 	#   ⚠부팅 로고 화면과 **같은 함수**를 쓴다 — 둘은 붙어 있어 갈리면 미끄러지는 도중에 문구가 튄다.
-	_draw_tagline(fnt, float(wm[1]) + 46.0)
+	#   락업이 줄면 붙는 간격도 같이 줄어야 셋째 줄로 남는다(고정 46이면 작은 락업에서 멀찍이 떨어진다).
+	var wm_sc: float = wm_w / MENU_WM_MAXW
+	_draw_tagline(fnt, float(wm[1]) + 46.0 * wm_sc, wm_sc)
 	# 버튼은 **로고가 아직 갈 길이 남았을 때** 들어온다(MENU_INTRO_SLOTS 주석). 판정도 같은 함수를 본다.
 	if _menu_slots_live():
 		_draw_menu_slots(fnt)
@@ -7342,12 +7362,15 @@ func _draw_menu_button(fnt: Font, r: Rect2, hot: bool, base: Color, base_dim: Co
 
 	# 라벨: 큰 제목(+ 소제목). 소제목이 없으면 제목을 버튼 세로 중앙에 홀로 앉힌다 —
 	#   위쪽 고정이면 아래가 휑해 '잘린 카드'로 보인다.
+	# ⚠기준선은 **버튼 세로 중앙**에서 잰다(예전엔 위에서 잰 고정값 54/67/88이었다). 높이를 키웠을 때
+	#   글자만 위에 남아 '잘린 카드'가 되지 않게 — 버튼 크기는 앞으로도 조정될 값이다.
 	var lx: float = r.position.x + 128.0
 	var has_sub: bool = sub != ""
-	var title_y: float = r.position.y + (54.0 if has_sub else 67.0)
+	var mid: float = r.position.y + r.size.y * 0.5
+	var title_y: float = mid + (-4.0 if has_sub else 9.0)
 	_draw_text_outlined(fnt, Vector2(lx, title_y), big, 40, ink, Color(edge.r, edge.g, edge.b, 0.95))
 	if has_sub:
-		_draw_text_outlined(fnt, Vector2(lx, r.position.y + 88.0), sub, 18,
+		_draw_text_outlined(fnt, Vector2(lx, mid + 30.0), sub, 18,
 				Color(0.62, 0.64, 0.76) if locked else Color(0.96, 0.98, 1.0, 0.9),
 				Color(edge.r, edge.g, edge.b, 0.95))
 
@@ -7356,9 +7379,15 @@ func _draw_menu_button(fnt: Font, r: Rect2, hot: bool, base: Color, base_dim: Co
 	if locked:
 		_draw_lock(Vector2(r.position.x + r.size.x - 44.0, slot_y), 30.0, Color(0.58, 0.60, 0.70))
 	elif slot != "":
+		# 슬롯은 제목과 **같은 줄**에 앉는다 → 긴 문구("All caught up!")가 제목에 닿을 수 있다.
+		#   닿으면 글자를 줄여 피한다(잘라내거나 겹치게 두지 않는다 — 둘 다 고장으로 읽힌다).
 		var sfs: int = 22
+		var title_end: float = lx + fnt.get_string_size(big, HORIZONTAL_ALIGNMENT_LEFT, -1, 40).x
 		var sw: float = fnt.get_string_size(slot, HORIZONTAL_ALIGNMENT_LEFT, -1, sfs).x
-		_draw_text_outlined(fnt, Vector2(r.position.x + r.size.x - sw - 24.0, slot_y + 8.0),
+		while sfs > 16 and r.position.x + r.size.x - sw - 28.0 < title_end + 20.0:
+			sfs -= 2
+			sw = fnt.get_string_size(slot, HORIZONTAL_ALIGNMENT_LEFT, -1, sfs).x
+		_draw_text_outlined(fnt, Vector2(r.position.x + r.size.x - sw - 28.0, slot_y + 8.0),
 				slot, sfs, C_GOLD, Color(edge.r, edge.g, edge.b, 0.95))
 	_btn_press_end()
 
