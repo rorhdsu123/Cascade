@@ -28,7 +28,12 @@ const SPLIT_CHILD_FRAC: float = 0.5
 const SPLIT_ROW: int = 5
 const SLIDE_SPEED: float = 8.0   # 적 전진 표시 이징 속도(칸/초)
 const ROCKET_DUR: float = 0.16  # 로켓 비행 지속(빠르게 질주)
-const CALLOUT_DUR: float = 1.6  # 첫 등장 콜아웃 배너 지속
+# 첫 등장 콜아웃(대상 머리 위 말풍선) 지속. 1.6초는 **읽기 전에 사라졌다**(유저 실플레이 확인) —
+#   상단 고정 배너 시절의 값이고, 그땐 어차피 안 읽혔으니 짧은 게 티도 안 났다. 말풍선은 읽으라고
+#   띄우는 물건이니 읽을 시간을 준다. 마지막 CALLOUT_FADE 동안 페이드.
+const CALLOUT_DUR: float = 3.4
+const CALLOUT_FADE: float = 0.6
+const CALLOUT_LINE: float = 36.0   # 접힌 문구의 줄 간격(32px 글자)
 # 스테이지 인트로 카드 — 캠페인 진입 시 중앙 팝업(이름·태그·목표)이 떠서 잠깐 머물다 상단
 # 목표 카드로 축소·이동하며 녹아든다(BlockBlast 목표 배너 관찰). 탭하면 즉시 스킵.
 const INTRO_APPEAR: float = 0.28
@@ -614,6 +619,19 @@ var pending_detonations: Array = []  # [{pos, col, dmg}] 이번 스텝 폭탄 �
 var core_flash_t: float = 0.0  # >0이면 거점 바 전체가 붉게 펄스(폭탄 피해를 바에 못 박음)
 var callout_text: String = ""  # 첫 등장 콜아웃 배너
 var callout_timer: float = 0.0
+# 인트로 카드에 가릴 콜아웃을 카드 뒤로 미뤄 두는 자리. 도입판의 시작 적이 스폰되며 콜아웃을 켜면
+#   그 직후 재생되는 인트로 카드(INTRO_TOTAL 1.13s)가 배너 수명 1.6s의 70%를 덮어버린다 —
+#   "새 적이 나왔다"를 첫 화면에 세워 놓고 그걸 알리는 문구는 못 읽히는 꼴. 카드가 끝나면 그때 켠다.
+var callout_pending: String = ""
+# 콜아웃이 가리키는 대상(적/픽업의 id). 문구를 그 물건에 **붙여** 띄우기 위한 앵커다.
+#   왜: 상단 고정 배너는 그려지는데도 안 읽혔다(유저 실플레이 "문구 못 봤어"). 원인은 크기가 아니라
+#   **문구와 대상이 화면 두 곳에 따로 있어 아무 인과로도 안 이어지는 것** — 도둑 판이 캠페인에서
+#   빠진 것과 같은 실패 방식이다([[stage-goal-type-variety-future]]: "상단 금고 카드와 바닥의 도둑이
+#   아무 인과로도 안 이어진다"). 꼬리 달린 말풍선이면 "이 문구가 저것"이 한 번에 성립한다.
+#   -1 = 앵커 없음(옛 상단 배너로 폴백). 대상이 죽어도 마지막 자리에 남아 페이드한다(튀지 않게).
+var callout_anchor_id: int = -1
+var callout_anchor_pos: Vector2 = Vector2(-1.0, -1.0)   # (-1,-1) = 아직 못 찾음
+var callout_pending_id: int = -1
 var intro_t: float = -1.0  # 스테이지 인트로 카드 진행(초). <0 = 비활성(캠페인 진입에서만 켠다)
 var seen_types: Dictionary = {}  # etype -> 이미 콜아웃 봤나
 var anim_t: float = 0.0        # 깜빡임 등 연출용 누적 시간
@@ -2045,6 +2063,14 @@ func _start_stage(idx: int) -> void:
 	_init_game()
 	intro_t = 0.0   # 캠페인 진입에서만 인트로 카드 재생(무한·featured는 _init_game이 -1로 둠)
 	_fb("goal_in")  # 카드가 뜨는 **그 프레임**에(R23). _init_game 뒤라 _sfx_reset에 안 쓸린다
+	# 시작 적(도입판이면 신규 타입)이 이미 켠 콜아웃은 카드 뒤로 미룬다 — 카드가 끝나는 순간 뜬다.
+	#   앵커도 같이 들고 간다(안 그러면 미뤄진 콜아웃만 대상을 잃고 옛 상단 배너로 떨어진다).
+	if callout_timer > 0.0:
+		callout_pending = callout_text
+		callout_pending_id = callout_anchor_id
+		callout_text = ""
+		callout_timer = 0.0
+		callout_anchor_id = -1
 
 # 무한모드 시작 — 스테이지 dict 없이 EndlessMode가 깊이로 스케줄. DDA off(리더보드 공정성, C52 ⑦).
 func _start_endless() -> void:
@@ -2181,6 +2207,10 @@ func _init_game() -> void:
 	core_flash_t = 0.0
 	callout_text = ""
 	callout_timer = 0.0
+	callout_pending = ""
+	callout_pending_id = -1
+	callout_anchor_id = -1
+	callout_anchor_pos = Vector2(-1.0, -1.0)
 	intro_t = -1.0   # 기본 off — _start_stage(캠페인)만 켠다
 	seen_types = {}
 	anim_t = 0.0
@@ -2254,7 +2284,12 @@ func _init_game() -> void:
 		for c in range(COLS):
 			start_cols.append(c)
 		GameMode.rng_shuffle(start_cols, game_rng)
-		_spawn_one(start_cols[0], "basic")    # 시작 적 1마리(row 0)
+		# 도입판이면 시작 적 = 그 판이 처음 들이는 타입(SD.debut_type). 판을 여는 첫 화면에 새 적이
+		#   이미 서 있게 = "새 게 나왔다"가 판 시작과 같은 순간에 온다. 아니면 종전대로 basic.
+		#   ⚠캠페인 전용 — 무한·featured는 stage_idx가 낡은 값이라 읽으면 안 된다.
+		#   RNG 소비는 불변(타입만 갈림, _spawn_one은 randi를 안 쓴다) = 시드 스트림 보존.
+		var start_et: String = "" if (endless or featured) else SD.debut_type(stage_idx)
+		_spawn_one(start_cols[0], start_et if start_et != "" else "basic")    # 시작 적 1마리(row 0)
 	if not _has_valid_placement():
 		game_over = true
 		stuck = true
@@ -3978,12 +4013,13 @@ func _spawn_plane(col: int) -> void:
 	var pcol: int = _free_top_col(col)
 	if pcol < 0:
 		return
+	var pid: int = enemy_seq
 	enemies.append({"col": pcol, "row": 0, "vis_row": 0.0, "hp": 1, "maxhp": 1,
-			"etype": "plane", "id": enemy_seq, "step_every": director.hud_step_every()})
+			"etype": "plane", "id": pid, "step_every": director.hud_step_every()})
 	enemy_seq += 1
 	if not seen_types.get("plane", false):
 		seen_types["plane"] = true
-		_set_callout(_t("callout_plane"))
+		_set_callout(_t("callout_plane"), pid)
 
 # 아이템 슬롯 = 트레이(x 200~600) 왼쪽의 빈 자리. 트레이와 같은 y에 앉혀 '손에 든 것들' 줄로 읽히게.
 func _plane_slot_rect() -> Rect2:
@@ -4076,11 +4112,12 @@ func _spawn_gem(col: int) -> void:
 	var gcol: int = _free_top_col(col)
 	if gcol < 0:
 		return
-	enemies.append({"col": gcol, "row": 0, "vis_row": 0.0, "hp": 1, "maxhp": 1, "etype": "gem", "gtype": gt, "id": enemy_seq, "step_every": gstep})
+	var gid: int = enemy_seq
+	enemies.append({"col": gcol, "row": 0, "vis_row": 0.0, "hp": 1, "maxhp": 1, "etype": "gem", "gtype": gt, "id": gid, "step_every": gstep})
 	enemy_seq += 1
 	if not seen_types.get("gem", false):
 		seen_types["gem"] = true
-		_set_callout(_t("callout_gem"))
+		_set_callout(_t("callout_gem"), gid)
 
 # 보석 스폰 열 고르기 — 현재 유닛(위협·보석)이 없는 '조용한 열'을 우선. 그런 열이 없으면 무작위.
 #   이러면 보석이 방어 전선과 다른 열에 떠서, 잡으려면 그 열에 전용 클리어를 써야 한다(순수 기회비용).
@@ -4116,22 +4153,23 @@ func _spawn_one(col: int, etype: String, step_override: int = 0) -> void:
 	enemies.append(ed)
 	enemy_seq += 1
 	spawned += 1
-	# 첫 등장 콜아웃 (타입당 1회)
+	# 첫 등장 콜아웃 (타입당 1회) — 방금 낸 그 적을 앵커로 넘겨 문구가 그 머리에 붙게 한다.
 	if not seen_types.get(etype, false):
 		seen_types[etype] = true
+		var aid: int = int(ed["id"])
 		match etype:
 			"fast":
-				_set_callout(_t("callout_fast"))
+				_set_callout(_t("callout_fast"), aid)
 			"tank":
-				_set_callout(_t("callout_tank"))
+				_set_callout(_t("callout_tank"), aid)
 			"swarm":
-				_set_callout(_t("callout_swarm"))
+				_set_callout(_t("callout_swarm"), aid)
 			"split":
-				_set_callout(_t("callout_split"))   # 이제 파랑 점선이 실제로 보인다(공간 기준)
+				_set_callout(_t("callout_split"), aid)   # 이제 파랑 점선이 실제로 보인다(공간 기준)
 			"bomb":
-				_set_callout(_t("callout_bomb"))
+				_set_callout(_t("callout_bomb"), aid)
 			"thief":
-				_set_callout(_t("callout_thief"))
+				_set_callout(_t("callout_thief"), aid)
 
 # 분열선 도달 → 부모는 절반 HP로 남고(gen0 유지=웨이브 카운트 불변, split_done로 재분열 봉쇄),
 #   빈 인접 열 하나에 절반 HP 쌍둥이(gen1)를 뱉는다. 결정적 배치(randi 없음) = 회귀 시드 불변.
@@ -4162,9 +4200,31 @@ func _split_enemy(parent: Dictionary) -> void:
 	# 갈라지는 순간 파랑 링 버스트 = "지금 둘이 됐다"
 	impacts.append({"pos": _enemy_pos(pcol, prow), "life": 0.24, "max": 0.24, "color": C_E_SPLIT, "radius": CELL * 0.42})
 
-func _set_callout(text: String) -> void:
+# 콜아웃 문구를 maxw 안에 들어가게 낱말 단위로 접는다. 한 낱말이 그보다 길면 그 줄만 넘치게 두고
+#   자르지 않는다(문구를 잘라 먹느니 한 줄이 삐져나오는 게 낫다 — 실제 문구엔 그런 낱말이 없다).
+func _wrap_callout(fnt: Font, text: String, maxw: float) -> PackedStringArray:
+	var out: PackedStringArray = PackedStringArray()
+	if fnt.get_string_size(text, HORIZONTAL_ALIGNMENT_LEFT, -1, 32).x <= maxw:
+		out.append(text)
+		return out
+	var line: String = ""
+	for w in text.split(" ", false):
+		var probe: String = w if line == "" else line + " " + w
+		if line != "" and fnt.get_string_size(probe, HORIZONTAL_ALIGNMENT_LEFT, -1, 32).x > maxw:
+			out.append(line)
+			line = w
+		else:
+			line = probe
+	if line != "":
+		out.append(line)
+	return out
+
+
+func _set_callout(text: String, anchor_id: int = -1) -> void:
 	callout_text = text
 	callout_timer = CALLOUT_DUR
+	callout_anchor_id = anchor_id
+	callout_anchor_pos = Vector2(-1.0, -1.0)
 
 # 클리어 = 모든 적이 '처리'됨(처치 or 누수) = 더 이상 올 적도, 보드 위 적도 없음.
 # 누수분은 거점 HP로 이미 값을 치렀고, core_hp를 total보다 훨씬 작게 잡아 '흘려보내며 이기기'를 봉쇄한다(기준 ③).
@@ -5452,6 +5512,12 @@ func _process(delta: float) -> void:
 					if bool(st.get("collect", false)) else 1
 			_fb("goal_dock", float(dock_n))
 		queue_redraw()
+	# 카드가 끝났으면(또는 탭으로 건너뛰었으면) 미뤄 둔 콜아웃을 그제야 켠다 — 두 종료 경로가
+	#   모두 intro_t를 -1로 두므로 여기 한 곳에서 받는다(스킵 경로에 같은 코드를 또 두지 않는다).
+	if intro_t < 0.0 and callout_pending != "":
+		_set_callout(callout_pending, callout_pending_id)
+		callout_pending = ""
+		callout_pending_id = -1
 	# 히트스톱: 게임 타이머 전부 정지, 그림만(시간감소라 항상 해제 → 데드락 없음)
 	if hitstop > 0.0:
 		hitstop = maxf(0.0, hitstop - delta)
@@ -6063,14 +6129,71 @@ func _draw() -> void:
 			draw_string(dfnt, tp + Vector2(cos(oa2), sin(oa2)) * ow, cs, HORIZONTAL_ALIGNMENT_LEFT, -1, csz, owc)   # ② 흰 겹
 		draw_string(dfnt, tp, cs, HORIZONTAL_ALIGNMENT_LEFT, -1, csz, Color(pcol.r, pcol.g, pcol.b, pa))            # ③ 색 채움
 
-	# 첫 등장 콜아웃 배너 (상단-중앙, 보드 위에 얹힘)
+	# 첫 등장 콜아웃 — 대상 머리에 붙는 말풍선(꼬리가 인과를 만든다). 앵커가 없으면 옛 상단 배너.
 	if callout_timer > 0.0 and not game_over and not game_clear:
-		var ca: float = clampf(callout_timer / 0.4, 0.0, 1.0)   # 마지막 0.4s 페이드
-		var cow: float = fnt.get_string_size(callout_text, HORIZONTAL_ALIGNMENT_LEFT, -1, 32).x
-		var cbx: float = 400.0 - cow * 0.5
-		# 보드 상단에 얹힌다 — board_y 파생(고정 y였을 땐 노치·짧은 창에서 HUD 띠를 파고들었다)
-		draw_rect(Rect2(cbx - 16.0, float(board_y) - 33.0, cow + 32.0, 46.0), Color(0.05, 0.02, 0.08, 0.62 * ca))
-		_draw_text_outlined(fnt, Vector2(cbx, float(board_y)), callout_text, 32, Color(1.0, 0.9, 0.4, ca))
+		var ca: float = clampf(callout_timer / CALLOUT_FADE, 0.0, 1.0)   # 마지막 CALLOUT_FADE 동안 페이드
+		# 긴 문구는 접는다 — 비행기·도둑처럼 한 줄로 판보다 넓은 문구가 있고, 그런 문구는 클램프로도
+		#   못 구한다(말풍선이 판보다 넓으면 어디에 두든 화면 밖으로 샌다. 유저 확인). 폭을 먼저 정하고
+		#   글을 거기 맞춰 접는 게 순서다.
+		var clines: PackedStringArray = _wrap_callout(fnt, callout_text, float(COLS) * CELL - 44.0)
+		var cow: float = 0.0
+		for ln in clines:
+			cow = maxf(cow, fnt.get_string_size(ln, HORIZONTAL_ALIGNMENT_LEFT, -1, 32).x)
+		# 앵커 추적 — 살아 있으면 매 프레임 따라간다(전진하면 말풍선도 같이 내려온다).
+		#   죽었으면 마지막 자리에 남겨 페이드한다(대상이 사라졌다고 문구가 화면을 가로질러 튀면 안 된다).
+		var avr: float = -1.0
+		if callout_anchor_id >= 0:
+			for e in enemies:
+				if int(e["id"]) == callout_anchor_id:
+					avr = float(e.get("vis_row", float(e["row"])))
+					callout_anchor_pos = Vector2(
+							BOARD_X + float(int(e["col"])) * CELL + CELL * 0.5,
+							board_y + avr * CELL + CELL * 0.5 + E_BODY_DY)
+					break
+		if callout_anchor_pos.x < 0.0:
+			# 폴백 = 옛 상단-중앙 배너(앵커 없는 콜아웃 / 대상이 그려지기도 전에 사라진 경우)
+			var cbx: float = 400.0 - cow * 0.5
+			var fh: float = 46.0 + float(clines.size() - 1) * CALLOUT_LINE
+			draw_rect(Rect2(cbx - 16.0, float(board_y) - 33.0, cow + 32.0, fh), Color(0.05, 0.02, 0.08, 0.62 * ca))
+			for i in range(clines.size()):
+				_draw_text_outlined(fnt, Vector2(cbx, float(board_y) + float(i) * CALLOUT_LINE),
+						clines[i], 32, Color(1.0, 0.9, 0.4, ca))
+		else:
+			var bw: float = cow + 34.0
+			var bh: float = 14.0 + float(clines.size()) * CALLOUT_LINE
+			var tail: float = 16.0                    # 꼬리 높이
+			var ap: Vector2 = callout_anchor_pos
+			# 맨 윗줄이면 위에 자리가 없다(HUD 목표 카드를 파고든다) → 아래로 뒤집어 꼬리를 위로 세운다.
+			#   기준은 실제 표시 행(vis_row) — 이징 중이라도 지금 보이는 자리로 판단한다.
+			var below: bool = (avr >= 0.0 and avr <= 0.75) or ap.y - CELL * 0.5 - tail - bh < float(board_y) - 4.0
+			var btop: float = (ap.y + CELL * 0.38 + tail) if below else (ap.y - CELL * 0.38 - tail - bh)
+			# 가로는 보드 안에 가둔다(가장자리 열에서 화면 밖으로 새지 않게).
+			#   그래도 넓으면(폰트가 커서 접어도 안 들어가는 경우) 대상이 아니라 **판 가운데**에 둔다 —
+			#   대상에 붙이려다 화면 밖으로 내보내는 것보다, 안 보이는 것보다 낫다.
+			var half: float = bw * 0.5
+			var lo: float = float(BOARD_X) + half + 4.0
+			var hi: float = float(BOARD_X) + float(COLS) * CELL - half - 4.0
+			var bcx: float = (float(BOARD_X) + float(COLS) * CELL * 0.5) if lo > hi else clampf(ap.x, lo, hi)
+			var panel: Color = Color(0.05, 0.02, 0.08, 0.88 * ca)
+			var edge: Color = Color(1.0, 0.9, 0.4, 0.85 * ca)
+			var brect: Rect2 = Rect2(bcx - half, btop, bw, bh)
+			draw_rect(brect, panel)
+			draw_rect(brect, edge, false, 2.0)
+			# 꼬리 = 대상을 향한 삼각형. 꼭짓점은 **말풍선 몸통에서 tail만큼** 대상 쪽으로 — 대상 좌표로
+			#   잡으면 아래로 붙은 말풍선에서 꼭짓점이 적 위로 넘어가 선이 적을 관통하고 보드 밖까지 뻗는다.
+			var apex: Vector2 = Vector2(ap.x, (btop - tail) if below else (btop + bh + tail))
+			var baseY: float = (btop + 1.0) if below else (btop + bh - 1.0)
+			var tx: float = clampf(ap.x, bcx - half + 12.0, bcx + half - 12.0)
+			# ⚠꼬리는 **금색으로 채운다**. 몸통과 같은 어두운 색으로 채우고 테두리 선만 그으면, 몸통의
+			#   테두리가 꼬리 밑변을 가로질러 꼬리가 잘린 흠집처럼 읽힌다(확대 프레임에서 확인).
+			#   금색 실삼각형이면 테두리와 한 몸이 되어 '대상을 가리키는 화살'로 곧장 읽힌다.
+			var tri: PackedVector2Array = PackedVector2Array([
+					apex, Vector2(tx - 12.0, baseY), Vector2(tx + 12.0, baseY)])
+			draw_colored_polygon(tri, edge)
+			for i in range(clines.size()):
+				var lw: float = fnt.get_string_size(clines[i], HORIZONTAL_ALIGNMENT_LEFT, -1, 32).x
+				_draw_text_outlined(fnt, Vector2(bcx - lw * 0.5, btop + 34.0 + float(i) * CALLOUT_LINE),
+						clines[i], 32, Color(1.0, 0.9, 0.4, ca))
 
 	# 스테이지 인트로 카드 (중앙 팝업 → 상단 목표 카드로 도킹). 캠페인 진입 1회.
 	if intro_t >= 0.0 and not game_over and not game_clear:

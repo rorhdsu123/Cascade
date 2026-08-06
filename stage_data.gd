@@ -259,6 +259,32 @@ const STAGES: Array = [
 ]
 
 
+# ===== 도입판 판별 =====
+# 이 판에서 **처음 등장하는** 적 타입(배열 순서 = 재생 순서 기준). 도입판이 아니면 "".
+# 왜 필요한가: 도입판은 시작 적 1마리를 이 타입으로 세운다(Main._init_game) = 판을 여는 첫 화면에
+#   새 적이 이미 서 있게. 이전엔 시작 적이 무조건 basic이라 **첫 인상이 언제나 구면**이었고, 신규
+#   타입은 반드시 조각을 한 번 이상 놓아야 나왔다. 게다가 확정이 아니라 주사위였다 —
+#   실측(tools/debut_probe.gd, 시드 20260806·판당 60): 첫 등장이 중앙 1~2배치지만 p90 3~4·최대 10,
+#   폭탄(가중 15%)은 **중앙 10배치에 22%는 판이 끝나도록 한 번도 안 나왔다**. 도입판이 신규 기전을
+#   가르치는 자리인데 그 기전이 안 나오는 판이 다섯 중 하나였다.
+# 스테이지 위치가 아니라 **가중치 이력**에서 파생시킨다 = 판을 추가·재배치해도 따라온다(하드코딩 표 없음).
+# ⚠한 판이 두 타입을 동시에 들이면 weights 삽입 순서상 앞의 것 하나만 돌려준다(시작 적은 한 마리다).
+static func debut_type(idx: int) -> String:
+	if idx < 0 or idx >= STAGES.size():
+		return ""
+	var seen: Dictionary = {}
+	for si in range(idx):
+		var pw: Dictionary = STAGES[si].get("weights", {})
+		for t in pw.keys():
+			if int(pw[t]) > 0:
+				seen[t] = true
+	var w: Dictionary = STAGES[idx].get("weights", {})
+	for t in w.keys():
+		if String(t) != "basic" and int(w[t]) > 0 and not seen.has(t):
+			return String(t)
+	return ""
+
+
 # ===== 파킹: 캠페인 밖으로 뺀 판 =====
 # Protect(도둑) R1 — 2026-07-31 유저 판정으로 **캠페인에서 제외**했다.
 #   사유: 실플레이서 "도둑이 뭐하는지 전혀 인지가 안 된다". 원본 프레임 확인 결과 근거 있음 —
