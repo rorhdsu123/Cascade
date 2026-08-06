@@ -7125,14 +7125,18 @@ const PLAY_BTN: Rect2 = Rect2(150.0, 742.0, 500.0, 126.0)
 #   (C81: 목록 칩·허브 기어는 유저 요청으로 제거 — 어색했다.)
 # 재도전 경로는 '없음'으로 확정(유저: 이미 깬 판은 재도전 니즈가 없다). 진행 중엔 목록에 못 가고
 #   다음 판으로만 이어진다 = 캠페인의 정상 동선. 전부 깬 뒤의 select는 재도전이 아니라 완주 진열장이다.
-const MENU_WM_MAXW: float = 560.0     # 워드마크 폭 = 화면의 70%. **부트 스플래시·로고 화면과 같은 값이어야 한다**
+# 락업 기준 폭. 지금은 **로고 화면도 홈과 같은 380을 쓴다**(아래) — 이 값은 그 기준선과 태그라인
+#   비율(sc = 실제폭/560)을 재는 자리로 남는다. 클리어 연출·시안 도구가 이 치수를 참조한다.
+const MENU_WM_MAXW: float = 560.0     # 화면의 70%
 # 홈에서는 로고가 작아진다(560 → 380). 유저 지적: "가장 눈에 띄어야 할 건 플레이 버튼인데 로고가 이긴다."
 #   실측이 그대로였다 — 로고 잉크 118,313px vs 버튼 두 개 합 109,475px. 색은 이미 버튼이 이기고 있었고
 #   (채도 0.85 vs 0.72) 지고 있던 건 면적 하나라, 면적으로 풀었다. 380에서 버튼이 로고의 2.7배가 된다.
 # ⚠340 밑으로 내리지 말 것: 브릭 베벨이 뭉개져 로고가 '알록달록한 글자'가 되고, 비율로 딸려 내려가는
 #   태그라인이 16px 밑으로 떨어져 실기기에서 안 읽힌다(논리 800폭 기준이라 폰에선 더 작다).
-# 부팅에서 홈으로 미끄러질 때 이 두 값 사이를 **보간한다** — 양 끝은 정확히 560과 380이라 이음매도
-#   도착도 안 튄다. 크기 변화는 그 0.28초 움직임이 덮는다("로고가 머리글 자리로 접힌다").
+# ⚠**로고 화면도 이 폭을 쓴다** — 즉 부팅 중에 크기는 안 변하고 자리만 변한다(원 설계 원칙 그대로).
+#   크기를 애니메이션하려다 걷어냈다: 폭을 프레임마다 바꾸면 글자 크기가 바뀌어 글리프·외곽선을 새로
+#   굽고(21~27ms → **83~132ms**), 글자 크기를 고정하고 변환 배율만 바꿔도 엔진이 배율에 맞춰 다시 구워
+#   45ms에 머물렀다. 배율을 고정하니 21ms로 돌아왔다. 크기 전환이 갖는 값어치보다 비싸다.
 const MENU_WM_MAXW_HOME: float = 380.0
 const MENU_WM_CENTER_Y: float = 230.0 # 락업 시각 중심(화면의 18%). 로고 화면은 같은 물건을 47%에 놓는다
                                       #   ⚠290이던 값이다 — 로고를 줄이기만 하니 위 여백이 324로 늘어
@@ -7231,8 +7235,10 @@ func _menu_slots_live() -> bool:
 
 func _draw_logo(fnt: Font) -> void:
 	var f: Font = _font_display if _font_display != null else fnt
-	var wm: Array = _draw_wm_static(f, vh * LOGO_CENTER_RATIO, MENU_WM_MAXW)
-	_draw_tagline(fnt, float(wm[1]) + 46.0)
+	# ⚠홈과 **같은 폭·같은 태그라인 비율**이다. 갈리면 넘어가는 순간 로고가 커졌다 작아졌다 한다.
+	var sc: float = MENU_WM_MAXW_HOME / MENU_WM_MAXW
+	var wm: Array = _draw_wm_static(f, vh * LOGO_CENTER_RATIO, MENU_WM_MAXW_HOME)
+	_draw_tagline(fnt, float(wm[1]) + 46.0 * sc, sc)
 
 func _logo_done() -> void:
 	if mode != "logo":
@@ -7277,20 +7283,19 @@ func _draw_menu(fnt: Font) -> void:
 	# 부팅 직후엔 락업이 로고 화면 자리(47%)에서 홈 자리(23%)로 미끄러져 온다(MENU_INTRO 주석).
 	#   k=0에서 두 화면의 절대 좌표가 정확히 일치한다: 로고 화면은 오프셋 없이 vh*0.47에 그리고,
 	#   여기선 _ui_dy() 안이라 그만큼 빼야 같은 자리다. 어긋나면 첫 프레임에 로고가 튄다.
+	#   ⚠**크기는 안 변한다** — 로고 화면도 같은 380이다(MENU_WM_MAXW_HOME 주석의 실측 참조).
 	var wm_cy: float = MENU_WM_CENTER_Y
-	var wm_w: float = MENU_WM_MAXW_HOME
 	if menu_intro >= 0.0:
 		var k: float = clampf(menu_intro / MENU_INTRO, 0.0, 1.0)
 		# ease-out 2제곱 — 곧장 출발해 끝에서 눕는다(감속이 '도착'을 만든다).
 		#   ⚠3제곱은 안 된다: 절반 시점에 이미 87%가 끝나 있어 '미끄러짐'이 아니라 '점프 후 안착'으로 읽힌다.
 		var e: float = 1.0 - (1.0 - k) * (1.0 - k)
 		wm_cy = lerpf(vh * LOGO_CENTER_RATIO - _ui_dy(), MENU_WM_CENTER_Y, e)
-		wm_w = lerpf(MENU_WM_MAXW, MENU_WM_MAXW_HOME, e)   # 올라가면서 같이 줄어든다(560 → 380)
-	var wm: Array = _draw_wm_static(f, wm_cy, wm_w)
+	var wm: Array = _draw_wm_static(f, wm_cy, MENU_WM_MAXW_HOME)
 	# 태그라인은 락업의 일부처럼 앉힌다(레퍼런스도 로고의 셋째 줄로 조판돼 있다).
 	#   ⚠부팅 로고 화면과 **같은 함수**를 쓴다 — 둘은 붙어 있어 갈리면 미끄러지는 도중에 문구가 튄다.
-	#   락업이 줄면 붙는 간격도 같이 줄어야 셋째 줄로 남는다(고정 46이면 작은 락업에서 멀찍이 떨어진다).
-	var wm_sc: float = wm_w / MENU_WM_MAXW
+	#   락업이 작아진 만큼 붙는 간격도 줄여야 셋째 줄로 남는다(고정 46이면 멀찍이 떨어져 별개 문구가 된다).
+	var wm_sc: float = MENU_WM_MAXW_HOME / MENU_WM_MAXW
 	_draw_tagline(fnt, float(wm[1]) + 46.0 * wm_sc, wm_sc)
 	# 버튼은 **로고가 아직 갈 길이 남았을 때** 들어온다(MENU_INTRO_SLOTS 주석). 판정도 같은 함수를 본다.
 	if _menu_slots_live():

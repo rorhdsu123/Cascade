@@ -103,8 +103,9 @@ func _run() -> void:
 	var f_end: Image = await _shot("s1_slide_end.png")
 	print("end_vs_home_bg_diff=", _bg_diff(f_end, f_home))
 
-	# ④ 축소 계단 — 홈 로고는 로고 화면보다 작다(560→380). 폭 보간은 **폰트 크기(정수)로 양자화**되므로
-	#   한 프레임에 폭이 왕창 줄어드는 칸이 있으면 그게 눈에 띈다. 프레임마다 실제 폭을 재서 계단을 본다.
+	# ④ 폭 불변 — 미끄러지는 동안 로고 **크기는 변하지 않아야 한다**(로고 화면도 홈과 같은 380).
+	#   크기를 애니메이션하면 프레임마다 글리프를 다시 구워 10fps로 주저앉는다(Main의 MENU_WM_MAXW_HOME
+	#   주석에 실측). 그래서 이 값은 0이어야 한다 — 0이 아니면 크기 애니메이션이 되살아난 것이다.
 	var prev_w: int = -1
 	var worst_step: int = 0
 	for i in range(14):
@@ -127,7 +128,7 @@ func _run() -> void:
 		if prev_w >= 0:
 			worst_step = maxi(worst_step, absi(prev_w - wpx))
 		prev_w = wpx
-	print("shrink_worst_step(px/frame)=", worst_step)   # 한 프레임에 폭이 이만큼 변한다. 튀는 칸이 없어야 한다
+	print("width_worst_step(px/frame)=", worst_step, "  (0이어야 한다)")
 
 	# ⑤ 실시간 — 위 셋은 내가 k를 손으로 놓고 본 것이다. 부팅을 **실제로** 굴려(_process가 logo_t·menu_intro를
 	#   밀게) 상태가 logo → menu(미끄러짐) → 평상시 홈으로 흘러가고 **끝나는지** 본다.
