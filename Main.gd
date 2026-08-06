@@ -583,6 +583,10 @@ var pending_detonations: Array = []  # [{pos, col, dmg}] 이번 스텝 폭탄 �
 var core_flash_t: float = 0.0  # >0이면 거점 바 전체가 붉게 펄스(폭탄 피해를 바에 못 박음)
 var callout_text: String = ""  # 첫 등장 콜아웃 배너
 var callout_timer: float = 0.0
+# 인트로 카드에 가릴 콜아웃을 카드 뒤로 미뤄 두는 자리. 도입판의 시작 적이 스폰되며 콜아웃을 켜면
+#   그 직후 재생되는 인트로 카드(INTRO_TOTAL 1.13s)가 배너 수명 1.6s의 70%를 덮어버린다 —
+#   "새 적이 나왔다"를 첫 화면에 세워 놓고 그걸 알리는 문구는 못 읽히는 꼴. 카드가 끝나면 그때 켠다.
+var callout_pending: String = ""
 var intro_t: float = -1.0  # 스테이지 인트로 카드 진행(초). <0 = 비활성(캠페인 진입에서만 켠다)
 var seen_types: Dictionary = {}  # etype -> 이미 콜아웃 봤나
 var anim_t: float = 0.0        # 깜빡임 등 연출용 누적 시간
@@ -1878,6 +1882,11 @@ func _start_stage(idx: int) -> void:
 	mode = "play"
 	_init_game()
 	intro_t = 0.0   # 캠페인 진입에서만 인트로 카드 재생(무한·featured는 _init_game이 -1로 둠)
+	# 시작 적(도입판이면 신규 타입)이 이미 켠 콜아웃은 카드 뒤로 미룬다 — 카드가 끝나는 순간 뜬다.
+	if callout_timer > 0.0:
+		callout_pending = callout_text
+		callout_text = ""
+		callout_timer = 0.0
 
 # 무한모드 시작 — 스테이지 dict 없이 EndlessMode가 깊이로 스케줄. DDA off(리더보드 공정성, C52 ⑦).
 func _start_endless() -> void:
@@ -2014,6 +2023,7 @@ func _init_game() -> void:
 	core_flash_t = 0.0
 	callout_text = ""
 	callout_timer = 0.0
+	callout_pending = ""
 	intro_t = -1.0   # 기본 off — _start_stage(캠페인)만 켠다
 	seen_types = {}
 	anim_t = 0.0
@@ -2087,7 +2097,12 @@ func _init_game() -> void:
 		for c in range(COLS):
 			start_cols.append(c)
 		GameMode.rng_shuffle(start_cols, game_rng)
-		_spawn_one(start_cols[0], "basic")    # 시작 적 1마리(row 0)
+		# 도입판이면 시작 적 = 그 판이 처음 들이는 타입(SD.debut_type). 판을 여는 첫 화면에 새 적이
+		#   이미 서 있게 = "새 게 나왔다"가 판 시작과 같은 순간에 온다. 아니면 종전대로 basic.
+		#   ⚠캠페인 전용 — 무한·featured는 stage_idx가 낡은 값이라 읽으면 안 된다.
+		#   RNG 소비는 불변(타입만 갈림, _spawn_one은 randi를 안 쓴다) = 시드 스트림 보존.
+		var start_et: String = "" if (endless or featured) else SD.debut_type(stage_idx)
+		_spawn_one(start_cols[0], start_et if start_et != "" else "basic")    # 시작 적 1마리(row 0)
 	if not _has_valid_placement():
 		game_over = true
 		stuck = true
@@ -5069,6 +5084,11 @@ func _process(delta: float) -> void:
 		if intro_t >= INTRO_TOTAL:
 			intro_t = -1.0
 		queue_redraw()
+	# 카드가 끝났으면(또는 탭으로 건너뛰었으면) 미뤄 둔 콜아웃을 그제야 켠다 — 두 종료 경로가
+	#   모두 intro_t를 -1로 두므로 여기 한 곳에서 받는다(스킵 경로에 같은 코드를 또 두지 않는다).
+	if intro_t < 0.0 and callout_pending != "":
+		_set_callout(callout_pending)
+		callout_pending = ""
 	# 히트스톱: 게임 타이머 전부 정지, 그림만(시간감소라 항상 해제 → 데드락 없음)
 	if hitstop > 0.0:
 		hitstop = maxf(0.0, hitstop - delta)
