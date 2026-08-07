@@ -5,6 +5,14 @@ extends SceneTree
 #   실행: PROBE_SEED=20260718 REGRESS_N=20 godot --headless --path . --script tools/regress.gd
 #   비교: 리팩터 전 출력을 골든으로 저장 → 매 단계 후 diff. 첫 diff = randi 순서 깨짐 or 동작 변화.
 #   골든: tools/regress.golden.txt (seed=20260718 N=20). 재베이스 이력:
+#     · S19 13판 길이 일괄 하향(total·collect_targets·spawn_every·floor) — **앞 41줄 바이트 동일**
+#       (s0 20줄 + s1 20줄 = 안 건드린 1·2판)이고 첫 불일치가 s2 #00 = 손댄 첫 판(3판)이다.
+#       변경이 그 줄에 그대로 보인다: sp32 → sp21 = total 32→21. 그 뒤는 단일 스트림이라 전체 시프트
+#       (522줄, 판 수 불변). 판정은 골든이 아니라 campaign_probe **승배치**(시드베이스 2개 × N=60):
+#       승배치 총합 569→364(−36%) · 전 판이 21.6~31.0배치(71~102초) 밴드 · 최장 189s→102s.
+#       ⚠기전 판은 길이만 보면 안 된다 — 이 하향이 폭탄 사다리를 깼고(R2가 R1보다 폭탄이 적어짐,
+#         두 번째 폭탄 미등장 8.3%) debut_tune_probe SWEEP=ladder로 잡아 밀도 순서를 복원했다
+#         (R1 0.192 < R2 0.204 < R3 0.226).
 #     · S17 12판 폭탄 18→24% — **앞 221줄 바이트 동일**이고 첫 불일치가 s11 #00 = 손댄 그 판이다.
 #       그 뒤는 단일 스트림이라 전체 시프트. 판정은 debut_tune_probe SWEEP=ladder(2 시드베이스 × N=100).
 #     · S14 도입판 값 되사기(st3 total 34→32 · st7 core_hp 4→5 · st11 폭탄 15→22%+core_hp 6→7) —

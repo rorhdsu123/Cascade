@@ -42,6 +42,20 @@ extends RefCounted
 #   +6pt 리프트를 지우려다 −4pt 적자로 넘어간다 — 레버 눈금이 리프트보다 굵다. 남는 평균 +4.3pt는
 #   전 판에 고르게 얹힌 완화라 난이도 순서를 안 바꾼다(off↔on 순위 거의 보존).
 #   수집·튜토리얼 판엔 아예 안 나온다(Main._plane_allowed) → 그 판들엔 plane_cd 자체가 없다.
+# 기준 ⑧ 판 길이 = 배치 수 × 3.3초. **길이는 승률과 나란히 관리하는 1급 축이다**(S19).
+#   실플레이 애널리틱스(58시도)와 봇 프로브를 13판 전부에서 맞춰 얻은 계수가 3.3초/배치다.
+#   측정은 반드시 **승배치**(이긴 판의 배치 수 = 클리어 길이)로 한다 — 전체 평균 배치는 승률에
+#   오염된다(진 판이 일찍 끝나므로 어려운 판일수록 짧게 찍힌다). 클라이맥스가 평균 45.5로 보였지만
+#   실제 클리어는 56.5배치·187초였고, 분리해 재기 전엔 그게 안 보였다. campaign_probe가 둘 다 낸다.
+#   목표: 승배치 22~30(≈75~100초) · 패배치는 그 이하(실패 비용 = 원점으로 돌아가며 잃는 시간).
+#   ⚠길이 손잡이는 total 하나가 아니다 — **total ÷ 유입 속도(spawn_every·floor)** 다.
+#     폭탄R1은 total 26으로 캠페인 최소인데 승배치는 54.6으로 최장이었다(얇게 천천히 들어와서).
+#     total이 판의 정체를 지고 있는 판(기전 등장 총량)에선 유입 쪽을 손잡이로 쓸 것.
+#   ⚠total을 깎으면 배치당 밀도는 불변이지만 **절대 개수**는 준다. 밀도가 옳은 자라는 건
+#     st12 주석이 이미 정리했지만, '두 번째 폭탄이 안 나오는 판'이나 연쇄 인접 확률처럼
+#     개수에 민감한 결함은 밀도로 안 잡힌다 — 기전 판은 길이 변경 뒤 개수도 같이 볼 것.
+#   왜 이 축이 생겼나: 세션당 클리어가 **중앙값 1.0판**이었다(실플레이 37세션). 캐주얼 표준은 3~7판이다.
+#     "판이 길다"는 체감의 정체는 판 하나의 초가 아니라 성취 하나에 드는 시간(재시도 포함 중앙값 4.3분)이다.
 
 # 조각 풀 프리셋 — {조각키: 가중치}. 공통 '변주 base'(테트로미노·직사각 = 손맛)에 I5만 다르게.
 # sim(pool_probe, basic-only) 실측: I5 0%→50%면 승률 5%→84% 단조 상승. 공정성은 _pool_piece
@@ -136,7 +150,8 @@ const STAGES: Array = [
 		#   검증 tools/debut_tune_probe.gd SWEEP=st3.
 		"name": "st3_name", "tag": "st3_tag",
 		"plane_cd": 8,
-		"total": 32, "core_hp": 4, "base_hp": 34, "hp_ramp": 0.5, "tank_mult": 2.5,
+		# total 32→21(S19 길이 하향): 승배치 37.7 → 목표 25.
+		"total": 21, "core_hp": 4, "base_hp": 34, "hp_ramp": 0.5, "tank_mult": 2.5,
 		"spawn_every": 2, "step_every": 3, "onboard": 3, "floor": 5, "surge_at": 0.80,
 		"weights": {"basic": 40, "fast": 50, "tank": 0, "swarm": 10, "split": 0}, "pool": POOL_STD,
 	},
@@ -147,7 +162,8 @@ const STAGES: Array = [
 		#   비대칭(st3=4, st4=5): st4가 pool-lean로 구조상 더 어려워 더 큰 보정. sim 41→67.5%.
 		"name": "st4_name", "tag": "st4_tag",
 		"plane_cd": 7,
-		"total": 36, "core_hp": 5, "base_hp": 36, "hp_ramp": 0.4, "tank_mult": 2.5,
+		# total 36→25(S19 길이 하향): 승배치 35.9 → 목표 25.
+		"total": 25, "core_hp": 5, "base_hp": 36, "hp_ramp": 0.4, "tank_mult": 2.5,
 		"spawn_every": 2, "step_every": 3, "onboard": 3, "floor": 5, "surge_at": 0.80,
 		"weights": {"basic": 55, "fast": 0, "tank": 0, "swarm": 45, "split": 0}, "pool": POOL_LEAN,
 	},
@@ -157,7 +173,9 @@ const STAGES: Array = [
 	{
 		# 1종 수집. 보석이 전경이 되도록 튜닝: 보석 두껍게(gem_every 2) + 적 얇게(spawn_every 3·floor 2) = 적은 '가끔 끼는 세금'.
 		# gem_fast=보석이 위협보다 한 단계 빨리 떨어져 데드라인 조임(전용 클리어 강제). 목표 15개(공급이 두꺼워 grind 아님).
-		"name": "st9_name", "tag": "st9_tag", "collect": true, "collect_targets": [15], "gem_every": 2, "gem_fast": true,
+		# 목표 15→10(S19 길이 하향): 수집 판은 total이 300 고정(무한 유입)이라 길이 손잡이가
+		#   collect_targets다. 승배치 39.1 = 보석 하나당 2.6배치 → 10개면 ~26배치.
+		"name": "st9_name", "tag": "st9_tag", "collect": true, "collect_targets": [10], "gem_every": 2, "gem_fast": true,
 		"total": 300, "core_hp": 3, "base_hp": 30, "hp_ramp": 0.2, "tank_mult": 2.5,
 		"spawn_every": 3, "step_every": 3, "onboard": 3, "floor": 2, "surge_at": 0.0,
 		"weights": {"basic": 50, "fast": 50, "tank": 0, "swarm": 0, "split": 0}, "pool": POOL_STD,
@@ -180,9 +198,23 @@ const STAGES: Array = [
 		#     진짜 결함은 타이밍이 아니라 총량이었고, 그래서 레버도 시점이 아니라 밀도다.
 		"name": "st11_name", "tag": "st11_tag", "bomb_fuse": 8, "bomb_dmg": 2,
 		"plane_cd": 20,
-		"total": 26, "core_hp": 7, "base_hp": 30, "hp_ramp": 0.2, "tank_mult": 2.5,
-		"spawn_every": 3, "step_every": 3, "onboard": 3, "floor": 2, "surge_at": 0.80,
-		"weights": {"basic": 78, "bomb": 22}, "pool": POOL_STD,
+		"total": 18, "core_hp": 7, "base_hp": 30, "hp_ramp": 0.2, "tank_mult": 2.5,
+		# spawn_every 3→2(S19 길이 하향): **이 판만 total이 길이 손잡이가 아니다.** total 26으로
+		#   캠페인에서 제일 작은데 승배치는 54.6으로 제일 길었다 — 원인은 적 수가 아니라 유입 속도다
+		#   (spawn_every 3 + floor 2 = 얇게 천천히 들어와서 26마리 소화에 오래 걸린다).
+		#   여기서 total만 깎으면 폭탄이 5.7→2.6개로 무너져 S14가 고친 병(폭탄을 가르치는 판인데
+		#   폭탄이 얇다)이 그대로 재발한다. 그래서 유입을 먼저 조였다.
+		#   ⚠유입만으론 부족했다 — 54.6→45.5로 9배치밖에 안 줄었다(목표 25). 남은 길이가 total에
+		#     묶여 있어서 total도 26→18로 내리되, **폭탄 절대 개수를 지키려고 밀도를 22→30%로 같이
+		#     올린다**. 길이와 개수를 각각 다른 손잡이로 잡는 것 — S17이 "밀도와 여유를 짝으로"라고
+		#     쓴 것의 길이 버전이다.
+		#   ⚠단 지켜야 할 값은 절대 개수가 아니라 **배치당 밀도**다(st12 주석의 판정 기준). 30%로
+		#     올렸더니 밀도가 0.209로 튀어 R2(0.130)를 추월해 사다리가 뒤집혔다 → 26%로 되돌렸다.
+		#     S14가 "4.4개는 얇다"고 한 건 사실 52배치 판에서의 0.085였고, 28배치 판의 4.7개는
+		#     0.168로 그때보다 두 배 촘촘하다. 짧아진 판에 옛 개수를 그대로 옮기면 과잉이 된다.
+		#   floor 2→3: 얇은 유입이 길이의 나머지 절반이라 바닥을 한 칸 올려 소화를 앞당긴다.
+		"spawn_every": 2, "step_every": 3, "onboard": 3, "floor": 3, "surge_at": 0.80,
+		"weights": {"basic": 74, "bomb": 26}, "pool": POOL_STD,
 	},
 	{
 		# tank HP를 콤보3(240) 구간에 앉힌다: base 44~50 × 4.5 = 198~227 → 콤보2(180)로는 안 뚫림.
@@ -192,7 +224,9 @@ const STAGES: Array = [
 		#   무릎 실측(N=120): hp2 20.8% / 3 30.0% / 4 40.8% / **5 60.0%** / 6 61.7% → 5에서 포화.
 		"name": "st5_name", "tag": "st5_tag",
 		"plane_cd": 21,
-		"total": 44, "core_hp": 5, "base_hp": 44, "hp_ramp": 0.3, "tank_mult": 4.5,
+		# total 44→20(S19 길이 하향): 승배치 57.4 = 캠페인 최장 → 목표 25. 장갑은 20마리 중 55%=11마리로
+		#   남아 판의 정체(관통 요구)는 유지된다. 1차 하향(20)이 32.2배치로 아직 위라 17로 마저.
+		"total": 17, "core_hp": 5, "base_hp": 44, "hp_ramp": 0.3, "tank_mult": 4.5,
 		"spawn_every": 2, "step_every": 3, "onboard": 3, "floor": 5, "surge_at": 0.80,
 		"weights": {"basic": 40, "fast": 0, "tank": 55, "swarm": 5, "split": 0}, "pool": POOL_STD,
 	},
@@ -204,7 +238,8 @@ const STAGES: Array = [
 		#   무릎 실측(N=120): hp3 33.3% / 4 38.3% / **5 50.8%** / 6 60.0%.
 		"name": "st6_name", "tag": "st6_tag",
 		"plane_cd": 16,
-		"total": 48, "core_hp": 5, "base_hp": 46, "hp_ramp": 0.4, "tank_mult": 4.2,
+		# total 48→26(S19 길이 하향): 승배치 46.4 → 목표 25.
+		"total": 26, "core_hp": 5, "base_hp": 46, "hp_ramp": 0.4, "tank_mult": 4.2,
 		"spawn_every": 2, "step_every": 3, "onboard": 2, "floor": 6, "surge_at": 0.78,
 		"weights": {"basic": 20, "fast": 35, "tank": 25, "swarm": 20, "split": 0}, "pool": POOL_STD,
 	},
@@ -225,7 +260,9 @@ const STAGES: Array = [
 		#   hp5=65.8%와 어긋나지 않는다 — 그때보다 시작 적 한 마리가 split로 바뀐 상태다.
 		"name": "st7_name", "tag": "st7_tag",
 		"plane_cd": 24,
-		"total": 48, "core_hp": 5, "base_hp": 44, "hp_ramp": 0.35, "tank_mult": 4.2,
+		# total 48→22(S19 길이 하향): 승배치 54.2 → 목표 25. 분열 40%로 22마리 중 8.8마리는
+		#   기전이 충분히 반복된다(밀도 불변 — 배치당 분열 수는 total과 배치가 같이 줄어 안 바뀐다).
+		"total": 22, "core_hp": 5, "base_hp": 44, "hp_ramp": 0.35, "tank_mult": 4.2,
 		"spawn_every": 2, "step_every": 3, "onboard": 3, "floor": 6, "surge_at": 0.80,
 		"weights": {"basic": 60, "fast": 0, "tank": 0, "swarm": 0, "split": 40}, "pool": POOL_STD,
 	},
@@ -237,7 +274,10 @@ const STAGES: Array = [
 		#   무릎 실측(N=120): hp2 16.3% / 3 22.5% / **4 33.3%** / 5 39.2%. 목표 35% = 여전히 최저점.
 		"name": "st8_name", "tag": "st8_tag",
 		"plane_cd": 19,
-		"total": 56, "core_hp": 4, "base_hp": 50, "hp_ramp": 0.4, "tank_mult": 4.2,
+		# total 56→25(S19 길이 하향): 승배치 56.5 → 목표 25. ⚠전체 평균 배치는 45.5로 찍혀 있었지만
+		#   그건 승률 28%가 만든 착시다(진 판이 일찍 끝나 평균을 끌어내린다) — 실제 클리어는 56.5배치·187초로
+		#   캠페인 최장급이었다. 승배치·패배치를 분리해 재기 전엔 이 판이 길다는 게 안 보였다.
+		"total": 25, "core_hp": 4, "base_hp": 50, "hp_ramp": 0.4, "tank_mult": 4.2,
 		"spawn_every": 2, "step_every": 3, "onboard": 2, "floor": 6, "surge_at": 0.78,
 		"weights": {"basic": 15, "fast": 25, "tank": 20, "swarm": 15, "split": 25}, "pool": POOL_STD,
 	},
@@ -251,7 +291,9 @@ const STAGES: Array = [
 		# 두 색 quota 8+8을 동시에 채워야 = 아무 보석이나 못 줍고 '필요한 색'을 골라 조준(새 결정 深). tank↑로 질(質)의 압박.
 		# gem_even_mix: 수요필터 OFF — 두 색을 균등 낙하시켜, 이미 채운 색을 흘려보내며 부족색을 붙잡는 결정이 실제로 생기게.
 		#   (수요필터는 '필요한 색만' 띄워 이 결정을 원천 제거 → 2색이 1색 두배길이로 붕괴. 이 판만 끈다.)
-		"name": "st10_name", "tag": "st10_tag", "collect": true, "collect_targets": [8, 8], "gem_every": 2, "gem_fast": true, "gem_even_mix": true,
+		# 목표 [8,8]→[4,4](S19 길이 하향): 승배치 48.3 = 보석 하나당 3.0배치 → 8개면 ~24배치.
+		#   두 색 quota 구조(=이 판의 새 결정)는 quota 크기와 무관하게 유지된다.
+		"name": "st10_name", "tag": "st10_tag", "collect": true, "collect_targets": [4, 4], "gem_every": 2, "gem_fast": true, "gem_even_mix": true,
 		"total": 300, "core_hp": 3, "base_hp": 32, "hp_ramp": 0.2, "tank_mult": 3.0,
 		"spawn_every": 3, "step_every": 3, "onboard": 2, "floor": 2, "surge_at": 0.0,
 		"weights": {"basic": 45, "fast": 40, "tank": 15, "swarm": 0, "split": 0}, "pool": POOL_STD,
@@ -273,9 +315,18 @@ const STAGES: Array = [
 		#     절대 개수가 뒤집혀도 밀도는 오름차순이다(R1이 52배치로 긴 판이라 생기는 착시).
 		"name": "st12_name", "tag": "st12_tag", "bomb_fuse": 8, "bomb_dmg": 2,
 		"plane_cd": 24,
-		"total": 32, "core_hp": 6, "base_hp": 30, "hp_ramp": 0.25, "tank_mult": 2.5,
-		"spawn_every": 2, "step_every": 3, "onboard": 3, "floor": 3, "surge_at": 0.80,
-		"weights": {"basic": 41, "fast": 20, "swarm": 15, "bomb": 24}, "pool": POOL_STD,
+		# total 32→19(S19 길이 하향): 승배치 42.7 → 목표 25.
+		# ⚠폭탄 절대 개수가 7.7→4.6으로 준다. 배치당 밀도는 불변이지만(이 판 주석의 '총량은 판 길이로
+		#   나눠 읽을 것' 참조) S17이 고친 결함 중 하나가 '두 번째 폭탄이 아예 안 나오는 판 8~11%'였다.
+		#   재측정에서 그게 되살아나면 weights를 24→28%로 올린다(길이는 안 건드리고).
+		# ⇒ **되살아났다**(ladder 스윕 N=60: 폭탄 3.40/판 · 두 번째 미등장 5/60 = 8.3% · 밀도 0.130으로
+		#   R1·R3보다 낮아 rung 순서가 뒤집힘). 예고한 대로 밀도만 올린다: 24→30%.
+		#   ⚠추가 범인 하나 — **onboard가 짧은 판에서 비싸졌다.** 첫 N스폰을 basic으로 강제하는데
+		#     total 32일 땐 3/32 = 9%였던 게 total 19에선 3/19 = 16%다. 즉 길이를 깎으면 가중치를
+		#     안 건드려도 신규 기전의 실효 비율이 저절로 떨어진다. onboard 3→2로 같이 내린다.
+		"total": 19, "core_hp": 6, "base_hp": 30, "hp_ramp": 0.25, "tank_mult": 2.5,
+		"spawn_every": 2, "step_every": 3, "onboard": 2, "floor": 3, "surge_at": 0.80,
+		"weights": {"basic": 27, "fast": 20, "swarm": 15, "bomb": 38}, "pool": POOL_STD,
 	},
 	# ── Defuse R3: 연쇄 폭탄(bomb_chain) — 하나가 터지면 인접 폭탄(8방)도 도미노 폭발, HP 벌 합산 = 큰 한 방. ──
 	#   새 결정: R1(제때 닿나)·R2(어느 걸 먼저)와 달리, "연쇄를 끊는 linchpin(임박한 하나)을 먼저 해체해 도미노를 막아라".
@@ -285,7 +336,11 @@ const STAGES: Array = [
 		#   **8 45.8%** / 9 47.5% → 8에서 포화. 연쇄 폭탄이 -HP를 곱하니 여유 한 칸이 크게 먹는다.
 		"name": "st13_name", "tag": "st13_tag", "bomb_fuse": 8, "bomb_dmg": 2, "bomb_chain": true,
 		"plane_cd": 23,
-		"total": 32, "core_hp": 8, "base_hp": 30, "hp_ramp": 0.2, "tank_mult": 2.5,
+		# total 32→18(S19 길이 하향): 승배치 46.7 → 목표 25.
+		# ⚠연쇄(bomb_chain)는 폭탄이 **뭉쳐야** 성립하는데 절대 개수가 12.2→6.8로 준다. 밀도는
+		#   불변이라도 인접 확률은 개수에 더 민감하다 — 재측정에서 연쇄가 안 터지면 이 판은
+		#   길이를 되돌리는 게 아니라 weights 38→45%로 뭉침을 복원한다.
+		"total": 18, "core_hp": 8, "base_hp": 30, "hp_ramp": 0.2, "tank_mult": 2.5,
 		"spawn_every": 2, "step_every": 3, "onboard": 3, "floor": 3, "surge_at": 0.80,
 		"weights": {"basic": 62, "bomb": 38}, "pool": POOL_STD,
 	},

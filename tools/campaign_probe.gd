@@ -6,6 +6,9 @@ extends SceneTree
 #     시드 노이즈에 묻힌다(analytics_probe 교훈). PROBE_SEED / TRIALS 환경변수로 고정·조절:
 #     PROBE_SEED=20260718 TRIALS=40 godot --headless --path . --script tools/campaign_probe.gd
 
+# 배치 1회 → 사람 실시간 초. 위 표 주석의 실측 계수(중앙값 3.3).
+const SEC_PER_PLACE: float = 3.3
+
 func _init() -> void:
 	var TRIALS: int = int(OS.get_environment("TRIALS")) if OS.get_environment("TRIALS") != "" else 100
 	var S: GDScript = load("res://Main.gd")
@@ -28,8 +31,17 @@ func _init() -> void:
 	# 배치·줄 = 판 길이(체감 소요 시간)의 대리 지표. 승률만 보면 '쉽지만 지루한 판'을 못 잡는다.
 	# 동시2·3 = 한 배치로 2줄·3줄 이상을 한꺼번에 지운 횟수 = '싹 터지는 맛'의 계측치.
 	#   콤보(연속 배치로 이어감)와 다른 축이다 — 맛을 볼 땐 둘 다 봐야 한다.
-	print("idx | 승률   | 거점사 | 막힘 | 배치  | 줄   | 동시2 | 동시3 | 콤보 | 이름키")
-	print("----+--------+--------+------+-------+------+-------+-------+------+-------")
+	# ⚠**'배치'(전체 평균)는 길이 설계의 자로 쓰면 안 된다** — 승·패를 섞은 값이라 승률에 오염된다.
+	#   진 판은 일찍 끝나므로 어려운 판일수록 평균이 짧게 나온다(클라이맥스는 승률 28%라 45.5배치로
+	#   찍히지만 실제 클리어는 그보다 훨씬 길다). 그래서 두 값을 따로 낸다:
+	#     승배치 = 이긴 판의 배치 수 = **클리어 길이**(플레이어가 성공했을 때 쓴 시간)
+	#     패배치 = 진 판의 배치 수   = **실패 비용**(원점으로 돌아가며 잃는 시간)
+	#   길이 목표는 이 둘에 각각 걸어야 한다. 캐주얼 기준 실패 비용 60~90초.
+	# 초 환산 = 배치 × SEC_PER_PLACE. 실플레이 애널리틱스(analytics.jsonl 58시도)와 이 프로브를
+	#   13판 전부에서 맞춰 얻은 실측 계수 — 비율이 2.0~4.8에 중앙값 3.3이었다.
+	#   ⚠사람 한 명(개발자) 표본이므로 절대치가 아니라 판 간 비교용으로 읽을 것.
+	print("idx | 승률   | 거점사 | 막힘 | 배치  | 승배치 | 승초  | 패배치 | 패초  | 줄   | 동시2 | 동시3 | 콤보 | 이름키")
+	print("----+--------+--------+------+-------+--------+-------+--------+-------+------+-------+-------+------+-------")
 	for si in range(g.STAGES.size()):
 		if not only.is_empty() and not only.has(si):
 			continue
@@ -42,6 +54,8 @@ func _probe_stage(g: Node, si: int, TRIALS: int) -> void:
 	var dead_core: int = 0
 	var dead_stuck: int = 0
 	var places: float = 0.0
+	var win_places: float = 0.0    # 이긴 판의 배치 합 = 클리어 길이
+	var lose_places: float = 0.0   # 진 판의 배치 합 = 실패 비용
 	var clears: float = 0.0
 	var multi2: float = 0.0
 	var multi3: float = 0.0
@@ -50,6 +64,9 @@ func _probe_stage(g: Node, si: int, TRIALS: int) -> void:
 		var r: Dictionary = _play(g, si)
 		if r["win"]:
 			wins += 1
+			win_places += float(r["places"])
+		else:
+			lose_places += float(r["places"])
 		if r["dead_core"]:
 			dead_core += 1
 		if r["dead_stuck"]:
@@ -60,9 +77,13 @@ func _probe_stage(g: Node, si: int, TRIALS: int) -> void:
 		multi3 += float(r["multi3"])
 		maxcombo += float(r["maxcombo"])
 	var n: float = float(TRIALS)
-	print(" %2d | %5.1f%% |  %3d   | %3d  | %5.1f | %4.1f | %5.2f | %5.2f | %4.1f | %s" % [
+	var losses: int = TRIALS - wins
+	var wp: float = win_places / float(wins) if wins > 0 else 0.0
+	var lp: float = lose_places / float(losses) if losses > 0 else 0.0
+	print(" %2d | %5.1f%% |  %3d   | %3d  | %5.1f | %6.1f | %4.0fs | %6.1f | %4.0fs | %4.1f | %5.2f | %5.2f | %4.1f | %s" % [
 		si + 1, 100.0 * float(wins) / n, dead_core, dead_stuck,
-		places / n, clears / n, multi2 / n, multi3 / n, maxcombo / n,
+		places / n, wp, wp * SEC_PER_PLACE, lp, lp * SEC_PER_PLACE,
+		clears / n, multi2 / n, multi3 / n, maxcombo / n,
 		String(g.STAGES[si]["name"])])
 
 func _play(g: Node, si: int) -> Dictionary:
