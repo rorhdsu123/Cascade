@@ -621,6 +621,20 @@ const ZONE_TRANS_DUR: float = 1.3
 var zone_stars: Array = []       # [{pos, r, phase, ig}] — ig = 점등 잔여 시간(>0이면 아직 확 밝다)
 const ZONE_STARS_PER: int = 16   # 존 한 겹당 별 수
 const STAR_IGNITE: float = 0.9   # 점등 연출 길이(초)
+const ZONE_STARS_MAX: int = 96   # 하늘 밀도 상한(프리스티지가 무한히 쌓는 걸 막는다)
+# 별 색 — 흰 별은 보라 하늘 위에서 명도 대비만 남아 안 보였다(유저 플테: "별로 눈에 안 띈다").
+#   보색·난색 쪽으로 흩어 **색상 대비**를 준다. 어두운 라벤더/남색은 뺐다 — 배경에 먹힌다.
+#   블록 팔레트(R·O·Y·G·B·P)보다 밝고 덜 진한 캔디 톤이라 '조각'으로는 안 읽힌다.
+#   ⚠흰색 계열은 팔레트에서 뺐다. "앵커로 섞으면 덜 산만하다"고 넣어 봤는데, 흰 별 + 흰 심지가
+#     겹쳐 하늘 전체가 창백해졌다 = 유저가 말한 "눈에 안 띈다"가 그대로 재발했다.
+const STAR_COLS: Array = [
+	Color("#ffd24a"),   # 골드
+	Color("#ff77ad"),   # 코랄 핑크
+	Color("#5fd8f5"),   # 시안
+	Color("#7ce8b0"),   # 민트
+	Color("#ffa457"),   # 살구
+	Color("#c56bff"),   # 바이올렛(보라 배경보다 확실히 밝고 채도 높은 쪽으로만)
+]
 var push_streaks: Array = []   # [{from, to, life, max}] 넉백 잔상
 var aim_marks: Array = []      # [{c, r}] 조준 프리뷰 링 — 들고 있는 조각 '위'에 최상단 오버레이로 그린다
 var rockets: Array = []        # [{dir, idx, t, dur, combo, ended}] 라인 따라 질주하는 로켓
@@ -2033,6 +2047,12 @@ func _ignite_zone_stars() -> void:
 	var bot_h: float = maxf(0.0, vh - bot_y0)
 	if top_h + bot_h <= 1.0:
 		return
+	# ⚠존은 천장이 없다 — 프리스티지가 PRESTIGE_STEP마다 계속 발화하므로 그냥 두면 별이 무한히 쌓인다.
+	#   상한에 닿으면 **가장 오래된 겹부터 밀어낸다**: 하늘 밀도는 유지하면서 새 겹은 계속 점등된다
+	#   (점등이 보상이므로 '더 못 켜짐'보다 '오래된 게 진다'가 맞다).
+	var over: int = zone_stars.size() + ZONE_STARS_PER - ZONE_STARS_MAX
+	if over > 0:
+		zone_stars = zone_stars.slice(mini(over, zone_stars.size()))
 	for i in range(ZONE_STARS_PER):
 		var y: float
 		if randf() * (top_h + bot_h) < top_h:
@@ -2041,8 +2061,9 @@ func _ignite_zone_stars() -> void:
 			y = bot_y0 + randf() * bot_h
 		zone_stars.append({
 			"pos": Vector2(randf() * VW_BASE, y),
-			"r": randf_range(1.1, 2.6),
+			"r": randf_range(4.5, 9.0),
 			"phase": randf() * TAU,     # 반짝임 위상 — 다 같이 깜빡이면 형광등이 된다
+			"col": STAR_COLS[randi() % STAR_COLS.size()],
 			"ig": STAR_IGNITE,
 		})
 
@@ -6331,23 +6352,40 @@ func _draw_zone_stars(band_top: float, band_bot: float) -> void:
 			continue
 		var rad: float = float(st["r"])
 		var ig: float = float(st["ig"])
-		# 상주 반짝임 — 진폭을 작게(0.62~0.9). 코지가 원칙이라 '깜빡임'이 아니라 '숨'이어야 한다.
-		var tw: float = 0.76 + 0.14 * sin(anim_t * 1.5 + float(st["phase"]))
-		var a: float = 0.5 * tw
+		var col: Color = st["col"]
+		# 상주 반짝임 — 진폭을 작게. 코지가 원칙이라 '깜빡임'이 아니라 '숨'이어야 한다.
+		var tw: float = 0.82 + 0.14 * sin(anim_t * 1.5 + float(st["phase"]))
+		var a: float = 0.86 * tw
 		var sc: float = 1.0
 		if ig > 0.0:
 			var q: float = ig / STAR_IGNITE          # 1=갓 켜짐 → 0=정착
 			a = lerpf(a, 1.0, q)                     # 켜지는 동안 확 밝게
 			sc = 1.0 + 2.2 * q * q                   # 커졌다 제 크기로
-			# 십자 광채 — 점등 앞머리에만. 별이 '켜졌다'를 점 하나보다 확실히 말한다.
+			# 십자 광채 — 점등 앞머리에만. 별이 '켜졌다'를 점 하나보다 확실히 말한다. 색은 그 별 것.
 			var fl: float = clampf((q - 0.55) / 0.45, 0.0, 1.0)
 			if fl > 0.01:
 				var arm: float = rad * (3.0 + 9.0 * fl)
-				var fc: Color = Color(1.0, 0.97, 0.88, 0.55 * fl)
-				draw_line(pos - Vector2(arm, 0.0), pos + Vector2(arm, 0.0), fc, 1.6)
-				draw_line(pos - Vector2(0.0, arm), pos + Vector2(0.0, arm), fc, 1.6)
-		draw_circle(pos, rad * sc * 0.55, Color(1.0, 0.98, 0.9, a * 0.35))   # 부드러운 헤일로
-		draw_circle(pos, rad * sc * 0.28, Color(1.0, 1.0, 0.97, a))          # 심지
+				var fc: Color = Color(col.r, col.g, col.b, 0.62 * fl)
+				draw_line(pos - Vector2(arm, 0.0), pos + Vector2(arm, 0.0), fc, 1.8)
+				draw_line(pos - Vector2(0.0, arm), pos + Vector2(0.0, arm), fc, 1.8)
+		# 큰 별은 상시 4각 뿔을 단다 — 원만 있으면 '점'이고, 뿔이 있어야 '별'로 읽힌다.
+		#   ⚠뿔을 **직선(draw_line)으로 그으면 조준선처럼 보인다**(실제로 그랬다). 끝으로 갈수록
+		#     가늘어지는 마름모라야 반짝임이 된다. 크기로 등급을 갈라(전부 뿔이면 산만) 리듬을 준다.
+		if rad > 6.4:
+			var L: float = rad * sc * 2.3
+			var w2: float = rad * sc * 0.28
+			var spc: Color = Color(col.r, col.g, col.b, a * 0.55)
+			draw_colored_polygon(PackedVector2Array([
+				pos + Vector2(0.0, -L), pos + Vector2(w2, 0.0),
+				pos + Vector2(0.0, L), pos + Vector2(-w2, 0.0)]), spc)
+			draw_colored_polygon(PackedVector2Array([
+				pos + Vector2(-L, 0.0), pos + Vector2(0.0, w2),
+				pos + Vector2(L, 0.0), pos + Vector2(0.0, -w2)]), spc)
+		# 몸통 + 작은 흰 심지. **넓은 글로우는 뺐다** — 낮은 알파의 난색이 채도 높은 보라와 섞이면
+		#   탁한 고리가 되어 '빛무리'가 아니라 때처럼 보였다(실측: 금색 0.2 위 보라 = 올리브).
+		#   ⚠심지 비율도 핵심이다. 0.22를 넘기면 흰색이 몸통을 덮어 **다시 흰 별**로 돌아간다.
+		draw_circle(pos, rad * sc * 0.60, Color(col.r, col.g, col.b, a * 0.96))
+		draw_circle(pos, rad * sc * 0.17, Color(1.0, 1.0, 0.98, a * 0.7))
 
 # 전이 순간 배경 밝기 플래시 계수(0~) — 존 넘는 초반 0.3s만 쿨하게 밝아졌다 사그라듦.
 #   여백·상하단바가 한 박자 '휙' 밝아지며 새 존색으로 정착 = 이산 스텝이 주변부에서도 확실히 지각됨.
