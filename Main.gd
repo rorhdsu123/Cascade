@@ -7731,6 +7731,23 @@ func _draw_dev_reset(fnt: Font) -> void:
 			Color(1.0, 0.8, 0.75) if armed else Color(0.80, 0.70, 0.70))
 	_btn_press_end()
 
+# 제목 아래 한 줄의 내용. **진행 통계가 아니라 상태별 한마디**(C157).
+#   레퍼런스(Block Blast 어드벤처)가 이 자리에 쓰는 것이 정확히 이거다 — 첫 방문엔 이 모드가 뭘 하는
+#   곳인지 설명하고("...and win the trophy."), 굴러가는 사람에겐 부추긴다("Keep Winning!"). 숫자가 아니다.
+#   ⚠상태는 **이미 있는 데이터로만** 판별한다(cleared · fail_streak). 날짜·접속 기록은 저장하지 않으므로
+#     레퍼런스의 '오늘 N판 깼다' 류는 못 만든다 — 배관을 깔기 전엔 상태를 늘리지 말 것.
+#   ⚠**케어를 발설하지 말 것**: 3패에 배급·밴드가 완화되는 건 들키면 안 되는 장치다
+#     ([[stage-failure-care-ladder]]). 그래서 패배 문구는 진 횟수와 무관하게 한 가지 격려로 끝난다.
+#   모두 클리어면 빈 문자열 = 줄 자체가 안 나온다. 그 상태의 말은 푸터가 이미 두 줄로 한다.
+func _sel_message() -> String:
+	if _all_cleared():
+		return ""
+	if int(fail_streak.get(_current_stage(), 0)) > 0:
+		return _t("sel_msg_retry")    # 지금 판에서 진 적이 있다 — 격려가 설명·부추김을 이긴다
+	if _cleared_count() == 0:
+		return _t("sel_msg_first")    # 첫 방문 — 여기가 뭘 하는 곳인지부터
+	return _t("sel_msg_go")
+
 func _draw_select(fnt: Font) -> void:
 	# 배경은 _draw()가 이미 그렸다(오프셋 밖). 여기선 콘텐츠만.
 	# 진행 리드아웃: 타일은 비인터랙티브(진행은 하단 버튼=프런티어로만). 그리드는 넘치면 세로 스크롤 →
@@ -7819,12 +7836,18 @@ func _draw_select(fnt: Font) -> void:
 	_draw_text_outlined(fnt, Vector2(400.0 - tw * 0.5,
 			BACK_BTN.position.y + BACK_BTN.size.y * 0.5 + float(tfs) * 0.36), title, tfs, Color.WHITE)
 
-	# ⚠플테 전용: 전체 해금이 켜져 있으면 명시(진짜 진행과 안 헷갈리게). '0'키로 토글.
-	#   제목이 버튼 띠로 올라갔으니 이 줄은 그 아래(빈 띠, 그리드 위 SEL_TOP=146 안쪽)에 눕는다.
+	# 제목 아래 한 줄 — **통계가 아니라 상태에 따라 바뀌는 한마디**(C157). 자리는 하나뿐이라
+	#   플테용 해금 표시가 켜져 있으면 그쪽이 가져간다(디버그 빌드 전용이라 문구를 볼 사람이 없다).
 	if dev_unlock_all:
+		# ⚠플테 전용: 전체 해금이 진짜 진행과 안 헷갈리게 명시. '0'키로 토글.
 		var du: String = _t("dev_unlock")
 		var duw: float = fnt.get_string_size(du, HORIZONTAL_ALIGNMENT_LEFT, -1, 16).x
 		_draw_text_outlined(fnt, Vector2(400.0 - duw * 0.5, 118.0), du, 16, Color(1.0, 0.55, 0.3))
+	else:
+		var msg: String = _sel_message()
+		if msg != "":
+			var mw: float = fnt.get_string_size(msg, HORIZONTAL_ALIGNMENT_LEFT, -1, 22).x
+			_draw_text_outlined(fnt, Vector2(400.0 - mw * 0.5, 118.0), msg, 22, Color(0.72, 0.76, 0.92))
 
 	# ── 푸터(마스크 위) ── 프런티어가 있으면 '계속하기' 버튼, 다 깼으면 안내(전용 화면은 별도 기획).
 	if all_done:
