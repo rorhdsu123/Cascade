@@ -7879,17 +7879,16 @@ func _draw_play_button(fnt: Font, cur: int) -> void:
 	_draw_btn_box(r, base, Color(0.10, 0.28, 0.14), Color(0.16, 0.42, 0.18), 8.0, 0.16, 4.0,
 			BTN_PRESS if hot else BTN_NORMAL)
 
-	var sd: Dictionary = STAGES[cur]
+	# 번호 한 줄뿐이다 — 스테이지 이름 부제('Last Line' 따위)는 뺐다(C155, 유저 지시).
+	#   이름은 판에 들어가면 도입 화면이 다시 말해주고(`_draw_stage_intro`), 여기선 고를 수가 없어서
+	#   (버튼은 언제나 프런티어 하나) 결정에 쓰이지 않는다. 부제가 빠진 만큼 번호를 세로 중앙으로 내린다.
 	var big: String = _t("stage_n") % (cur + 1)
 	var bfs: int = 46
-	var bw: float = fnt.get_string_size(big, HORIZONTAL_ALIGNMENT_LEFT, -1, bfs).x
-	_draw_text_outlined(fnt, Vector2(400.0 - bw * 0.5, r.position.y + 62.0), big, bfs, Color.WHITE,
-			Color(0.10, 0.28, 0.14, 0.95))
-	var nm: String = _t(String(sd["name"]))   # 고른 스테이지 이름(선택화면은 전부 깬 뒤라 이름=고른 것)
-	var nfs: int = 22
-	var nw: float = fnt.get_string_size(nm, HORIZONTAL_ALIGNMENT_LEFT, -1, nfs).x
-	_draw_text_outlined(fnt, Vector2(400.0 - nw * 0.5, r.position.y + 98.0), nm, nfs, Color(0.92, 1.0, 0.88),
-			Color(0.10, 0.28, 0.14, 0.95))
+	var bsz: Vector2 = fnt.get_string_size(big, HORIZONTAL_ALIGNMENT_LEFT, -1, bfs)
+	# 세로 중앙 = **캡 하이트 기준**. 줄 높이(get_string_size().y)로 맞추면 'Stage'의 g 디센더까지
+	#   상자에 들어가 글자가 10px 아래로 앉는다(실측: 잉크 중심 954.5 vs 버튼 몸통 중심 944).
+	_draw_text_outlined(fnt, Vector2(400.0 - bsz.x * 0.5, r.position.y + r.size.y * 0.5 + float(bfs) * 0.36),
+			big, bfs, Color.WHITE, Color(0.10, 0.28, 0.14, 0.95))
 	_btn_press_end()
 
 # 체크 표식(절차적) — 깬 스테이지 우상단. 언어 중립(도감/글자 대신 기호)
