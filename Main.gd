@@ -7913,13 +7913,18 @@ func _draw_select(fnt: Font) -> void:
 func _draw_allclear_footer(fnt: Font) -> void:
 	var r: Rect2 = PLAY_BTN
 	# ① 약속 — '이건 끝이 아니다'. 결과화면 frontier_sub와 같은 톤(연한 파랑).
+	# ⚠크기 24/18 → **30/24**(S28, 유저 실물 확인). 이 두 줄은 성이 다 차고 나면 "이건 끝이 아니다"를
+	#   **혼자 지는** 문구다(빈 벽돌이 하던 말을 물려받는다) — 그런데 화면에서 제일 작았다.
+	#   C160이 세운 자로 재면(폰 환산 15pt ≈ 7.4dp) 24pt = 11.8dp · 18pt = 8.9dp라, 안드로이드 본문
+	#   권장 12sp를 둘 다 밑돌았다. 특히 길 안내는 절반 수준이라 '조용해서 안 읽히는' 그 자리였다.
+	#   30/24 = 14.8dp · 11.8dp. 위계(약속 > 길 안내)는 유지 — 비율 1.33 → 1.25.
 	var t1: String = _t("frontier_sub")
-	var w1: float = fnt.get_string_size(t1, HORIZONTAL_ALIGNMENT_LEFT, -1, 24).x
-	_draw_text_outlined(fnt, Vector2(400.0 - w1 * 0.5, r.position.y + 56.0), t1, 24, Color(0.72, 0.78, 1.0))
+	var w1: float = fnt.get_string_size(t1, HORIZONTAL_ALIGNMENT_LEFT, -1, 30).x
+	_draw_text_outlined(fnt, Vector2(400.0 - w1 * 0.5, r.position.y + 56.0), t1, 30, Color(0.72, 0.78, 1.0))
 	# ② 길 안내 — 좌상단 뒤로화살표가 가리키는 곳(허브의 파란 무한). 여기서 실행 아님, 표지판일 뿐.
 	var t2: String = _t("frontier_home")
-	var w2: float = fnt.get_string_size(t2, HORIZONTAL_ALIGNMENT_LEFT, -1, 18).x
-	_draw_text_outlined(fnt, Vector2(400.0 - w2 * 0.5, r.position.y + 92.0), t2, 18, Color(0.58, 0.6, 0.72))
+	var w2: float = fnt.get_string_size(t2, HORIZONTAL_ALIGNMENT_LEFT, -1, 24).x
+	_draw_text_outlined(fnt, Vector2(400.0 - w2 * 0.5, r.position.y + 96.0), t2, 24, Color(0.58, 0.6, 0.72))
 
 # 천 단위 콤마 (점수 가독성)
 func _comma(n: int) -> String:
