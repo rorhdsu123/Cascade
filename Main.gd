@@ -6178,6 +6178,11 @@ func _draw() -> void:
 		var t: float = flash_timer / FLASH_DUR
 		# 콤보↑ = 더 밝고 뜨거운 섬광(흰색→따뜻한 주황)
 		var fint: float = 0.14 + 0.045 * float(mini(flash_combo, 8))
+		# ⚠PB 배너 등장과 겹치면 **둘 다 안 보인다.** 신기록은 줄을 지운 직후에 터지므로 배너의 등장
+		#   500ms가 통째로 이 베일 아래다. 콤보8이면 α0.5라 숫자 외곽선(#4E0710)이 떠서 흰 글자와의
+		#   대비가 15.4:1 → 5.2:1로 3배 떨어진다. 축하가 둘이면 하나를 양보시킨다.
+		if pb_pop_t >= 0.0:
+			fint *= 0.5
 		var fcol: Color = Color(1.0, 1.0, 1.0).lerp(Color(1.0, 0.66, 0.26), clampf(float(flash_combo - 2) / 5.0, 0.0, 1.0))
 		draw_rect(Rect2(0, 0, VW_BASE, vh), Color(fcol.r, fcol.g, fcol.b, t * fint))
 
@@ -6200,6 +6205,11 @@ func _draw() -> void:
 		var pcol: Color = (pr["col"] as Color).lerp(Color(1.0, 1.0, 1.0), flash)
 		# 보드 세로 정중앙(board_y 파생 = 반응형 안전). BB는 칭찬 텍스트를 보드 중심에 띄운다(원본 프레임 확인). 402 고정 폐기.
 		var py: float = float(board_y) + float(ROWS * CELL) * 0.5
+		# ⚠PB 배너가 뜬 1.6초 동안은 **위로 비킨다.** 신기록은 줄을 지운 직후에 터져 거의 항상 같이
+		#   뜨는데, 콤보8의 칭찬 단어(110px)는 배너의 왕관과 점수를 통째로 덮는다. 아래로 밀면 띠에
+		#   박히므로 위가 유일한 방향이다. **끄지는 않는다** — 콤보 피드백이 사라지는 손해가 더 크다.
+		if pb_pop_t >= 0.0:
+			py -= float(ROWS * CELL) * 0.23
 		var tp: Vector2 = Vector2(400.0 - cw * 0.5, py)
 		# BB식 '스티커' 렌더 — 이중 아웃라인(어두운 겹 + 흰 겹)으로 어떤 배경에서도 대비 확보.
 		#   텍스트가 보드 중심=황금 후광 링과 겹치는데, 흰 아웃라인만으론 '밝은 링 위에서' 흰색이 묻힌다.
@@ -6404,7 +6414,9 @@ func _draw_pb_burst() -> void:
 	var bw: float = float(COLS * CELL)
 	var bh: float = float(ROWS * CELL)
 	var cx: float = bx + bw * 0.5
-	var emb: Vector2 = Vector2(cx, by + bh * 0.30)   # 엠블럼 앵커(상단 1/3) — 칭찬 단어(중심)·리본(하단)과 세로 스택
+	# 엠블럼 앵커 = **리본 배너의 왕관 자리**(J7). 옛 값(상단 1/3)에 두면 배너가 보드 중심에 오면서
+	#   아래·수평 광선이 통째로 띠에 덮여 대각선 네 조각만 남는다 — 테이퍼 광선(J3)이 통으로 죽는다.
+	var emb: Vector2 = Vector2(cx, by + bh * 0.5 + PB_CROWN_OFF)
 	var gold: Color = Color(1.0, 0.85, 0.35)
 	# ① 보드 테두리 네온 플래시 — 밝게 확 떴다 페이드(앞 55%). 여러 겹 = 글로우.
 	var edge_a: float = clampf(1.0 - p / 0.55, 0.0, 1.0)
@@ -6425,7 +6437,8 @@ func _draw_pb_burst() -> void:
 		# ⚠뿌리 반지름은 왕관 **잉크 밖**이어야 한다. 옛 값 40은 왕관(88px, 가로로 넓고 세로로 낮은
 		#   실루엣)의 세로 잉크(≈30)보다 커서, 위아래 광선의 안쪽 끝이 왕관 밑에서 삐져나와 허공에서
 		#   뚝 끊겼다. 52면 사방으로 고른 틈이 생겨 '엠블럼 뒤에서 새어나오는 빛'이 된다.
-		var inner: float = 52.0
+		#   벡터 왕관(J7)은 폭 106(반폭 53)이라 옛 값 52면 수평 광선이 왕관 **안에서** 시작한다 → 62.
+		var inner: float = 62.0
 		for i in range(n):
 			var ang: float = p * 0.16 + float(i) * TAU / float(n)
 			var d: Vector2 = Vector2(cos(ang), sin(ang))
@@ -6464,50 +6477,314 @@ func _draw_pb_burst() -> void:
 			#   반지름 r의 알파가 'r보다 큰 링들의 누적'이라 완만한 감쇠라야 한다. 0.8 + 계수 0.45로
 			#   왕관 테두리(r≈55)에서 유효알파 ≈0.36이 나온다(실측).
 			draw_circle(emb, cr * f, Color(1.0, 0.86, 0.46, core_a * 0.21 * pow(1.0 - f, 0.8)))
-	# ④ 왕관 — 엠블럼 앵커에 오버슛 팝인(갓레이가 뒤에서 뻗는 BB 구도). 이모지(_font OS 폴백).
-	var cr_ip: float = clampf(p / 0.14, 0.0, 1.0)
-	var cr_scale: float = (1.0 - pow(1.0 - cr_ip, 2.0)) + sin(clampf(cr_ip, 0.0, 1.0) * PI) * 0.16
-	var cr_a: float = 1.0
-	if p > 0.75:
-		cr_a = clampf((1.0 - p) / 0.25, 0.0, 1.0)
-	if cr_a > 0.01 and _font != null:
-		var cfs: int = int(88.0 * cr_scale)
-		if cfs > 6:
-			var crw: float = _font.get_string_size("👑", HORIZONTAL_ALIGNMENT_LEFT, -1, cfs).x
-			draw_string(_font, emb + Vector2(-crw * 0.5, float(cfs) * 0.34), "👑", HORIZONTAL_ALIGNMENT_LEFT, -1, cfs, Color(1.0, 1.0, 1.0, cr_a))
+	# ④ 왕관은 여기서 안 그린다 — 리본 배너(`_draw_pb_ribbon`)가 벡터 왕관으로 그린다.
+	#   옛 구현은 이 자리에 OS 이모지 `👑`를 draw_string 했다. 두 가지가 틀렸다: 기기마다 다른 그림이
+	#   뜨고(안드로이드/맥이 다름), 손으로 그린 면 옆에서 재질이 튄다. 이 함수는 빛만 담당한다.
 
-# PB 리본 배너(C90) — 보드 하단 1/3에 "NEW BEST + 돌파 점수" 띠. 스윕인→홀드→페이드. BB 시그니처.
-#   칭찬 단어는 보드 중심 → 리본은 그 아래라 겹치지 않음(스택). 전부 오버레이.
+# ── PB 신기록 배너(J7) ────────────────────────────────────────────────────────
+# 'B3 돌출형': 얇은 리본이 받침이고 점수는 그 위로 넘친다.
+#
+# **왜 띠가 필요한가.** 띠 없이 왕관+숫자만 띄운 안은 안 읽혔다. 원인은 크기가 아니라 **바탕**이다 —
+#   알록달록한 8×8 판 위 흰 글자는 노랑 블록(#FFD23B) 대비 1.44:1이라 사실상 안 보이고, 가독성을
+#   외곽선이 혼자 진다. 숫자 아랫동아리를 단색 띠에 앉히면 그 41%가 해결되고 나머지는 외곽선이 받는다.
+#
+# **왜 이렇게 만드나.** 이 게임의 큰 면은 전부 아트 PNG(block·panel·btn)인데 옛 띠만 `draw_rect`
+#   세 번이었다 — 그래서 블록 옆에서 재질이 튀었다. block.png 실측 = 얇은 윤곽선(2px) + **짧은 변의
+#   10%짜리 두꺼운 2톤 테** + 테/면 사이 1px 분리선 + 짧은 면 그러데이션(−18%). 그 문법을 그대로 옮긴다.
+#   `draw_rect`엔 둥근 모서리가 없고 모서리를 `draw_circle`로 때우면 이음매에 계단이 남으므로,
+#   윤곽을 **한 덩어리 다각형**으로 만들어 채움·테두리·그림자가 전부 같은 실루엣을 쓰게 한다.
+#   세로 그러데이션은 `draw_polygon`의 **꼭짓점 색 보간**으로 낸다(색이 y에 대해 선형이면 무게중심
+#   보간이 정확값을 준다 — 밴드를 잘라 쌓을 필요가 없다).
+#
+# ⚠**기울이지 않는다.** 2°는 8×8 직교 격자 위에서 '의도'가 아니라 '어긋남'으로 읽히고(의도로 읽히려면
+#   5° 이상), `draw_set_transform` 회전은 20px 라벨 글리프를 리샘플링해 뭉갠다. 그리고 시안 단계에서
+#   띠만 회전하고 숫자는 안 해서 **받쳐주는 높이가 글자마다 달랐다**(왼쪽 17.8px·오른쪽 26.2px) —
+#   이 배너의 존재 이유가 무너지는 버그였다. 리본다움은 접힌 자락과 베벨이 낸다.
+# ⚠**배경 후광을 얹지 않는다.** `_draw_pb_burst`의 금색 후광과 기능이 겹치는 데다, 넓은 난색 베일은
+#   파란 블록을 회보라로 만든다(색은 시각 전용이라도 조각 맞추는 단서다). [[glow-on-dark-needs-hue-not-white]]
+# ⚠**상단 흰색 하이라이트도 금지.** 어두운 면 위 낮은 알파 흰색은 밝아지는 게 아니라 **탁해진다**.
+#   상단 밝기는 베벨 테가 낸다.
+const PB_BAND_OFF: float = 21.0     # 보드 세로 중심에서 띠 윗변까지
+const PB_BAND_H: float = 85.0
+const PB_BAND_HALF: float = 282.0   # 띠 반폭(보드 반폭 360보다 좁다 — 자락이 나갈 자리)
+const PB_BAND_RAD: float = 16.0     # panel.png 실측 반지름 17에 맞춤
+const PB_RIM: float = 9.0           # 베벨 테 두께(block.png = 짧은 변의 10%)
+const PB_TAIL_X: float = 364.0      # 자락 끝(보드 반폭 360을 살짝 넘어 '걸쳐 있음'을 만든다)
+const PB_CROWN_OFF: float = -58.0   # 왕관 밑동↔숫자 윗변 ≈19px. 더 띄우면 락업이 아니라 따로 뜬 두 물건이 된다
+const PB_CROWN_W: float = 106.0
+const PB_SCORE_OFF: float = 43.0    # 점수 baseline
+const PB_SCORE_SIZE: int = 86
+const PB_LABEL_OFF: float = 87.0    # 라벨 baseline
+const PB_LABEL_SIZE: int = 20
+const PB_NUM_OUT: int = 8           # draw_string_outline 크기(스트로커 반경 — SVG stroke-width와 1:1 아님)
+
+const C_PB_OUT: Color = Color(0.306, 0.027, 0.063)     # #4E0710 바깥 윤곽선
+const C_PB_RIM_T: Color = Color(0.949, 0.392, 0.478)   # #F2647A 테 위(빛)
+const C_PB_RIM_B: Color = Color(0.431, 0.039, 0.110)   # #6E0A1C 테 아래(그늘)
+const C_PB_SEP: Color = Color(0.369, 0.031, 0.071)     # #5E0812 테/면 분리선
+const C_PB_FACE_T: Color = Color(0.910, 0.314, 0.408)  # #E85068
+const C_PB_FACE_B: Color = Color(0.659, 0.063, 0.149)  # #A81026 (존4 배경과 1.6:1 — 더 어두우면 녹는다)
+const C_PB_REV_T: Color = Color(0.639, 0.078, 0.157)   # #A31428 자락 = 리본 뒷면(면보다 어둡되 검게는 아니게)
+const C_PB_REV_B: Color = Color(0.431, 0.039, 0.094)   # #6E0A18
+const C_PB_FOLD: Color = Color(0.239, 0.016, 0.047)    # #3D040C 접히는 자리의 그늘
+const C_PB_GOLD_T: Color = Color(1.0, 0.906, 0.604)    # #FFE79A
+const C_PB_GOLD_B: Color = Color(0.851, 0.580, 0.125)  # #D99420
+const C_PB_SHADOW: Color = Color(0.043, 0.016, 0.094)  # #0B0418
+const C_PB_LABEL: Color = Color(1.0, 0.863, 0.525)     # #FFDC86
+const C_PB_CROWN_OUT: Color = Color(0.478, 0.290, 0.055)
+const C_PB_GEM_A: Color = Color(0.247, 0.812, 0.722)
+const C_PB_GEM_B: Color = Color(1.0, 0.373, 0.620)
+
+# 구간 [a,b]에 걸친 ease-out cubic 진행도(0→1).
+func _seg_ease(p: float, a: float, b: float) -> float:
+	var t: float = clampf((p - a) / maxf(0.0001, b - a), 0.0, 1.0)
+	return 1.0 - pow(1.0 - t, 3.0)
+
+# 둥근 사각형 윤곽 다각형(볼록). 모서리마다 seg등분.
+func _round_rect_pts(r: Rect2, rad: float, seg: int = 6) -> PackedVector2Array:
+	var pts: PackedVector2Array = PackedVector2Array()
+	# ⚠반지름이 짧은 변의 절반에 닿으면 위/아래 호가 만나 **같은 점이 겹친다** → 삼각분할 실패
+	#   ("Invalid polygon data"). 작은 도형(스티커 안 왕관 몸통 6px)에서 실제로 터졌다.
+	#   0.499로 살짝 덜 잡고, 그래도 남는 중복점은 아래에서 걸러낸다.
+	var rr: float = clampf(rad, 0.0, minf(r.size.x, r.size.y) * 0.499)
+	var ctrs: Array = [
+		[Vector2(r.position.x + rr, r.position.y + rr), PI, PI * 1.5],
+		[Vector2(r.end.x - rr, r.position.y + rr), PI * 1.5, TAU],
+		[Vector2(r.end.x - rr, r.end.y - rr), 0.0, PI * 0.5],
+		[Vector2(r.position.x + rr, r.end.y - rr), PI * 0.5, PI],
+	]
+	for c in ctrs:
+		var ctr: Vector2 = c[0]
+		for i in range(seg + 1):
+			var ang: float = lerpf(float(c[1]), float(c[2]), float(i) / float(seg))
+			var pt: Vector2 = ctr + Vector2(cos(ang), sin(ang)) * rr
+			if pts.size() > 0 and pts[pts.size() - 1].distance_squared_to(pt) < 0.02:
+				continue
+			pts.append(pt)
+	if pts.size() > 2 and pts[0].distance_squared_to(pts[pts.size() - 1]) < 0.02:
+		pts.remove_at(pts.size() - 1)
+	return pts
+
+# 세로 그러데이션 채움 — 꼭짓점 색으로만. y0/y1은 그러데이션 양끝(도형 bbox와 달라도 된다).
+func _fill_vgrad(pts: PackedVector2Array, y0: float, y1: float, c0: Color, c1: Color, a: float) -> void:
+	var cols: PackedColorArray = PackedColorArray()
+	for pt in pts:
+		var c: Color = c0.lerp(c1, clampf((pt.y - y0) / maxf(1.0, y1 - y0), 0.0, 1.0))
+		c.a = a
+		cols.append(c)
+	draw_polygon(pts, cols)
+
+# 리본 자락(제비꼬리) 한 쪽. sgn = -1 왼쪽 / +1 오른쪽.
+#   ⚠노치가 안쪽으로 파고들어 **오목 다각형**이 된다 → 위/아래 볼록 두 조각으로 쪼갠다.
+#     (draw_polygon에 오목을 넘기면 삼각분할이 어긋나 꼬리가 뒤집힌다.)
+func _draw_pb_tail(sgn: float, inner_x: float, outer_x: float, top: float, bot: float, a: float) -> void:
+	var my: float = (top + bot) * 0.5
+	var notch: float = lerpf(inner_x, outer_x, 0.585)
+	var up: PackedVector2Array = PackedVector2Array([
+		Vector2(inner_x, top + 6.0), Vector2(outer_x, top + 22.0),
+		Vector2(notch, my), Vector2(inner_x, my)])
+	var lo: PackedVector2Array = PackedVector2Array([
+		Vector2(inner_x, my), Vector2(notch, my),
+		Vector2(outer_x, bot + 18.0), Vector2(inner_x, bot - 6.0)])
+	if sgn > 0.0:   # draw_polygon은 감김 방향을 안 가리지만, 뒤집힌 쪽은 순서를 되돌려 둔다
+		up.reverse()
+		lo.reverse()
+	_fill_vgrad(up, top, bot + 18.0, C_PB_REV_T, C_PB_REV_B, a)
+	_fill_vgrad(lo, top, bot + 18.0, C_PB_REV_T, C_PB_REV_B, a)
+	# 자락이 띠 뒤로 들어가며 생기는 그늘 — 이게 없으면 '접힌 것'이 아니라 '이어 붙인 색종이'다
+	var fc: Color = C_PB_FOLD
+	fc.a = 0.7 * a
+	draw_colored_polygon(PackedVector2Array([
+		Vector2(inner_x, top), Vector2(inner_x, bot),
+		Vector2(inner_x + sgn * 26.0, my)]), fc)
+
+# 벡터 왕관 — OS 이모지(👑) 대체. 이모지는 기기마다 그림이 다르고, 손으로 그린 면 옆에서 재질이 튄다.
+# ⚠**가로로 넓고 세로로 낮은 실루엣(≈1.67:1)을 지킬 것.** 갓레이의 inner 반지름이 이 실루엣에
+#   맞춰 튜닝돼 있어서(J3), 세로로 키우면 광선 안쪽 끝이 왕관 밑에서 삐져나와 허공에서 끊긴다.
+func _draw_pb_crown(ctr: Vector2, w: float, a: float, flat: Color = Color(0, 0, 0, 0)) -> void:
+	var s: float = w / 106.0
+	var sy: float = s * 0.76          # 세로만 눌러 1.27:1 → 1.67:1
+	var gold_t: Color = Color(1.0, 0.953, 0.769, a)
+	var gold_b: Color = Color(0.910, 0.635, 0.165, a)
+	var oc: Color = Color(C_PB_CROWN_OUT.r, C_PB_CROWN_OUT.g, C_PB_CROWN_OUT.b, a)
+	# 스파이크 4조각(세로 슬래브로 쪼갠 볼록 사변형). 위 지그재그 · 아래 y=22.
+	var xs: Array = [-46.0, -22.0, 0.0, 22.0, 46.0]
+	var ys: Array = [-22.0, 2.0, -32.0, 2.0, -22.0]   # 각 x에서의 윗변 y
+	# ⚠**작게 그릴 땐 실루엣으로.** 34px짜리 스티커 안에서 금색 왕관을 금색 판 위에 얹으면 대비가
+	#   없어 흰 구슬만 점처럼 남는다(실측). 작은 크기는 렌더된 물건이 아니라 아이콘이라야 하고,
+	#   아이콘은 옆 글자와 같은 잉크색 한 톤이 정답이다.
+	if flat.a > 0.0:
+		var fl: Color = Color(flat.r, flat.g, flat.b, flat.a * a)
+		for i in range(4):
+			var q: PackedVector2Array = PackedVector2Array()
+			for v in [Vector2(float(xs[i]), float(ys[i])), Vector2(float(xs[i + 1]), float(ys[i + 1])),
+					Vector2(float(xs[i + 1]), 22.0), Vector2(float(xs[i]), 22.0)]:
+				q.append(ctr + Vector2((v as Vector2).x * s, (v as Vector2).y * sy))
+			draw_colored_polygon(q, fl)
+		draw_rect(Rect2(ctr.x - 50.0 * s, ctr.y + 14.0 * sy, 100.0 * s, 26.0 * sy), fl)
+		for i in range(3):
+			draw_circle(ctr + Vector2(float([-46.0, 0.0, 46.0][i]) * s,
+					float([-24.0, -34.0, -24.0][i]) * sy), maxf(2.0, 8.0 * s), fl)
+		return
+	# 두 번 돈다: pass 0 = 바깥으로 부풀린 어두운 윤곽, pass 1 = 금색 채움.
+	#   ⚠조각마다 테를 두르면 내부에 이음매 선이 생긴다 → 실루엣 전체를 키워 **뒤에 깔아야** 한다.
+	#     밑변(y=22)은 안 키운다 — 어차피 몸통 띠가 덮는다. [[sprite-swap-keeps-signal-channel]]
+	for pass_i in range(2):
+		var kx: float = 1.07 if pass_i == 0 else 1.0
+		var ky: float = 1.16 if pass_i == 0 else 1.0
+		for i in range(4):
+			var x0: float = float(xs[i]) * kx
+			var x1: float = float(xs[i + 1]) * kx
+			var y0: float = 22.0 + (float(ys[i]) - 22.0) * ky
+			var y1: float = 22.0 + (float(ys[i + 1]) - 22.0) * ky
+			var quad: PackedVector2Array = PackedVector2Array()
+			for v in [Vector2(x0, y0), Vector2(x1, y1), Vector2(x1, 22.0), Vector2(x0, 22.0)]:
+				quad.append(ctr + Vector2((v as Vector2).x * s, (v as Vector2).y * sy))
+			if pass_i == 0:
+				draw_colored_polygon(quad, oc)
+				continue
+			var cols: PackedColorArray = PackedColorArray()
+			for pt in quad:
+				cols.append(gold_t.lerp(gold_b, clampf((pt.y - (ctr.y - 32.0 * sy)) / (54.0 * sy), 0.0, 1.0)))
+			draw_polygon(quad, cols)
+	# 아래 띠(왕관 몸통) — 여기에 윤곽선을 준다. 스파이크는 조각을 이어 붙인 것이라 테두리를 두르면
+	#   내부에 이음매 선이 생긴다 → 몸통만 테를 두르고 스파이크는 색으로 분리한다.
+	var bandr: Rect2 = Rect2(ctr.x - 50.0 * s, ctr.y + 14.0 * sy, 100.0 * s, 26.0 * sy)
+	# ⚠윤곽 두께는 **s를 타야 한다.** 절대값으로 두면 작게 그릴 때(스티커 안 26px) 테가 스파이크보다
+	#   두꺼워져 왕관이 얼룩이 된다 — 실제로 그랬다.
+	var ow: float = maxf(1.5, 3.0 * s)
+	draw_colored_polygon(_round_rect_pts(bandr.grow(ow), 10.0 * s + ow, 4), oc)
+	_fill_vgrad(_round_rect_pts(bandr, 10.0 * s, 4), bandr.position.y, bandr.end.y, gold_t, gold_b, a)
+	# 꼭짓점 구슬 + 몸통 보석
+	for i in range(3):
+		var bx: float = float([-46.0, 0.0, 46.0][i])
+		var byy: float = float([-24.0, -34.0, -24.0][i])
+		draw_circle(ctr + Vector2(bx * s, byy * sy), (8.5 if i == 1 else 7.5) * s + maxf(1.2, 2.5 * s), oc)
+		draw_circle(ctr + Vector2(bx * s, byy * sy), (8.5 if i == 1 else 7.5) * s, Color(1.0, 0.976, 0.855, a))
+	for i in range(3):
+		var gx: float = float([-24.0, 0.0, 24.0][i])
+		var gcol: Color = C_PB_GEM_B if i == 1 else C_PB_GEM_A
+		draw_circle(ctr + Vector2(gx * s, 27.0 * sy), (7.5 if i == 1 else 6.5) * s, Color(gcol.r, gcol.g, gcol.b, a))
+
+# 점수 숫자 — 한 글자씩. 두 가지를 손으로 해야 해서 통짜 draw_string을 못 쓴다:
+#   ① **자간**: Baloo2 ExtraBold의 인접 숫자 잉크 틈이 5px뿐이라, 외곽선이 양쪽에서 자라면 겹쳐서
+#      "400"의 두 0이 어두운 덩어리로 붙는다. 자간을 벌려 틈을 되돌린다.
+#   ② **쉼표**: baseline 아래로 ≈9px 내려와 밑의 라벨과 국소적으로 붙는다(유저가 "겹쳐 보인다"고 한
+#      지점이 평균 간격이 아니라 정확히 여기였다). 쉼표만 올려 찍어 간격을 전 구간 균일하게 만든다.
+# 자릿수가 늘면 자간을 줄인다 — 잉크 폭 실측 6자리 257 / 7자리 306 / 9자리 468이라 폭 자체는
+#   9자리까지 띠 안에 들어가지만, 자간까지 얹으면 7자리부터 넘친다.
+func _pb_score_gap(n: int) -> float:
+	if n <= 6:
+		return 6.0
+	if n <= 8:
+		return 3.0
+	return 0.0
+
+func _pb_score_width(f: Font, txt: String, size: int) -> float:
+	var gap: float = _pb_score_gap(txt.length())
+	var w: float = 0.0
+	for i in range(txt.length()):
+		w += f.get_string_size(txt[i], HORIZONTAL_ALIGNMENT_LEFT, -1, size).x
+	return w + gap * float(maxi(0, txt.length() - 1))
+
+func _draw_pb_score(f: Font, txt: String, x0: float, baseline: float, size: int, a: float) -> void:
+	var gap: float = _pb_score_gap(txt.length())
+	var oc: Color = Color(C_PB_OUT.r, C_PB_OUT.g, C_PB_OUT.b, a)
+	var x: float = x0
+	for i in range(txt.length()):
+		var ch: String = txt[i]
+		var pos: Vector2 = Vector2(x, baseline - (5.0 if ch == "," else 0.0))
+		draw_string_outline(f, pos, ch, HORIZONTAL_ALIGNMENT_LEFT, -1, size, PB_NUM_OUT, oc)
+		draw_string(f, pos, ch, HORIZONTAL_ALIGNMENT_LEFT, -1, size, Color(1.0, 1.0, 1.0, a))
+		x += f.get_string_size(ch, HORIZONTAL_ALIGNMENT_LEFT, -1, size).x + gap
+
 func _draw_pb_ribbon(fnt: Font) -> void:
 	var p: float = clampf(1.0 - pb_pop_t / PB_POP_DUR, 0.0, 1.0)
-	var by: float = float(board_y)
 	var bh: float = float(ROWS * CELL)
-	var bw: float = float(COLS * CELL)
-	var cx: float = float(BOARD_X) + bw * 0.5
-	var ry: float = by + bh * 0.66
-	var sweep: float = clampf(p / 0.16, 0.0, 1.0)          # 앞 0.16에 좌우 확장
-	var ease: float = 1.0 - pow(1.0 - sweep, 3.0)
-	var rib_a: float = 1.0
-	if p > 0.72:
-		rib_a = clampf((1.0 - p) / 0.28, 0.0, 1.0)         # 뒤 0.28에 페이드
-	if rib_a <= 0.01:
+	var cx: float = float(BOARD_X) + float(COLS * CELL) * 0.5
+	var cy: float = float(board_y) + bh * 0.5          # ⚠절대 y 금지 — board_y는 반응형이다
+	var dfnt: Font = _font_display if _font_display != null else fnt
+
+	# ── 박자 ── 등장 32% / 홀드 42% / 퇴장 26%. 요소 간 시차 60~110ms(칭찬 단어의 PRAISE_LEAD와 같은 계단).
+	var band_t: float = _seg_ease(p, 0.02, 0.14)
+	var tail_t: float = _seg_ease(p, 0.09, 0.18)
+	var num_t: float = _seg_ease(p, 0.13, 0.24)
+	# ⚠왕관은 **갓레이와 같이** 떨어져야 한다. 늦게 오면 광선 뿌리(inner 62)가 빈 도넛 구멍으로 보인다.
+	var crown_t: float = _seg_ease(p, 0.05, 0.15)
+	var lbl_t: float = _seg_ease(p, 0.25, 0.32)
+	var outp: float = clampf((p - 0.74) / 0.26, 0.0, 1.0)
+	var a_body: float = 1.0 - outp
+	var sink: float = outp * 14.0                       # 띠만 아래로 치워진다(숫자는 제자리서 페이드)
+	if a_body <= 0.01 or band_t <= 0.001:
 		return
-	var half: float = bw * 0.5 * ease
-	var rh: float = 74.0
-	# 띠 — 레드 리본(BB) + 상/하 골드 테두리 + 상단 하이라이트
-	draw_rect(Rect2(cx - half, ry - rh * 0.5, half * 2.0, rh), Color(0.86, 0.15, 0.24, 0.93 * rib_a))
-	draw_rect(Rect2(cx - half, ry - rh * 0.5, half * 2.0, 4.0), Color(1.0, 0.86, 0.4, 0.9 * rib_a))
-	draw_rect(Rect2(cx - half, ry + rh * 0.5 - 4.0, half * 2.0, 4.0), Color(0.7, 0.09, 0.14, rib_a))
-	# 텍스트 — 스윕 끝나며 등장(디스플레이 폰트). "NEW BEST" 작게 위 + 점수 크게 아래.
-	var txt_a: float = clampf((sweep - 0.45) / 0.55, 0.0, 1.0) * rib_a
-	if txt_a > 0.01:
-		var dfnt: Font = _font_display if _font_display != null else fnt
+
+	# ── 띠 ── 폭만 열면 막대가 늘어나는 것이고, **높이를 같이 열어야 종이가 펴진다**
+	var half: float = PB_BAND_HALF * band_t
+	var hh: float = PB_BAND_H * lerpf(0.72, 1.0, band_t)
+	var midy: float = cy + PB_BAND_OFF + PB_BAND_H * 0.5 + sink
+	var band: Rect2 = Rect2(cx - half, midy - hh * 0.5, half * 2.0, hh)
+	if band.size.x < 12.0 or band.size.y < 8.0:
+		return
+
+	# 그림자 — 블러가 없으니 겹으로 근사. 겹이 적으면 동심 띠가 눈에 보인다(후광에서 10겹→22겹으로 겪음).
+	for i in range(6):
+		var g: float = float(i) * 1.4
+		var sr: Rect2 = Rect2(band.position - Vector2(g, g) + Vector2(0.0, 3.5 + float(i) * 1.3),
+				band.size + Vector2(g * 2.0, g * 2.0))
+		draw_colored_polygon(_round_rect_pts(sr, PB_BAND_RAD + g),
+				Color(C_PB_SHADOW.r, C_PB_SHADOW.g, C_PB_SHADOW.b, 0.075 * a_body))
+
+	# 자락 — 띠보다 한 박 늦게 바깥으로. 띠보다 **먼저** 그려야 띠가 안쪽 끝을 덮는다.
+	if tail_t > 0.001:
+		var ox: float = lerpf(half, PB_TAIL_X, tail_t)
+		# ⚠자락의 안쪽 끝은 띠 **안으로** 8px 밀어넣는다. 띠 모서리가 둥글어서 딱 맞추면 코너에
+		#   자락 색이 비치는 틈이 생긴다(자락이 떨어져 나온 것처럼 보인다).
+		_draw_pb_tail(-1.0, band.position.x + 8.0, cx - ox, band.position.y, band.end.y, a_body)
+		_draw_pb_tail(1.0, band.end.x - 8.0, cx + ox, band.position.y, band.end.y, a_body)
+
+	# 윤곽선 → 베벨 테 → 분리선 → 면. block.png의 층 구성 그대로.
+	draw_colored_polygon(_round_rect_pts(band.grow(2.5), PB_BAND_RAD + 2.5),
+			Color(C_PB_OUT.r, C_PB_OUT.g, C_PB_OUT.b, a_body))
+	_fill_vgrad(_round_rect_pts(band, PB_BAND_RAD), band.position.y, band.end.y, C_PB_RIM_T, C_PB_RIM_B, a_body)
+	draw_colored_polygon(_round_rect_pts(band.grow(-PB_RIM), PB_BAND_RAD - PB_RIM),
+			Color(C_PB_SEP.r, C_PB_SEP.g, C_PB_SEP.b, a_body))
+	var face: Rect2 = band.grow(-(PB_RIM + 1.0))
+	_fill_vgrad(_round_rect_pts(face, PB_BAND_RAD - PB_RIM - 1.0), face.position.y, face.end.y,
+			C_PB_FACE_T, C_PB_FACE_B, a_body)
+
+	var sc_txt: String = _comma(roundi(endless_score_shown))
+	var sc_w: float = _pb_score_width(dfnt, sc_txt, PB_SCORE_SIZE)
+
+	# ── 금색 레일은 **없다.** ──
+	#   띠 윗변에 그으면 숫자가 그 위를 지나 글자 틈마다 금색 조각이 긁힌 자국처럼 튀어나오고,
+	#   숫자를 피해 좌우로 끊으면 두 개의 뜬금없는 막대가 된다(실제로 렌더해서 확인했다).
+	#   숫자 아래로 내리면 라벨과의 간격이 3px로 붕괴한다. 그리고 애초에 **panel.png에도 내부 장식이
+	#   없다** — 테와 면뿐이다. 금색은 왕관(큼)과 NEW BEST(글자)가 이미 충분히 지고 있다.
+
+	# ── NEW BEST ── 띠 안. 밑에서 3px 올라오며 등장.
+	if lbl_t > 0.001:
 		var lbl: String = _t("new_best_ribbon")
-		var lw: float = dfnt.get_string_size(lbl, HORIZONTAL_ALIGNMENT_LEFT, -1, 22).x
-		_draw_text_outlined(dfnt, Vector2(cx - lw * 0.5, ry - 12.0), lbl, 22, Color(1.0, 0.88, 0.4, txt_a), Color(0.4, 0.03, 0.06, 0.9 * txt_a))
-		var sc: String = _comma(roundi(endless_score_shown))
-		var sw2: float = dfnt.get_string_size(sc, HORIZONTAL_ALIGNMENT_LEFT, -1, 40).x
-		_draw_text_outlined(dfnt, Vector2(cx - sw2 * 0.5, ry + 26.0), sc, 40, Color(1.0, 1.0, 1.0, txt_a), Color(0.4, 0.03, 0.06, 0.9 * txt_a))
+		var lw: float = dfnt.get_string_size(lbl, HORIZONTAL_ALIGNMENT_LEFT, -1, PB_LABEL_SIZE).x
+		var la: float = lbl_t * a_body
+		var ly: float = cy + PB_LABEL_OFF + sink + (1.0 - lbl_t) * 3.0
+		draw_string(dfnt, Vector2(cx - lw * 0.5, ly + 2.0), lbl, HORIZONTAL_ALIGNMENT_LEFT, -1, PB_LABEL_SIZE,
+				Color(C_PB_OUT.r, C_PB_OUT.g, C_PB_OUT.b, 0.5 * la))
+		draw_string(dfnt, Vector2(cx - lw * 0.5, ly), lbl, HORIZONTAL_ALIGNMENT_LEFT, -1, PB_LABEL_SIZE,
+				Color(C_PB_LABEL.r, C_PB_LABEL.g, C_PB_LABEL.b, la))
+
+	# ── 점수 ── ⚠**font_size를 애니메이션하면 안 된다** — 매 프레임 글리프 재베이크로 21ms가
+	#   83~132ms로 튄 전례가 있다. 크기는 고정하고 변환의 scale로만 키운다. [[godot-animating-text-size-refires-glyphs]]
+	if num_t > 0.001:
+		var ns: float = lerpf(1.28, 1.0, num_t)
+		_xf(Vector2(cx, cy + PB_SCORE_OFF), 0.0, Vector2(ns, ns))
+		_draw_pb_score(dfnt, sc_txt, -sc_w * 0.5, 0.0, PB_SCORE_SIZE, num_t * (1.0 - outp))
+		_xf(Vector2.ZERO, 0.0, Vector2.ONE)
+
+	# ── 왕관 ── 위에서 떨어져 착지 스쿼시. 숫자와 함께 제자리서 페이드아웃(마지막 잔상이 숫자여야 한다).
+	if crown_t > 0.001:
+		var drop: float = (1.0 - crown_t) * -34.0
+		var squash: float = 1.0 + sin(clampf(crown_t, 0.0, 1.0) * PI) * 0.14
+		_draw_pb_crown(Vector2(cx, cy + PB_CROWN_OFF + drop), PB_CROWN_W * squash, crown_t * (1.0 - outp))
 
 # "👑 신기록!" 스티커 — 넘은 순간 카드 상단에 비스듬히 '붙어' 판 끝까지 상주(계속 갱신 중이라 안 뗀다).
 #   팝인만 오버슛 원샷(pb_pop_t 창), 이후 고정. 기본 UI('점수' 라벨)를 '가릴' 뿐 안 바꾼다(occlude-don't-mutate).
@@ -6526,10 +6803,13 @@ func _draw_pb_sticker(fnt: Font) -> void:
 	# ⚠식이 스스로 출처를 적어놨다: `(800-464)*0.5+125`는 카드 폭이 **464이던 시절**의 중심이다.
 	#   지금 카드는 310(=`gw`)이라 중심이 400 → 스티커가 107px 왼쪽, 즉 카드에 '붙지' 않고 허공에 떴다(J1).
 	var cx: float = _goal_card_center().x
-	var label: String = "👑 " + _t("new_best_live")   # ⚠리터럴 금지 — 영어 빌드에 한글이 새면 두부가 된다
+	# ⚠**왕관은 이모지가 아니라 벡터로.** 옛 라벨은 `"👑 " + …`였다. 배너가 벡터 왕관을 그리는 1.6초
+	#   동안 화면에 왕관이 둘 뜨는데 하나는 OS 이모지라 재질이 서로 달랐다 — 이모지를 버린 이유가 그거다.
+	var label: String = _t("new_best_live")   # ⚠리터럴 금지 — 영어 빌드에 한글이 새면 두부가 된다
 	var sfs: int = 22
+	var cw: float = 34.0                      # 스티커 안 왕관 폭
 	var lw: float = fnt.get_string_size(label, HORIZONTAL_ALIGNMENT_LEFT, -1, sfs).x
-	var sw: float = lw + 34.0
+	var sw: float = lw + cw + 42.0
 	var sh: float = 40.0
 	# 세로도 카드에서 받는다 — 카드 윗변보다 10px 위에 중심을 두면 스티커 아랫단이 윗변을 물어 '걸친다'.
 	#   (상수 30.0은 safe_top=0인 데스크톱에서만 우연히 맞던 값이다.)
@@ -6537,7 +6817,8 @@ func _draw_pb_sticker(fnt: Font) -> void:
 	draw_rect(Rect2(-sw * 0.5 + 2.0, -sh * 0.5 + 3.0, sw, sh), Color(0.0, 0.0, 0.0, 0.22 * a))   # 그림자
 	draw_rect(Rect2(-sw * 0.5, -sh * 0.5, sw, sh), Color(0.82, 0.58, 0.06, a))                   # 골드 테두리
 	draw_rect(Rect2(-sw * 0.5 + 3.0, -sh * 0.5 + 3.0, sw - 6.0, sh - 6.0), Color(1.0, 0.86, 0.3, a))  # 크림 속
-	draw_string(fnt, Vector2(-lw * 0.5, sfs * 0.36), label, HORIZONTAL_ALIGNMENT_LEFT, -1, sfs, Color(0.3, 0.15, 0.0, a))
+	_draw_pb_crown(Vector2(-sw * 0.5 + 14.0 + cw * 0.5, 0.0), cw, a, Color(0.3, 0.15, 0.0))
+	draw_string(fnt, Vector2(-sw * 0.5 + cw + 24.0, sfs * 0.36), label, HORIZONTAL_ALIGNMENT_LEFT, -1, sfs, Color(0.3, 0.15, 0.0, a))
 	_xf(Vector2.ZERO, 0.0, Vector2.ONE)
 
 # ===== 결과 팝업 =====
