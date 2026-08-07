@@ -135,6 +135,21 @@ func _init() -> void:
 			gtl.append([gc, e2[0], e2[1], e2[2]])
 		g_at += 0.9
 	_at("%s/GEM_COLLECT.wav" % OUT_DIR, gtl)
+	# ⑫ 부활(R29) — **낱개로 구우면 판정이 안 난다.** 이 소리의 설계는 "직전에 운 `result_lose`(같은
+	#   글로켄, 아래)를 되받아 위로 올라간다"이고, 그 문법은 앞 소리가 있어야만 들린다(§11 미리듣기
+	#   원칙: 겹쳐야 값이 나는 층은 겹쳐서 들려줘야 한다). 그래서 **실패 팝업 → CTA 탭 → 부활**
+	#   순서를 실제 간격으로 이어 굽는다 = 플레이어가 광고를 보고 돌아오는 그 경로 그대로다.
+	var tg: AudioStreamWAV = m._sfx_bank["tap_go"]
+	var rv: AudioStreamWAV = m._sfx_bank["revive"]
+	var rtl: Array = [
+			[m._sfx_bank["result_lose"], int(wd["result_lose"]["base"]), float(wd["result_lose"]["db"]), 0.0],
+			[rc, int(wd["result_cta"]["base"]), float(wd["result_cta"]["db"]), float(m.RESULT_BTN_IN)],
+			[tg, int(wd["tap_go"]["base"]), float(wd["tap_go"]["db"]), 2.2],
+		]
+	# 3발 상승 — 간격 0.12는 Main.gd의 `_sfx`와 같은 값이어야 한다(자를 두 벌 두지 말 것).
+	for i3 in range(3):
+		rtl.append([rv, [0, 7, 12][i3], float(wd["revive"]["db"]), 2.5 + float(i3) * 0.12])
+	_at("%s/REVIVE.wav" % OUT_DIR, rtl)
 	m.free()
 	quit()
 
