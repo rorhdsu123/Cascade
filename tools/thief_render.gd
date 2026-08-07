@@ -43,6 +43,28 @@ func _run() -> void:
 	await RenderingServer.frame_post_draw
 	root.get_texture().get_image().save_png(SP + "/thief_states.png")
 	print("saved: thief_states.png (vault=%d, n=%d)" % [main.vault, main.enemies.size()])
+
+	# ── 훔치는 순간(S25): 거점 띠 → 자루로 다이아가 날아가는 프레임을 잡는다. ──
+	#   ⚠carrying을 손으로 세팅하면 _grab을 안 탄다 = 연출이 아예 안 생긴다. 실제 경로로 태워야 한다:
+	#     도둑을 row=ROWS(거점 아래)에 세우고 advance_step()을 부르면 grab 분기가 돈다.
+	main.enemies.clear()
+	main.vault = 4
+	main.enemies.append({
+		"col": 3, "row": main.ROWS, "vis_row": float(main.ROWS), "hp": 150, "maxhp": 150,
+		"etype": "thief", "id": 4100, "step_every": 1, "remain": 1, "carrying": false,
+	})
+	main.call("advance_step")
+	print("grab: vault=%d · steal_flights=%d" % [main.vault, main.steal_flights.size()])
+	# 비행을 세 프레임(초·중·말)으로 잡는다 — 궤적이 읽히는지는 한 장으로 판정할 수 없다.
+	for shot in range(3):
+		await process_frame
+		await RenderingServer.frame_post_draw
+		root.get_texture().get_image().save_png(SP + "/thief_steal%d.png" % shot)
+		var ft: float = float(main.steal_flights[0]["t"]) if main.steal_flights.size() > 0 else -1.0
+		print("saved: thief_steal%d.png (t=%.3f)" % [shot, ft])
+		for i in range(2):
+			main._process(0.04)
+			await process_frame
 	quit()
 
 func _add(id: int, col: int, row: int, carrying: bool) -> void:

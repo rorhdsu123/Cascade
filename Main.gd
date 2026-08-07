@@ -510,6 +510,15 @@ var dbg_block: int = 0               # 앞이 막혀 한 박자 대기한 횟수
 var collect_pop: Array = []          # 타입별 카운터 도착 팝(스케일 바운스) 타이머
 # 폭탄 피해 비행(보석 비행의 역방향): 폭발이 뱉은 '깨진 하트 −N' 토큰이 HP 바의 곧-깎일 구간으로 날아가 착지하며 바를 부순다.
 var dmg_flights: Array = []          # [{from,to,t,dur,dmg}] 도착 시 core_hp_vis -= dmg + 바 파쇄
+# 도둑이 훔치는 순간 **거점 띠에서 다이아가 튀어나와 그 놈 자루로 빨려간다**(S25). [{from,to,eid,t,dur}]
+#   왜 필요했나: 도둑은 바닥(거점)에서 터는데 금고는 화면 최상단 카드로만 존재한다 — 800px 떨어져 있어
+#   훔치는 순간 눈은 바닥에 있고 숫자는 위에서 준다. 다이아가 **한 번도 있어본 적 없는 곳에서 사라졌다**
+#   (유저 기각 사유 ③: "상단 금고 카드와 바닥의 도둑이 아무 인과로도 안 이어진다").
+#   dmg_flights와 같은 문법이고 방향만 반대다 — 움직이는 물체가 인과를 잇는다.
+# ⚠**순수 연출이다. 로직을 물지 않는다.** vault 차감은 지금처럼 grab 프레임에 즉시 일어나고 이 비행은
+#   그걸 설명만 한다([[fx-timing-that-gates-logic-is-balance]] — 보석 홀드 0.18초가 수집판 승률을
+#   20/20 → 0/20으로 만든 전례). 도착 시점에 아무 상태도 안 바뀌므로 봇 결과는 byte-identical이다.
+var steal_flights: Array = []
 var core_hp_vis: float = 0.0         # 표시용 HP(논리 core_hp보다 늦음) — 토큰이 착지하는 순간에만 깎여 인과가 읽힌다
 var core_shatter: Array = []         # [{x0,x1,life}] 착지 시 깎여나간 바 구간이 부서지는 플래시
 var boom_queue: Array = []            # [{pos,to_pt,dmg,junk,col,delay}] 연쇄 도미노 순차 재생 — hop별 딜레이 후 발화(연출 전용)
@@ -2163,6 +2172,7 @@ func _init_game() -> void:
 	core_hp = director.core_hp_max()
 	core_hp_vis = float(core_hp)
 	dmg_flights = []
+	steal_flights = []
 	core_shatter = []
 	boom_queue = []
 	core_death_armed = false
@@ -3967,6 +3977,14 @@ func advance_step() -> void:
 					_set_callout(_t("callout_thief_stolen"), int(en["id"]))
 				var stp: Vector2 = _enemy_pos(int(en["col"]), bounce_r)
 				impacts.append({"pos": stp, "life": 0.3, "max": 0.3, "color": Color(0.95, 0.55, 0.5), "radius": CELL * 0.45, "star": true})
+				# 훔침을 **보드 위에서 완결**시킨다: 거점 띠(그 놈이 서 있던 열)에서 다이아가 튀어나와
+				#   자루로 빨려간다. 상단 카드의 vault_pop·vault_flash는 사후 확인으로 남는다 —
+				#   그것만으론 눈이 거기 없어서 못 본다(선언부 주석 참조).
+				var steal_from: Vector2 = Vector2(
+						BOARD_X + (float(int(en["col"])) + 0.5) * CELL,
+						board_y + float(ROWS) * CELL + 4.0 + 16.0)   # 거점 띠 중앙(_draw_core와 같은 산식)
+				steal_flights.append({"from": steal_from, "to": _thief_sack_pos(stp),
+						"eid": int(en["id"]), "t": 0.0, "dur": 0.30})
 			elif en["etype"] == "gem":
 				# 보석 놓침 — 거점 무피해, 진행 손해일 뿐. 바닥에서 회색 파프로 '놓쳤다'를 짧게 알림(보석이 중요함을 학습).
 				var gmp: Vector2 = _enemy_pos(int(en["col"]), ROWS - 1)
@@ -4845,6 +4863,7 @@ func _begin_core_death() -> void:
 	core_burst_done = false
 	core_hp_vis = float(core_hp)   # 폭탄 토큰이 아직 날던 중이어도 죽는 순간 바를 실제 값(0)으로 스냅
 	dmg_flights = []
+	steal_flights = []
 	hitstop = maxf(hitstop, CORE_HITSTOP)   # 뚫리는 순간 시간이 멎는다 (hitstop 중엔 core_t도 멈춘다)
 
 # 거점 띠가 터지는 순간 — 파편이 아래로 쏟아지고 화면이 붉게 흔들린다
@@ -5795,6 +5814,20 @@ func _process(delta: float) -> void:
 	var core_max_t: int = maxi(1, director.core_hp_max())
 	var sw_t: float = COLS * CELL
 	var bar_y_t: float = board_y + ROWS * CELL + 4.0
+	# 훔친 다이아 비행 — 도착해도 **아무 상태도 안 바꾼다**(vault는 grab 프레임에 이미 깎였다).
+	#   목표(자루)는 매 프레임 다시 찾는다: 도둑이 반등 직후 위로 도망치기 시작하면 자루도 따라가야
+	#   '저 놈이 들고 갔다'가 성립한다. 그 놈이 사라졌으면(회수·탈출) 마지막 좌표로 그냥 마저 난다.
+	var sf: int = steal_flights.size() - 1
+	while sf >= 0:
+		steal_flights[sf]["t"] += delta
+		var s_eid: int = int(steal_flights[sf]["eid"])
+		for e_s in enemies:
+			if int(e_s["id"]) == s_eid:
+				steal_flights[sf]["to"] = _thief_sack_pos(_enemy_pos(int(e_s["col"]), int(e_s["row"])))
+				break
+		if float(steal_flights[sf]["t"]) >= float(steal_flights[sf]["dur"]):
+			steal_flights.remove_at(sf)
+		sf -= 1
 	var df: int = dmg_flights.size() - 1
 	while df >= 0:
 		dmg_flights[df]["t"] += delta
@@ -6049,6 +6082,17 @@ func _draw() -> void:
 		var psz: float = lerpf(CELL * 0.58, CELL * 0.26, pft)
 		draw_circle(ppos, psz * 0.5 + 5.0, Color(C_PLANE_GLOW.r, C_PLANE_GLOW.g, C_PLANE_GLOW.b, 0.30 * (1.0 - pft)))
 		_draw_plane_icon(ppos, psz)
+	# 훔친 다이아: 거점 띠 → 도둑 자루. 폭탄 피해 토큰과 같은 문법이고 **방향만 반대**다
+	#   (저건 위협이 내 바를 깎으러 오고, 이건 내 것이 뜯겨 나간다). 아치는 위로 — 뜯겨 올라가는 궤적.
+	for sfl in steal_flights:
+		var sft: float = clampf(float(sfl["t"]) / float(sfl["dur"]), 0.0, 1.0)
+		var sbase: Vector2 = (sfl["from"] as Vector2).lerp(sfl["to"] as Vector2, sft * sft)
+		var spos: Vector2 = sbase + Vector2(0.0, sin(sft * PI) * -CELL * 0.34)
+		var ssz: float = lerpf(CELL * 0.46, CELL * 0.26, sft)   # 커졌다 작아지며 자루로 빨려든다
+		draw_circle(spos, ssz * 0.72, Color(1.0, 0.84, 0.35, 0.30 * (1.0 - sft)))
+		# ⚠금고 카드 핍과 **똑같은 아이콘**(_draw_gem_icon gtype 0 = 금 다이아)을 쓴다. 다른 그림이면
+		#   날아가는 게 '내 금고 것'이라는 게 안 읽힌다 — 인과를 잇자고 만든 연출이 물건을 바꿔버린다.
+		_draw_gem_icon(spos, ssz, 0)
 	# 폭탄 피해 토큰: 깨진 하트 + −N 이 폭발서 HP 바로 날아간다(움직이는 물체 = 강한 인과). 살짝 아치 그리며 내려꽂힘.
 	for dfl in dmg_flights:
 		var dft: float = clampf(float(dfl["t"]) / float(dfl["dur"]), 0.0, 1.0)
@@ -6520,6 +6564,7 @@ func _revive(method: String = "ad_reward") -> void:
 	core_hp = director.core_hp_max()   # 거점 HP 풀 복구
 	core_hp_vis = float(core_hp)
 	dmg_flights = []
+	steal_flights = []
 	core_shatter = []
 	boom_queue = []
 	core_death_armed = false
@@ -8211,6 +8256,13 @@ func _draw_broken_heart(c: Vector2, s: float, col: Color) -> void:
 	draw_line(c + Vector2(0.0, -s * 0.34), c + Vector2(-s * 0.10, 0.0), Color(0.25, 0.03, 0.05), 2.2)
 	draw_line(c + Vector2(-s * 0.10, 0.0), c + Vector2(s * 0.06, s * 0.16), Color(0.25, 0.03, 0.05), 2.2)
 	draw_line(c + Vector2(s * 0.06, s * 0.16), c + Vector2(0.0, s * 0.5), Color(0.25, 0.03, 0.05), 2.2)
+
+# 도둑 자루의 화면 좌표 — 몸 중심을 받아 자루로 옮긴다. 도둑 그리기(_draw match "thief")의
+#   sack 산식과 **같은 값을 쓴다**(tr = CELL*0.32, 오프셋 0.74/0.52). 훔친 다이아가 몸통 한가운데가
+#   아니라 자루에 꽂혀야 "저기 들어갔다"가 된다.
+func _thief_sack_pos(center: Vector2) -> Vector2:
+	var tr: float = CELL * 0.32
+	return center + Vector2(tr * 0.74, tr * 0.52)
 
 func _draw_gem_icon(center: Vector2, s: float, gtype: int = 0) -> void:
 	var col: Color = GEM_COLORS[gtype % GEM_COLORS.size()]
