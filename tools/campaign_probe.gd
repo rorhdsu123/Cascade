@@ -11,6 +11,7 @@ func _init() -> void:
 	var S: GDScript = load("res://Main.gd")
 	var g: Node = S.new()
 	root.add_child(g)
+	g.set("persist_enabled", false)   # ⚠_ready가 켠다 — 안 끄면 봇의 클리어가 실유저 진행도에 각인된다(regress와 동형 가드)
 	var sd: String = OS.get_environment("PROBE_SEED")
 	if sd != "":
 		seed(int(sd))
