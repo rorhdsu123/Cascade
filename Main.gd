@@ -6275,18 +6275,26 @@ func _draw() -> void:
 #   숫자는 안 띄운다(라이브 점수 카드와 중복). PB 버스트보다 작게 = 위계. 코지(셰이크·흰섬광 없음). 전부 오버레이.
 func _draw_zone_trans() -> void:
 	var p: float = clampf(1.0 - zone_trans_t / ZONE_TRANS_DUR, 0.0, 1.0)   # 0→1
-	var cc: Vector2 = Vector2(293.0, 56.0)   # 점수 카드 중심
+	# ⚠하드코딩 (293,56)은 카드 폭이 464이던 시절 값이라 지금 카드(310)에서 **107px 왼쪽·36px 위**로
+	#   어긋나 있었다 — 링이 카드를 감싸는 대신 왼쪽 위 모서리에 걸쳐 배경으로 샜다(J1).
+	#   `_goal_dock_pos`가 같은 이유로 이미 한 번 고쳐진 자리다. 좌표는 그리는 쪽에서 받아온다.
+	var cc: Vector2 = _goal_card_center()
 	var a: float = 1.0
 	if p < 0.06:
 		a = p / 0.06
 	elif p > 0.55:
 		a = clampf((1.0 - p) / 0.45, 0.0, 1.0)
 	var ring: Color = zone_col.lerp(Color(0.72, 0.8, 1.0), 0.6)   # 존색+쿨 살짝
+	# 반지름도 카드에서 받는다. 옛 값(20→110)은 카드 반폭(155)보다 작아 링이 수명 내내 **숫자 위에**
+	#   머물렀다 — 앵커를 제자리로 돌리고 나서야 드러났다(전엔 모서리로 빗나가 절반이 배경으로 샜다).
+	#   카드 모서리 거리(≈163)에서 시작해 밖으로 퍼지면 글자를 한 번도 안 가리고 '카드에서 나온 파문'이 된다.
+	#   바깥 끝은 PB 갓레이(보드폭 0.42≈302)보다 확실히 작게 = 위계 유지.
+	var r0: float = Vector2(HUD_CARD_W, HUD_CARD_H).length() * 0.5   # 카드 외접원 ≈163
 	for k in range(2):
 		var rr: float = clampf((p - float(k) * 0.12) / 0.55, 0.0, 1.0)
 		if rr <= 0.0 or rr >= 1.0:
 			continue
-		draw_arc(cc, lerp(20.0, 92.0 + float(k) * 18.0, rr), 0.0, TAU, 40,
+		draw_arc(cc, lerp(r0, r0 + 88.0 + float(k) * 20.0, rr), 0.0, TAU, 48,
 				Color(ring.r, ring.g, ring.b, a * (1.0 - rr) * 0.5), 2.5)
 
 # 전이 순간 배경 밝기 플래시 계수(0~) — 존 넘는 초반 0.3s만 쿨하게 밝아졌다 사그라듦.
@@ -6386,13 +6394,17 @@ func _draw_pb_sticker(fnt: Font) -> void:
 			var ip: float = p / 0.14
 			ss = (1.0 - pow(1.0 - ip, 2.0)) + sin(clampf(ip, 0.0, 1.0) * PI) * 0.18   # 오버슛 팝인
 			wob = sin(p * 26.0) * 0.03 * clampf(1.0 - p / 0.3, 0.0, 1.0)              # 진입 살짝 흔들
-	var cx: float = (800.0 - 464.0) * 0.5 + 125.0   # 점수 카드 중심 x (293)
+	# ⚠식이 스스로 출처를 적어놨다: `(800-464)*0.5+125`는 카드 폭이 **464이던 시절**의 중심이다.
+	#   지금 카드는 310(=`gw`)이라 중심이 400 → 스티커가 107px 왼쪽, 즉 카드에 '붙지' 않고 허공에 떴다(J1).
+	var cx: float = _goal_card_center().x
 	var label: String = "👑 " + _t("new_best_live")   # ⚠리터럴 금지 — 영어 빌드에 한글이 새면 두부가 된다
 	var sfs: int = 22
 	var lw: float = fnt.get_string_size(label, HORIZONTAL_ALIGNMENT_LEFT, -1, sfs).x
 	var sw: float = lw + 34.0
 	var sh: float = 40.0
-	_xf(Vector2(cx, 30.0 + safe_top), -0.12 + wob, Vector2(ss, ss))   # 카드 상단 걸치게, ~-7°
+	# 세로도 카드에서 받는다 — 카드 윗변보다 10px 위에 중심을 두면 스티커 아랫단이 윗변을 물어 '걸친다'.
+	#   (상수 30.0은 safe_top=0인 데스크톱에서만 우연히 맞던 값이다.)
+	_xf(Vector2(cx, _hud_card_y() - 10.0), -0.12 + wob, Vector2(ss, ss))   # 카드 상단 걸치게, ~-7°
 	draw_rect(Rect2(-sw * 0.5 + 2.0, -sh * 0.5 + 3.0, sw, sh), Color(0.0, 0.0, 0.0, 0.22 * a))   # 그림자
 	draw_rect(Rect2(-sw * 0.5, -sh * 0.5, sw, sh), Color(0.82, 0.58, 0.06, a))                   # 골드 테두리
 	draw_rect(Rect2(-sw * 0.5 + 3.0, -sh * 0.5 + 3.0, sw - 6.0, sh - 6.0), Color(1.0, 0.86, 0.3, a))  # 크림 속
@@ -7908,6 +7920,9 @@ func _draw_lock(c: Vector2, s: float, col: Color) -> void:
 # 상단 카드 패널(Toon Blast식) — 배경 + 강조 테두리
 # 상단 목표 카드의 세로 위치·높이 — HUD와 튜토리얼 문구가 같은 출처를 쓴다(하드코딩 y가 카드를 관통했던 사고).
 const HUD_CARD_H: float = 104.0
+# ⚠폭도 상수여야 한다. 이게 `_draw_hud`의 지역 `gw`로만 있던 탓에 연출 쪽은 카드 크기를 참조할 길이
+#   없어 **숫자를 베껴 적었고**, 폭이 464→310으로 줄었을 때 그 사본들만 옛 값에 남았다(J1).
+const HUD_CARD_W: float = 310.0
 
 # 세로 중앙: 헤더 top(노치 아래 safe_top) ~ 보드 top(board_y) 구간 정중앙에 카드를 놓는다.
 #   예전엔 safe_top+14 고정이라 밴드~보드 사이 갭 위쪽으로 쏠렸다. 콤보는 이 값 파생이라 함께 따라온다.
@@ -7984,7 +7999,7 @@ func _draw_hud(fnt: Font) -> void:
 	#   적마다 다른 step_every(swarm desync)를 뭉개 거짓 '턴'이었다. 전진 타이밍은 이제 전부
 	#   보드가 말한다: 적 자세(lean, 전역·조용) + 붉은 착지칸(바닥 게이팅·시끄러움). _draw_enemies 참조.
 	var box_h: float = HUD_CARD_H
-	var gw: float = 310.0
+	var gw: float = HUD_CARD_W
 	var box_y: float = _hud_card_y()
 	var goal_r: Rect2 = Rect2((800.0 - gw) * 0.5, box_y, gw, box_h)
 
@@ -8024,16 +8039,21 @@ func _draw_hud(fnt: Font) -> void:
 		var sc_w: float = fnt.get_string_size(sc_str, HORIZONTAL_ALIGNMENT_LEFT, -1, sc_fs).x
 		var sc_col: Color = Color.WHITE.lerp(C_GOLD, kp)
 		_draw_text_outlined(fnt, Vector2(goal_r.position.x + gw * 0.5 - sc_w * 0.5, box_y + 87.0), sc_str, sc_fs, sc_col)
-		# 좌상단: 크라운 락(BlockBlast 관찰). 넘기 전 = 옛 최고(추격 기준선, 회색). 넘은 뒤 = 👑 라이브
-		#   신기록(점수에 잠겨 매 처치마다 상승, kp로 반짝) — "지금부터 전부 신기록". 이 숫자가 곧 발화선(적 HP 램프):
-		#   영광과 벼랑이 같은 숫자다(endless_mode.gd '내 실력의 끝단이 늘 벼랑').
+		# 좌상단: 크라운 락(BlockBlast 관찰). 넘기 전 = 옛 최고(추격 기준선, 회색). 넘은 뒤 = 👑 **초과분**.
+		#   ⚠넘은 뒤에 라이브 점수를 띄우면 `endless_best`가 판 중엔 안 갱신되므로 `maxi()`가 늘 표시 점수를
+		#     고르고 = **점수 카드와 글자 그대로 같은 문자열**이 판 끝까지 남았다(J1 실측: 재도전 판의 75%가
+		#     PB를 넘으니 대부분의 판이 이 중복으로 끝났다). 안 읽히는 지표는 값부터 — 넘는 순간 정보량이 0이 됐다.
+		#   그래서 카드에 없는 사실 하나만 남긴다: **옛 기록에서 얼마나 더 갔나.** 이게 곧 발화선 진행도이기도
+		#     하다 — `endless_mode.beyond_factor`가 쓰는 `score - best`가 바로 이 값이라, 영광의 크기와
+		#     벼랑의 깊이가 같은 숫자라는 원래 의도가 오히려 여기서 정확해진다.
 		#   ⚠깊이(place_count) 줄은 제거(2026-07-29 유저 결정) — 점수 카드가 이미 진행을 말하고,
 		#     추격 대상은 깊이가 아니라 최고점이다. 자리를 물려받아 이 줄이 좌상단 첫 줄이 된다.
 		if endless_best > 0:
 			var rec_lbl: String
 			var rec_col: Color
 			if beat:
-				rec_lbl = "👑 %s" % _comma(maxi(endless_best, roundi(endless_score_shown)))   # 크라운도 롤업과 동기(C90)
+				# 롤업과 동기(C90) — 표시 점수 기준이라 숫자가 또르르 오르는 리듬을 같이 탄다.
+				rec_lbl = "👑 +%s" % _comma(maxi(0, roundi(endless_score_shown) - endless_best))
 				rec_col = C_GOLD.lerp(Color.WHITE, kp * 0.6)   # 처치마다 흰빛 반짝 = 기록이 실시간으로 새로 쓰인다
 			else:
 				rec_lbl = _t("best_score") % _comma(endless_best)
