@@ -7219,9 +7219,16 @@ func _draw_result(fnt: Font) -> void:
 #   stage_data.gd의 `CASTLE_MAP` 주석이 정본이다. 여기 있는 건 그걸 화면에 앉히는 치수뿐.
 # 좌상단 화살표('홈')로 허브 복귀.
 const SEL_TOP: float = 146.0        # 성이 놓이는 영역 상단(제목·상태 문구 아래)
-const SEL_VIEW_BOT: float = 720.0   # 하단 고정 버튼 위 여백
 const SEL_MARGIN_X: float = 60.0    # 좌우 여백 — 성이 화면 폭을 꽉 채우면 답답하다
-const PLAY_BTN: Rect2 = Rect2(150.0, 742.0, 500.0, 126.0)
+# 하단 시작 버튼. 742였다 — 유저 지적으로 더 내렸다(레퍼런스도 CTA가 화면 바닥에 거의 붙어 있다:
+#   실측 92~98%). 논리 화면은 1000 높이라 여기가 826~952 = 아래 여백 48이다.
+const PLAY_BTN: Rect2 = Rect2(150.0, 826.0, 500.0, 126.0)
+# 성이 놓이는 영역 하단 = 버튼 바로 위. **버튼에서 계산한다** — 따로 두면 버튼을 옮길 때마다
+#   성이 버튼 쪽으로 쏠리거나 붕 뜬다(성은 이 영역의 정중앙에 놓이므로 아래 끝이 곧 무게중심이다).
+const SEL_VIEW_BOT: float = PLAY_BTN.position.y - 44.0
+# 벽돌 한 칸의 **최대** 크기. 없으면 영역을 꽉 채워 커지는데(5칸 도안에서 114px) 유저 지적대로 너무 컸다.
+#   90 = **보드 셀(CELL)과 같은 크기**다. 이 게임의 블록으로 성을 쌓는다는 말이 치수에서도 맞아야 한다.
+const CASTLE_CELL_MAX: float = 90.0
 # 벽돌은 **붙여서** 그린다(칸 사이 간격 0). 블록·빈셀 그림이 각자 여백을 갖고 있어 홈이 거기서 나온다
 #   — 코드가 간격을 또 주면 두 겹이 된다(BLOCK_PAD 주석과 같은 규약).
 # 성벽 색: C_ORANGE(#ff8c1a)는 보드 블록용이라 이 크기로 깔면 화면을 다 먹는다. 성은 배경 오브젝트라
@@ -7290,7 +7297,7 @@ func _castle_cell_size() -> float:
 	var cols: int = String(rows[0]).length()
 	var maxw: float = 800.0 - SEL_MARGIN_X * 2.0
 	var maxh: float = SEL_VIEW_BOT - SEL_TOP
-	return floorf(minf(maxw / float(cols), maxh / float(rows.size())))
+	return floorf(minf(CASTLE_CELL_MAX, minf(maxw / float(cols), maxh / float(rows.size()))))
 
 # i번째 벽돌의 화면 사각형. 성 전체를 영역 정중앙에 놓고 거기서 센다.
 #   ⚠도안 밖 인덱스면 빈 Rect2 — 호출부가 `_castle_order().size()`로 막지만 방어로 남긴다.
