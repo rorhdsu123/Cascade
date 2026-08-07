@@ -453,8 +453,6 @@ var track_record: bool = false     # featured 시퀀스 기록(사후 점수 검
 var track_log: Array = []          # [["P", idx, type, color] | ["S", depth, col, etype], ...]
 var cleared: Dictionary = {}     # 스테이지 인덱스 → 클리어 여부 (세션 한정, 저장 없음)
 var _play_hover: bool = false    # 하단 시작 버튼 호버
-var sel_scroll: float = 0.0      # 진행 그리드 세로 스크롤(넘칠 때만). _sel_enter가 프런티어로 자동 정렬
-var _sel_drag_y: float = -1.0    # 드래그 스크롤: 마지막 포인터 y(-1=비드래그). 터치=에뮬 마우스로 이 경로 재사용
 var _retry_hover: bool = false   # 결과 팝업 재도전 버튼 호버
 var _home_hover: bool = false    # 결과 팝업 홈 버튼 호버
 
@@ -769,10 +767,9 @@ const UI_9S: Dictionary = {
 	#   둘 다 '물건이 앉는 자리'라 같은 물건으로 읽혀야 한다. 상태(빈/참·보유/조준)는 코드가 틴트한다.
 	"slot":          [36, 36, 36, 36],
 	"board_frame":   [48, 48, 48, 48],   # 8×8 보드 외곽. ⚠**가운데는 투명**이어야 한다(보드를 덮으면 안 된다)
-	# 스테이지 타일 3종. 버튼과 같은 규약(상태별 파일 + 코드 틴트)이라 색 조정이 아트를 다시 안 받는다.
-	"tile":          [36, 36, 36, 36],   # 클리어·열림
-	"tile_front":    [36, 36, 36, 36],   # 현재 위치(프런티어) — 금색 위계
-	"tile_off":      [36, 36, 36, 36],   # 잠김
+	# (스테이지 타일 3종 `tile`·`tile_front`·`tile_off`는 C158서 삭제 — 진행 화면이 번호 격자를 버리고
+	#  **성**이 되면서 쓰는 곳이 없어졌다. 성은 보드와 같은 부품으로 짓는다: 벽돌=block.png, 빈자리=cell.png.
+	#  ⚠docs/UI_ART_PLAN.md의 P1 목록에도 남아 있다 — 디자이너에게 다시 요청하지 말 것.)
 	# 튜토리얼 말풍선(알약형, 높이 36 기준). ⚠**반드시 불투명** — 뒤에 보드가 비치면 글자가 안 읽힌다.
 	#   테는 지시(노랑)/손해(붉은색) 2색이라 카드와 같이 레이어로 나눈다.
 	"tut_bubble":    [36, 24, 36, 24],
@@ -5212,27 +5209,18 @@ func _input(event: InputEvent) -> void:
 					_start_endless()
 		return
 
-	# ── 진행 화면(Adventure) ── 타일은 비인터랙티브(진행=프런티어 버튼으로만). 그리드는 세로 스크롤.
+	# ── 진행 화면(Adventure) ── 성은 비인터랙티브(진행=프런티어 버튼으로만).
+	#   스크롤이 없다: 성은 언제나 영역에 맞춰 그려지므로 넘칠 수가 없다(C158서 휠·드래그 제거).
 	if mode == "select":
 		var sdy: Vector2 = Vector2(0.0, _ui_dy())
 		if event is InputEventMouseMotion:
 			var mm: InputEventMouseMotion = event as InputEventMouseMotion
-			var mp: Vector2 = mm.position - sdy
-			_hot_select(mp)
-			# 드래그 스크롤 — 버튼(마우스/터치)이 눌린 채 그리드 위를 끌면 스크롤. 터치=에뮬 마우스로 재사용.
-			if _sel_drag_y >= 0.0 and (mm.button_mask & MOUSE_BUTTON_MASK_LEFT) != 0:
-				_sel_scroll_by(_sel_drag_y - mp.y)
-				_sel_drag_y = mp.y
-			else:
-				queue_redraw()
+			_hot_select(mm.position - sdy)
+			queue_redraw()
 		elif event is InputEventMouseButton:
 			var sm: InputEventMouseButton = event as InputEventMouseButton
 			var smp: Vector2 = sm.position - sdy
-			if sm.button_index == MOUSE_BUTTON_WHEEL_UP and sm.pressed:
-				_sel_scroll_by(-64.0)
-			elif sm.button_index == MOUSE_BUTTON_WHEEL_DOWN and sm.pressed:
-				_sel_scroll_by(64.0)
-			elif sm.button_index == MOUSE_BUTTON_LEFT:
+			if sm.button_index == MOUSE_BUTTON_LEFT:
 				if sm.pressed:
 					_armed = ""
 					if _playtest_tools_on() and DEV_RESET_BTN.has_point(smp):
@@ -5241,11 +5229,8 @@ func _input(event: InputEvent) -> void:
 						_armed = "back"
 					elif PLAY_BTN.has_point(smp) and not _all_cleared():
 						_armed = "play"
-					elif smp.y > SEL_TOP and smp.y < SEL_VIEW_BOT:
-						_sel_drag_y = smp.y                 # 그리드 영역 프레스 = 드래그 스크롤 시작
 					_hot_select(smp)
 				else:
-					_sel_drag_y = -1.0
 					if _armed_hot("dev_reset", DEV_RESET_BTN, smp):
 						if _dev_reset_arm > 0.0:
 							_dev_wipe_progress()            # 두 번째 탭 = 실행
@@ -7230,19 +7215,18 @@ func _draw_result(fnt: Font) -> void:
 	# 키 힌트는 없다(C39). SPACE=주 동작(부활 가능하면 이어하기)·ESC=홈은 그대로 받는다.
 
 # ===== 스테이지 선택 화면 (Adventure) — 홈(허브) 아래 한 단계 =====
-# '완주 진열장': 전부 깬 뒤에만 뜬다(_adventure_go). 모든 판이 이미 Done이라 이름·태그·설명은 군더더기.
-#   번호 그리드만 남기고, 하단 플레이 버튼이 고른 번호를 실행한다(유저 지시 C83).
-#   개수 무관 자동 줄바꿈(SEL_COLS열) — 스테이지가 늘어도 안 깨진다(구: 8개 하드튜닝 세로 바).
+# 진행 리드아웃 = **지어지는 성**(C158). 번호 격자가 아니다 — 도안·점등 규칙·왜 이렇게인지는
+#   stage_data.gd의 `CASTLE_MAP` 주석이 정본이다. 여기 있는 건 그걸 화면에 앉히는 치수뿐.
 # 좌상단 화살표('홈')로 허브 복귀.
-const SEL_COLS: int = 5
-const SEL_TILE: float = 126.0
-const SEL_GAP: float = 20.0
-# 그리드 뷰포트 상단. 216이던 값이다 — 헤더에서 게임 로고를(C154), 이어 진행 숫자까지(C156) 빼면서
-#   윗동네가 통째로 비었다. ⚠146까지 내린 건 4행(=20스테이지)을 스크롤 없이 담기 위해서다: 뷰포트가
-#   720-146=574이고 4행이 4*126+3*20=564다. 여유가 10px뿐이니 **올리려면 4행이 깨진다**는 걸 알고 올릴 것.
-const SEL_TOP: float = 146.0
-const SEL_VIEW_BOT: float = 720.0   # 그리드 뷰포트 하단(하단 고정 버튼 위 여백). 넘치면 세로 스크롤(진행 리드아웃).
+const SEL_TOP: float = 146.0        # 성이 놓이는 영역 상단(제목·상태 문구 아래)
+const SEL_VIEW_BOT: float = 720.0   # 하단 고정 버튼 위 여백
+const SEL_MARGIN_X: float = 60.0    # 좌우 여백 — 성이 화면 폭을 꽉 채우면 답답하다
 const PLAY_BTN: Rect2 = Rect2(150.0, 742.0, 500.0, 126.0)
+# 벽돌은 **붙여서** 그린다(칸 사이 간격 0). 블록·빈셀 그림이 각자 여백을 갖고 있어 홈이 거기서 나온다
+#   — 코드가 간격을 또 주면 두 겹이 된다(BLOCK_PAD 주석과 같은 규약).
+# 성벽 색: C_ORANGE(#ff8c1a)는 보드 블록용이라 이 크기로 깔면 화면을 다 먹는다. 성은 배경 오브젝트라
+#   한 단 낮춘 벽돌색을 쓴다. ⚠금색은 쓰지 말 것 — 프런티어(다음에 지을 칸) 신호가 금색이다.
+const CASTLE_BRICK := Color("#d98a34")
 
 # ===== 메인 메뉴(허브) 화면 =====
 # 앱을 켜면 처음 만나는 두 갈래: Adventure(=스테이지 모드) / Classic(=무한 모드).
@@ -7283,46 +7267,48 @@ const DEV_RESET_BTN: Rect2 = Rect2(644.0, 24.0, 132.0, 54.0)
 const DEV_RESET_ARM: float = 2.5
 const LB_PLAY_BTN: Rect2 = Rect2(150.0, 786.0, 500.0, 76.0)       # 리더보드 → 무한 도전(peek를 플레이로)
 
-func _sel_grid_h() -> float:
-	var rows: int = int(ceil(float(STAGES.size()) / float(SEL_COLS)))
-	return rows * SEL_TILE + (rows - 1) * SEL_GAP
+# 도안(`CASTLE_MAP`)을 **점등 순서**로 편 좌표표. 인덱스 = 스테이지 인덱스다.
+#   아래 행부터, 행 안에서는 왼→오 — 이 순서가 곧 스테이지 1·2·3…이 앉는 자리다.
+#   한 번 만들고 캐시한다(도안은 const라 변할 일이 없다).
+var _castle_cells: Array = []
 
-func _sel_view_h() -> float:
-	return SEL_VIEW_BOT - SEL_TOP
+func _castle_order() -> Array:
+	if not _castle_cells.is_empty():
+		return _castle_cells
+	var rows: Array = SD.CASTLE_MAP
+	for r in range(rows.size() - 1, -1, -1):
+		var line: String = String(rows[r])
+		for c in range(line.length()):
+			if line[c] == "#":
+				_castle_cells.append(Vector2i(c, r))
+	return _castle_cells
 
-func _sel_max_scroll() -> float:
-	return maxf(0.0, _sel_grid_h() - _sel_view_h())
+# 벽돌 한 칸의 크기. 가로·세로 **둘 다** 보고 작은 쪽에 맞춘다 — 도안이 넓적하든 길쭉하든
+#   영역 안에 통째로 들어와야 한다(성은 스크롤하지 않는다. 그래서 잘릴 수가 없다).
+func _castle_cell_size() -> float:
+	var rows: Array = SD.CASTLE_MAP
+	var cols: int = String(rows[0]).length()
+	var maxw: float = 800.0 - SEL_MARGIN_X * 2.0
+	var maxh: float = SEL_VIEW_BOT - SEL_TOP
+	return floorf(minf(maxw / float(cols), maxh / float(rows.size())))
 
-# 그리드 원점 y: 뷰포트에 다 들어오면 세로 중앙, 넘치면 스크롤 오프셋만큼 위로 민다.
-func _grid_origin_y() -> float:
-	if _sel_grid_h() <= _sel_view_h():
-		return SEL_TOP + (_sel_view_h() - _sel_grid_h()) * 0.5
-	return SEL_TOP - sel_scroll
-
+# i번째 벽돌의 화면 사각형. 성 전체를 영역 정중앙에 놓고 거기서 센다.
+#   ⚠도안 밖 인덱스면 빈 Rect2 — 호출부가 `_castle_order().size()`로 막지만 방어로 남긴다.
 func _stage_rect(i: int) -> Rect2:
-	var grid_w: float = SEL_COLS * SEL_TILE + (SEL_COLS - 1) * SEL_GAP
-	var start_x: float = (800.0 - grid_w) * 0.5
-	var start_y: float = _grid_origin_y()
-	var col: int = i % SEL_COLS
-	var row: int = i / SEL_COLS
-	return Rect2(start_x + col * (SEL_TILE + SEL_GAP), start_y + row * (SEL_TILE + SEL_GAP), SEL_TILE, SEL_TILE)
+	var cl: Array = _castle_order()
+	if i < 0 or i >= cl.size():
+		return Rect2()
+	var rows: Array = SD.CASTLE_MAP
+	var cs: float = _castle_cell_size()
+	var ox: float = 400.0 - String(rows[0]).length() * cs * 0.5
+	var oy: float = SEL_TOP + ((SEL_VIEW_BOT - SEL_TOP) - rows.size() * cs) * 0.5
+	var p: Vector2i = cl[i]
+	return Rect2(ox + p.x * cs, oy + p.y * cs, cs, cs)
 
-# 진행 화면 진입 — 스크롤을 프런티어(다음 도전 판)가 뷰포트 중앙에 오도록 맞춘다.
+# 진행 화면 진입. 성은 언제나 영역에 딱 맞게 그려지므로 맞출 스크롤이 없다 —
+#   훅은 남긴다(진입 시점에 걸 것이 생기면 여기다).
 func _sel_enter() -> void:
-	_sel_drag_y = -1.0
-	var maxs: float = _sel_max_scroll()
-	if maxs <= 0.0:
-		sel_scroll = 0.0
-		return
-	var frow: int = _current_stage() / SEL_COLS
-	var center_in_grid: float = frow * (SEL_TILE + SEL_GAP) + SEL_TILE * 0.5
-	sel_scroll = clampf(center_in_grid - _sel_view_h() * 0.5, 0.0, maxs)
-
-func _sel_scroll_by(dy: float) -> void:
-	var ns: float = clampf(sel_scroll + dy, 0.0, _sel_max_scroll())
-	if ns != sel_scroll:
-		sel_scroll = ns
-		queue_redraw()
+	pass
 
 # ── 부팅 로고 화면(엔진 스플래시와 홈 사이) ──
 # 앱을 켜면 화면이 세 칸을 지난다: [엔진 스플래시 = EGGTART STUDIO 그림] → [이 화면 = 게임 로고] → [홈].
@@ -7750,76 +7736,26 @@ func _sel_message() -> String:
 
 func _draw_select(fnt: Font) -> void:
 	# 배경은 _draw()가 이미 그렸다(오프셋 밖). 여기선 콘텐츠만.
-	# 진행 리드아웃: 타일은 비인터랙티브(진행은 하단 버튼=프런티어로만). 그리드는 넘치면 세로 스크롤 →
-	#   커스텀 드로우엔 클립이 없으므로 그린 뒤 헤더/푸터 밴드를 C_BG로 덮어 마스킹한다.
+	# 진행 리드아웃 = **지어지는 성**(C158). 벽돌은 비인터랙티브 — 진행은 하단 버튼(프런티어)으로만.
 	var frontier: int = _current_stage()
 	var all_done: bool = _all_cleared()
 
-	# ── 그리드(스크롤 레이어) ──
-	for i in range(STAGES.size()):
+	# ── 성 ── 도안의 칸을 **전부** 돈다. 스테이지 수보다 칸이 많으면(지금 13 < 20) 남는 칸은
+	#   영영 안 켜지고 그게 "앞으로 올 판"이라는 예고다(stage_data.gd CASTLE_MAP 주석).
+	var cl: Array = _castle_order()
+	for i in range(cl.size()):
 		var r: Rect2 = _stage_rect(i)
-		# 뷰포트 밖(스크롤로 가려진) 타일은 건너뛴다 — 마스크가 덮지만 그림 비용도 절약.
-		if r.position.y + r.size.y < SEL_TOP - 4.0 or r.position.y > SEL_VIEW_BOT + 4.0:
-			continue
-		var done: bool = bool(cleared.get(i, false))
-		var open: bool = _is_unlocked(i)
-		var is_front: bool = (i == frontier) and open and not all_done   # 'You are here'
-
-		# 채움: 프런티어만 금빛으로 튀고, 깬 것은 차분히 가라앉히고, 잠긴 것은 더 어둡게.
-		var fill: Color = Color(0.09, 0.09, 0.13)            # 잠김
-		if is_front:
-			fill = Color(0.24, 0.20, 0.10)
-		elif open:
-			fill = Color(0.13, 0.14, 0.20)
-		var border: Color = Color(0.28, 0.29, 0.36)
-		if is_front:
-			border = C_GOLD
-		elif open:
-			border = Color(0.30, 0.33, 0.42)
-		var bw: float = 4.0 if is_front else 2.0
-		# 상태 3종은 파일이 갈리되, **색은 코드가 계속 쥔다** — 금색 테=현재 위치가 이 화면의 유일한
-		#   위계 신호라 그림이 색을 가지면 진행 리드아웃이 죽는다([[stage-select-is-progress-readout]]).
-		#   3장 중 안 온 것은 `tile`로 떨어진다 = 한 장만 받아도 화면 전체가 갈아탄다.
-		var tnm: String = "tile_front" if is_front else ("tile" if open else "tile_off")
-		if not ui_9s.has(tnm):
-			tnm = "tile"
-		if ui_9s.has(tnm):
-			_blit_9s(tnm, r.grow(bw), border)   # 테는 뒤에 깔아 라운드를 따라 돌게
-			_blit_9s(tnm, r, fill)
+		if i < STAGES.size() and bool(cleared.get(i, false)):
+			_blit_block(r, CASTLE_BRICK)   # 지어진 벽돌 = 보드와 **같은 블록 그림**
 		else:
-			draw_rect(r, fill)
-			draw_rect(r, border, false, bw)
+			_blit_cell(r)                  # 아직 안 지어진 자리 = 보드와 같은 빈 셀 판(어두운 홈)
 
-		var cx: float = r.position.x + r.size.x * 0.5
-		var cy: float = r.position.y + r.size.y * 0.5
-		# 번호는 잠김 포함 항상 표시(자물쇠만 있으면 답답). 잠김=dim + 자물쇠를 번호 위에 오버레이.
-		var nstr: String = str(i + 1)
-		var nfs: int = int(SEL_TILE * 0.42)
-		var nsz: Vector2 = fnt.get_string_size(nstr, HORIZONTAL_ALIGNMENT_LEFT, -1, nfs)
-		var ncol: Color
-		if is_front:
-			ncol = Color.WHITE
-		elif open:
-			ncol = Color(0.82, 0.85, 0.92)
-		else:
-			ncol = Color(0.38, 0.40, 0.48)   # 잠김 dim
-		_draw_text_outlined(fnt, Vector2(cx - nsz.x * 0.5, cy + nsz.y * 0.34), nstr, nfs, ncol)
-		# 상태 배지는 우상단 코너로 통일(번호를 안 가림): 깬 것=초록 체크, 잠김=자물쇠.
-		if not open:
-			_draw_lock(Vector2(r.position.x + r.size.x - 20.0, r.position.y + 22.0), 17.0, Color(0.78, 0.80, 0.88))
-		elif done and not is_front:
-			# 프런티어는 금빛 위계라 체크 생략.
-			_draw_check(Vector2(r.position.x + r.size.x - 20.0, r.position.y + 20.0), 8.0, Color(0.4, 0.85, 0.55))
-
-	# ── 스크롤 오버플로우 마스킹(그리드 위에 헤더/푸터 밴드를 배경색으로) ──
-	draw_rect(Rect2(-20.0, -20.0, VW_BASE + 40.0, SEL_TOP + 20.0), C_BG)
-	draw_rect(Rect2(-20.0, SEL_VIEW_BOT, VW_BASE + 40.0, 1000.0 - SEL_VIEW_BOT + 40.0), C_BG)
-	# 더 있음 신호 — 위/아래 셰브론(스크롤 가능할 때만).
-	if _sel_max_scroll() > 0.0:
-		if sel_scroll > 1.0:
-			_draw_scroll_hint(SEL_TOP, true)
-		if sel_scroll < _sel_max_scroll() - 1.0:
-			_draw_scroll_hint(SEL_VIEW_BOT, false)
+	# 프런티어(다음에 지을 자리)는 **모든 칸을 그린 뒤 맨 위에** 두른다. 벽돌은 붙여서 그리고
+	#   빈 셀 판은 불투명이라, 칸 안에서 같이 그리면 다음 칸이 테를 덮어 반쪽만 남는다(실제로 그랬다).
+	#   그리고 면이 아니라 **테**다 — 면을 칠하면 '지어진 칸'과 헷갈리는데, 이 화면에서 채워짐/빔은
+	#   진행 그 자체라 흐려지면 안 된다([[sprite-swap-keeps-signal-channel]]).
+	if not all_done and frontier < cl.size() and _is_unlocked(frontier):
+		draw_rect(_stage_rect(frontier).grow(-3.0), C_GOLD, false, 5.0)
 
 	# ── 헤더(마스크 위) ── **모드 이름 한 줄뿐이다.** 게임 로고도, 진행 숫자도 없다(C154·C156).
 	#   ⚠골드 'BLOCK CASTLE'을 되살리지 말 것: 홈이 이미 버린 옛 로고 형태이고(정본은 두 줄 브릭 락업 —
@@ -7856,19 +7792,6 @@ func _draw_select(fnt: Font) -> void:
 		_draw_play_button(fnt, frontier)
 	_draw_back_button(fnt)
 	_draw_dev_reset(fnt)
-
-# 스크롤 셰브론(더 있음 신호). edge_y=뷰포트 가장자리, up=위쪽 힌트.
-func _draw_scroll_hint(edge_y: float, up: bool) -> void:
-	var cx: float = 400.0
-	var col: Color = Color(0.62, 0.66, 0.82, 0.55)
-	if up:
-		draw_colored_polygon(PackedVector2Array([
-			Vector2(cx, edge_y + 8.0), Vector2(cx - 13.0, edge_y + 22.0), Vector2(cx + 13.0, edge_y + 22.0),
-		]), col)
-	else:
-		draw_colored_polygon(PackedVector2Array([
-			Vector2(cx, edge_y - 8.0), Vector2(cx - 13.0, edge_y - 22.0), Vector2(cx + 13.0, edge_y - 22.0),
-		]), col)
 
 # 모두 클리어 = 프런티어 없음. 버튼 없는 순수 안내(유저 확정) — 모드 선택은 허브 한 곳.
 #   버튼-박스/테두리 없음(비활성 버튼처럼 안 보이게). '따라잡음'은 허브 버튼·헤더 "N/N"이 이미 말하므로
