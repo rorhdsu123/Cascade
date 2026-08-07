@@ -91,8 +91,8 @@ const STR: Dictionary = {
 		"endless_big": "Endless",
 		"endless_locked": "Clear Stage 1 to unlock",   # 무한 잠금(허브 버튼 소제목 + 리더보드 CTA)
 		"best_score": "Best %s",     # 메뉴 · HUD 무한 최고점
-		# ── 스테이지 선택 ──
-		"cleared_count": "Cleared %d / %d",
+		# ── 스테이지 선택 ── 제목은 모드 이름이라 허브 버튼 라벨(adv_big)을 그대로 쓴다(C156).
+		#   ("cleared_count"는 C156서 삭제 — 진행도를 숫자로 안 보여준다)
 		"dev_unlock": "DEV: unlock all (0)",
 		"unlock_req": "Clear stage %d to unlock",
 		"done_badge": "Done",
@@ -218,7 +218,6 @@ const STR: Dictionary = {
 		"endless_big": "무한",
 		"endless_locked": "스테이지 1을 깨면 열려요",
 		"best_score": "최고 %s",
-		"cleared_count": "클리어 %d / %d",
 		"dev_unlock": "DEV: 전체 해금 (0)",
 		"unlock_req": "%d 스테이지를 클리어하면 열림",
 		"done_badge": "클리어",
