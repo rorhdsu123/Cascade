@@ -22,7 +22,9 @@ extends SceneTree
 # ⚠창 모드 필수 — --headless는 렌더 텍스처가 null이라 크래시한다.
 
 const S: float = 2.0                        # 출력 배율 → 1600x2560
-const SHIP_VARIANT: int = 4                 # 확정안 D(채색 타르트 마크 + 두 줄 글자) — 2026-08-06 유저 선택
+const SHIP_VARIANT: int = 7                 # 확정안 F — 2026-08-07 유저 선택.
+#   D(=4)와 부품은 같고 정렬 기준만 다르다: 중앙에 오는 건 마크+글자 **덩어리**가 아니라 **글자**다.
+#   D는 덩어리를 중앙에 둬서 정작 눈이 찾는 글자가 화면 55~62%로 내려앉았다. (C153)
 
 
 class StudioCanvas extends Node2D:
@@ -213,6 +215,63 @@ class StudioCanvas extends Node2D:
 			6:      # 마크 확대 검수용 — 화면에 안 쓴다. 채색·단색을 나란히 크게.
 				_draw_tart_color(Vector2(400.0 * S, 480.0 * S), 280.0 * S)
 				_draw_tart_mono(Vector2(400.0 * S, 980.0 * S), 280.0 * S)
+			# ── 이하 2026-08-07 추가 ──
+			# D는 **덩어리 전체**를 중앙에 뒀다. 그래서 눈이 찾는 물건(글자)은 화면 55~62%에 앉는다.
+			# 아래 둘은 기준을 바꾼 것뿐이다: 중앙에 오는 건 덩어리가 아니라 **글자**다.
+			7:      # F · 글자 중앙 + 마크 위 — D와 같은 부품, 정렬 기준만 다르다
+				var m7: Dictionary = _stack_metrics()
+				var b7: float = CENTER_Y - (float(m7["top_rel"]) + float(m7["bot_rel"])) * 0.5
+				var r7: float = BAND_W * 0.165
+				var g7: float = r7 * 0.64
+				_draw_tart_color(Vector2(400.0 * S, b7 + float(m7["top_rel"]) - g7 - r7), r7)
+				_draw_stack(b7, m7, C_WHITE)
+			8:      # G · 마크 옆 — 가로 락업. E를 고쳐 마크와 글자 덩어리 둘 다 CENTER_Y에 맞춘다
+				#   (E는 큰 글자 베이스라인만 맞춰서 STUDIO 줄이 아래로 삐져나가 무게중심이 처졌다)
+				var s8: int = int(BAND_W * 0.19)
+				var t8: float = float(s8) * 0.02
+				var s8b: int = int(float(s8) * 0.34)
+				var w8: float = _line_w(f_bold, NAME1, s8, t8)
+				var raw8: float = _line_w(f_mid, NAME2, s8b, 0.0)
+				var tr8b: float = (w8 - raw8) / float(NAME2.length() - 1)
+				var gap8: float = float(s8) * 0.40
+				# 글자 덩어리 세로 범위 = [b - 0.74*s8, b + gap8 + 0.10*s8b] (— _stack_metrics와 같은 어림)
+				var top8r: float = -0.74 * float(s8)
+				var bot8r: float = gap8 + 0.10 * float(s8b)
+				var b8: float = CENTER_Y - (top8r + bot8r) * 0.5
+				var r8: float = float(s8) * 0.62
+				var g8: float = r8 * 0.52
+				var x8: float = 400.0 * S - (r8 * 2.0 + g8 + w8) * 0.5
+				_draw_tart_color(Vector2(x8 + r8, CENTER_Y), r8)
+				var tx8: float = x8 + r8 * 2.0 + g8
+				for i8 in range(NAME1.length()):
+					draw_string(f_bold, Vector2(tx8, b8), NAME1[i8], HORIZONTAL_ALIGNMENT_LEFT, -1, s8, C_WHITE)
+					tx8 += f_bold.get_string_size(NAME1[i8], HORIZONTAL_ALIGNMENT_LEFT, -1, s8).x + t8
+				var tx8b: float = x8 + r8 * 2.0 + g8
+				for j8 in range(NAME2.length()):
+					draw_string(f_mid, Vector2(tx8b, b8 + gap8), NAME2[j8], HORIZONTAL_ALIGNMENT_LEFT, -1, s8b, C_WHITE)
+					tx8b += f_mid.get_string_size(NAME2[j8], HORIZONTAL_ALIGNMENT_LEFT, -1, s8b).x + tr8b
+			9:      # G′ · 마크 옆 + 넓은 밴드 — 가로 락업은 폭 63%에 마크까지 밀어넣으면 둘 다 쪼그라든다.
+				#   세로 락업의 63%는 '글자 폭' 규격이었다. 가로에선 글자 폭만 그만큼 두고 마크는 밖에 세운다.
+				var s9: int = int(BAND_W * 0.200)   # 락업 총폭이 화면 ~82% — 0.235는 좌우 여백이 죽었다
+				var t9: float = float(s9) * 0.02
+				var s9b: int = int(float(s9) * 0.34)
+				var w9: float = _line_w(f_bold, NAME1, s9, t9)
+				var raw9: float = _line_w(f_mid, NAME2, s9b, 0.0)
+				var tr9b: float = (w9 - raw9) / float(NAME2.length() - 1)
+				var gap9: float = float(s9) * 0.40
+				var b9: float = CENTER_Y - (-0.74 * float(s9) + gap9 + 0.10 * float(s9b)) * 0.5
+				var r9: float = float(s9) * 0.80
+				var g9: float = r9 * 0.44
+				var x9: float = 400.0 * S - (r9 * 2.0 + g9 + w9) * 0.5
+				_draw_tart_color(Vector2(x9 + r9, CENTER_Y), r9)
+				var tx9: float = x9 + r9 * 2.0 + g9
+				for i9 in range(NAME1.length()):
+					draw_string(f_bold, Vector2(tx9, b9), NAME1[i9], HORIZONTAL_ALIGNMENT_LEFT, -1, s9, C_WHITE)
+					tx9 += f_bold.get_string_size(NAME1[i9], HORIZONTAL_ALIGNMENT_LEFT, -1, s9).x + t9
+				var tx9b: float = x9 + r9 * 2.0 + g9
+				for j9 in range(NAME2.length()):
+					draw_string(f_mid, Vector2(tx9b, b9 + gap9), NAME2[j9], HORIZONTAL_ALIGNMENT_LEFT, -1, s9b, C_WHITE)
+					tx9b += f_mid.get_string_size(NAME2[j9], HORIZONTAL_ALIGNMENT_LEFT, -1, s9b).x + tr9b
 
 
 func _initialize() -> void:
@@ -264,7 +323,8 @@ func _run() -> void:
 		return
 
 	var names: Array = ["A_oneline", "Ap_spaced", "B_stack", "C_mark_mono",
-						"D_mark_color", "E_horizontal", "Z_mark_zoom"]
+						"D_mark_color", "E_horizontal", "Z_mark_zoom",
+						"F_text_center_mark_above", "G_mark_beside", "Gw_mark_beside_wide"]
 	for v in range(names.size()):
 		canvas.variant = v
 		canvas.queue_redraw()

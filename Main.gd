@@ -7237,7 +7237,10 @@ func _draw_result(fnt: Font) -> void:
 const SEL_COLS: int = 5
 const SEL_TILE: float = 126.0
 const SEL_GAP: float = 20.0
-const SEL_TOP: float = 216.0        # 그리드 뷰포트 상단(소제목 y=166 아래)
+# 그리드 뷰포트 상단. 216이던 값이다 — 헤더에서 게임 로고를 빼면서(C154) 진행 문구 한 줄만 남아
+#   70px가 비었다. ⚠146까지 내린 건 4행(=20스테이지)을 스크롤 없이 담기 위해서다: 뷰포트가
+#   720-146=574이고 4행이 4*126+3*20=564다. 여유가 10px뿐이니 **올리려면 4행이 깨진다**는 걸 알고 올릴 것.
+const SEL_TOP: float = 146.0
 const SEL_VIEW_BOT: float = 720.0   # 그리드 뷰포트 하단(하단 고정 버튼 위 여백). 넘치면 세로 스크롤(진행 리드아웃).
 const PLAY_BTN: Rect2 = Rect2(150.0, 742.0, 500.0, 126.0)
 
@@ -7801,19 +7804,23 @@ func _draw_select(fnt: Font) -> void:
 		if sel_scroll < _sel_max_scroll() - 1.0:
 			_draw_scroll_hint(SEL_VIEW_BOT, false)
 
-	# ── 헤더(마스크 위) ──
-	var title: String = "BLOCK CASTLE"
-	var tw: float = fnt.get_string_size(title, HORIZONTAL_ALIGNMENT_LEFT, -1, 46).x
-	_draw_text_outlined(fnt, Vector2(400.0 - tw * 0.5, 122.0), title, 46, C_GOLD)
+	# ── 헤더(마스크 위) ── 진행 문구 한 줄. **게임 로고는 여기 없다**(C154).
+	#   ⚠골드 'BLOCK CASTLE' 한 줄 텍스트를 되살리지 말 것: ①홈이 이미 버린 옛 로고 형태다(두 줄 브릭
+	#     락업이 정본 — `_draw_menu` 주석) ②홈에서만 들어오는 화면이라 이름을 두 번 말할 자리가 아니다
+	#     ③이 화면의 본론은 진행도인데 46pt 골드가 22pt 회색 소제목을 눌러 위계가 뒤집혀 있었다.
+	#   그래서 소제목이던 진행 문구를 그대로 헤더 크기로 올렸다(22 → 34). 화면 정체성은 좌상단 '홈'
+	#   버튼과 하단 초록 CTA가 이미 말한다.
 	var sub: String = _t("cleared_count") % [_cleared_count(), STAGES.size()]
-	var sw: float = fnt.get_string_size(sub, HORIZONTAL_ALIGNMENT_LEFT, -1, 22).x
-	_draw_text_outlined(fnt, Vector2(400.0 - sw * 0.5, 166.0), sub, 22, Color(0.7, 0.72, 0.85))
+	var sw: float = fnt.get_string_size(sub, HORIZONTAL_ALIGNMENT_LEFT, -1, 34).x
+	_draw_text_outlined(fnt, Vector2(400.0 - sw * 0.5, 118.0), sub, 34, Color(0.86, 0.88, 0.96))
 
 	# ⚠플테 전용: 전체 해금이 켜져 있으면 명시(진짜 진행과 안 헷갈리게). '0'키로 토글.
+	#   헤더 아래(y=196)에 있던 줄이다 — 그리드가 SEL_TOP까지 올라와 자리를 잃었으므로 최상단
+	#   버튼 띠의 빈 가운데(홈 | 여기 | RESET)로 옮겼다.
 	if dev_unlock_all:
 		var du: String = _t("dev_unlock")
 		var duw: float = fnt.get_string_size(du, HORIZONTAL_ALIGNMENT_LEFT, -1, 16).x
-		_draw_text_outlined(fnt, Vector2(400.0 - duw * 0.5, 196.0), du, 16, Color(1.0, 0.55, 0.3))
+		_draw_text_outlined(fnt, Vector2(400.0 - duw * 0.5, 57.0), du, 16, Color(1.0, 0.55, 0.3))
 
 	# ── 푸터(마스크 위) ── 프런티어가 있으면 '계속하기' 버튼, 다 깼으면 안내(전용 화면은 별도 기획).
 	if all_done:
@@ -7872,17 +7879,16 @@ func _draw_play_button(fnt: Font, cur: int) -> void:
 	_draw_btn_box(r, base, Color(0.10, 0.28, 0.14), Color(0.16, 0.42, 0.18), 8.0, 0.16, 4.0,
 			BTN_PRESS if hot else BTN_NORMAL)
 
-	var sd: Dictionary = STAGES[cur]
+	# 번호 한 줄뿐이다 — 스테이지 이름 부제('Last Line' 따위)는 뺐다(C155, 유저 지시).
+	#   이름은 판에 들어가면 도입 화면이 다시 말해주고(`_draw_stage_intro`), 여기선 고를 수가 없어서
+	#   (버튼은 언제나 프런티어 하나) 결정에 쓰이지 않는다. 부제가 빠진 만큼 번호를 세로 중앙으로 내린다.
 	var big: String = _t("stage_n") % (cur + 1)
 	var bfs: int = 46
-	var bw: float = fnt.get_string_size(big, HORIZONTAL_ALIGNMENT_LEFT, -1, bfs).x
-	_draw_text_outlined(fnt, Vector2(400.0 - bw * 0.5, r.position.y + 62.0), big, bfs, Color.WHITE,
-			Color(0.10, 0.28, 0.14, 0.95))
-	var nm: String = _t(String(sd["name"]))   # 고른 스테이지 이름(선택화면은 전부 깬 뒤라 이름=고른 것)
-	var nfs: int = 22
-	var nw: float = fnt.get_string_size(nm, HORIZONTAL_ALIGNMENT_LEFT, -1, nfs).x
-	_draw_text_outlined(fnt, Vector2(400.0 - nw * 0.5, r.position.y + 98.0), nm, nfs, Color(0.92, 1.0, 0.88),
-			Color(0.10, 0.28, 0.14, 0.95))
+	var bsz: Vector2 = fnt.get_string_size(big, HORIZONTAL_ALIGNMENT_LEFT, -1, bfs)
+	# 세로 중앙 = **캡 하이트 기준**. 줄 높이(get_string_size().y)로 맞추면 'Stage'의 g 디센더까지
+	#   상자에 들어가 글자가 10px 아래로 앉는다(실측: 잉크 중심 954.5 vs 버튼 몸통 중심 944).
+	_draw_text_outlined(fnt, Vector2(400.0 - bsz.x * 0.5, r.position.y + r.size.y * 0.5 + float(bfs) * 0.36),
+			big, bfs, Color.WHITE, Color(0.10, 0.28, 0.14, 0.95))
 	_btn_press_end()
 
 # 체크 표식(절차적) — 깬 스테이지 우상단. 언어 중립(도감/글자 대신 기호)
