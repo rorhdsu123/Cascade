@@ -5629,8 +5629,13 @@ func _process(delta: float) -> void:
 		if endless_best > 0 and not endless_beat_best and endless_score_shown > float(endless_best):
 			endless_beat_best = true
 			pb_pop_t = PB_POP_DUR   # 판전체 폭발 팝인 — 표시 숫자가 크라운을 넘는 그 순간.
-			_spawn_confetti()       # 산개 컨페티(C90) — 폭발과 함께 쏟아짐
-			_fb("finish")           # PB 돌파 = 클리어와 같은 의식(무한엔 클리어가 없으니 이게 그 자리)
+			# ⚠컨페티는 여기서 뺐다(유저 플테: "어색하다 — 컨페티는 게임 클리어 때"). C90이 "PB 돌파 =
+			#   클리어와 같은 의식"이라고 보고 클리어의 어휘를 그대로 빌려왔는데, 실제로 겪어보니
+			#   **끝나는 몸짓을 판 한가운데서 하는 것**이라 판이 끝난 줄 알게 된다. PB는 종료가 아니라
+			#   통과점이다 → 컨페티는 클리어 무대에만 남겨 두 사건의 어휘를 구별한다.
+			#   덤: 이 순간은 갓레이·왕관·리본·스티커·테두리 네온이 동시에 오는 과적재 구간이라
+			#   (J1 검토 ③) 한 겹 덜어낸 게 위계에도 이득이다.
+			_fb("finish")           # 소리·햅틱은 유지 — 돌파는 여전히 판 최대 사건이다
 	if outline_timer > 0.0:
 		outline_timer = maxf(0.0, outline_timer - delta)
 	if red_flash > 0.0:
@@ -8058,7 +8063,11 @@ func _draw_hud(fnt: Font) -> void:
 			else:
 				rec_lbl = _t("best_score") % _comma(endless_best)
 				rec_col = Color(0.6, 0.62, 0.78)
-			_draw_text_outlined(fnt, Vector2(12.0, 34.0 + sy), rec_lbl, 16, rec_col)
+			# 16px는 화면 구석의 금색 한 줄로는 안 읽혔다(유저 플테). 22px = 카드 제목·콤보 카운터와
+			#   같은 급 — 점수(50)보다는 확실히 아래라 위계는 그대로다. 두 상태(추격/초과분)를 같은
+			#   크기로 두는 게 중요하다: 상태가 바뀔 때 글자 크기가 뛰면 스래싱으로 읽힌다.
+			#   ⚠왼쪽 여백도 22px에 맞춰 넓힌다(외곽선이 -2px라 12에선 왕관이 화면 끝에 붙었다).
+			_draw_text_outlined(fnt, Vector2(16.0, 38.0 + sy), rec_lbl, 22, rec_col)
 	else:
 		# GOAL 카드 — 제목 "목표" + 내용 "💀 남은 적 N"(전 타입 소탕이 목표라 타입 중립 해골).
 		_draw_card(goal_r, Color(0.85, 0.7, 0.3))
