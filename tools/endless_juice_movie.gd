@@ -61,9 +61,9 @@ func _run() -> void:
 	g.set("zone_index", 1)
 	g.set("zone_mix", 1.0)
 	g.set("zone_col", Color("#2a2470"))
-	await _roll("zone", 4)                 # 전이 직전 몇 프레임(비교 기준)
+	await _roll("zone", 10)                 # 전이 직전 몇 프레임(비교 기준)
 	g.call("_add_endless_score", 400)      # 12,000 돌파 → 존 2 진입 비트 발화
-	await _roll("zone", 48)                # 1.3초 전이 + 여유
+	await _roll("zone", 54)                # 1.3초 전이 + 여유
 
 	# ── ② PB 돌파 ── 표시 점수가 최고를 넘게 두면 _process가 pb_pop_t를 켠다.
 	await _base()

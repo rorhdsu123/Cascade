@@ -606,8 +606,21 @@ const PB_POP_DUR: float = 1.6  # PB 판전체 폭발 길이(C90: 1.15→1.6, 리
 var zone_index: int = 0        # 현재 절대점수 존(0=base·1~4·그 위 프리스티지). 전이 엣지로만 상승.
 var zone_mix: float = 0.0      # base→존색 존재감(존≥1서 1로 이징).
 var zone_col: Color = C_BG_PB  # 현재 존 배경색. 존 바뀌면 목표 존색으로 짧게 이징(전이 순간의 이산 스텝).
-var zone_trans_t: float = -1.0 # 존 전이 원샷 비트 타이머(링 + 배경 밝기 플래시). <0=대기.
+var zone_trans_t: float = -1.0 # 존 전이 원샷 비트 타이머(별 점등 + 배경 밝기 플래시). <0=대기.
 const ZONE_TRANS_DUR: float = 1.3
+# 밤하늘 별 — 존을 올릴 때마다 한 겹씩 켜지고 **판 끝까지 상주**한다.
+#   왜 링을 버렸나(J5): 옛 신호는 두께 2.5px·최대 알파 0.25짜리 원호라, 유저가 한 판에 두 번
+#   지나가고도 "그 파문이 뭐냐"고 되물었다. 게다가 존 배경색 사다리는 이웃 간 ΔE 5~8뿐인데(실측)
+#   그마저 **시간을 두고** 바뀌니 비교 대상이 화면에 없다 — 색만으로는 계단이 안 만들어진다.
+#   별은 셋을 한꺼번에 푼다: ①점등 = 순간 사건(주변시가 실제로 잘 잡는 건 색조가 아니라 변화다)
+#   ②상주 = 그 순간을 놓쳐도 "내 하늘이 빽빽해졌다"가 남는다(사다리를 비로소 읽을 수 있다)
+#   ③'밤하늘'이라는 이름값을 실제로 치른다(여태 단색이었다).
+#   자리도 근거가 있다: 하늘이 보이는 면적은 화면의 38.7%고 넓은 띠가 위 180px·**아래 340px**인데,
+#   아래 띠는 조각을 고르느라 매 배치마다 눈이 가는 자리다 = 무시되는 주변부가 아니다(실측).
+#   [[transient-celebration-overlay-not-base-ui]] 기본 UI는 안 건드리고 배경에만 얹는다.
+var zone_stars: Array = []       # [{pos, r, phase, ig}] — ig = 점등 잔여 시간(>0이면 아직 확 밝다)
+const ZONE_STARS_PER: int = 16   # 존 한 겹당 별 수
+const STAR_IGNITE: float = 0.9   # 점등 연출 길이(초)
 var push_streaks: Array = []   # [{from, to, life, max}] 넉백 잔상
 var aim_marks: Array = []      # [{c, r}] 조준 프리뷰 링 — 들고 있는 조각 '위'에 최상단 오버레이로 그린다
 var rockets: Array = []        # [{dir, idx, t, dur, combo, ended}] 라인 따라 질주하는 로켓
@@ -2000,11 +2013,38 @@ func _add_endless_score(pts: int) -> void:
 	# PB 돌파 발화는 여기(실제 가산)가 아니라 _process의 롤업이 '표시 점수(endless_score_shown)'로
 	#   endless_best를 넘는 순간에 한다(C90). 이유: 점수가 또르르 기어오르다 크라운을 넘는 그 순간에
 	#   폭발이 실려야 '차오름→돌파'가 성립. 여기서 켜면 표시 숫자가 아직 안 넘었는데 터진다.
-	# ── 절대점수 존(스펙터클·매판) = 계단. 존 오르는 '순간' 전이 비트(링+배경 플래시). 배경은 zone_col이 뒤따라 스텝. ──
+	# ── 절대점수 존(스펙터클·매판) = 계단. 존 오르는 '순간' 전이 비트(별 점등+배경 플래시). 배경은 zone_col이 뒤따라 스텝. ──
 	var z: int = _zone_for(endless_score)
 	if z > zone_index:
 		zone_index = z
 		zone_trans_t = ZONE_TRANS_DUR
+		_ignite_zone_stars()
+
+# 존 한 겹치 별을 하늘에 새로 켠다.
+# ⚠자리는 **상단 바와 하단 트레이 패널** 두 띠다. 언뜻 '여백'에 뿌리고 싶지만, 이 레이아웃에서
+#   순수 배경이 드러나는 건 y144~183과 940~980 = 겨우 79px뿐이다(실측). 화면에서 하늘로 보이는
+#   면적 38.7%는 대부분 **바 자체**다 — 바가 여백과 같은 존색으로 칠해져 있기 때문이다.
+#   그래서 별은 바 위에 앉아야 하고, 그리기도 각 바 rect 바로 다음에 끼워 넣는다(아래 두 호출부).
+#   그 순서라서 점수 카드·트레이 슬롯은 별보다 나중에 그려져 자연히 별을 가린다 = 별도 회피 불필요.
+#   ⚠전역 `randf`를 쓴다 = 연출 스트림. `game_rng`를 건드리면 스폰·트레이가 밀려 회귀 골든이 깨진다.
+func _ignite_zone_stars() -> void:
+	var top_h: float = 144.0 + safe_top          # 상단 바
+	var bot_y0: float = float(bot_y)             # 하단(트레이) 패널
+	var bot_h: float = maxf(0.0, vh - bot_y0)
+	if top_h + bot_h <= 1.0:
+		return
+	for i in range(ZONE_STARS_PER):
+		var y: float
+		if randf() * (top_h + bot_h) < top_h:
+			y = randf() * top_h
+		else:
+			y = bot_y0 + randf() * bot_h
+		zone_stars.append({
+			"pos": Vector2(randf() * VW_BASE, y),
+			"r": randf_range(1.1, 2.6),
+			"phase": randf() * TAU,     # 반짝임 위상 — 다 같이 깜빡이면 형광등이 된다
+			"ig": STAR_IGNITE,
+		})
 
 # 존 틴트 — base(여백/상·하단 바)를 현재 존 배경색으로 lerp. 세 표면이 한 함수를 공유(C31: 값 두 곳 금지).
 #   전이 순간엔 존색을 쿨하게 살짝 밝혀(_zone_flash) 스텝을 주변부에서도 지각되게.
@@ -2229,6 +2269,7 @@ func _init_game() -> void:
 	zone_mix = 0.0
 	zone_col = C_BG_PB
 	zone_trans_t = -1.0
+	zone_stars = []
 	push_streaks = []
 	rockets = []
 	hitstop = 0.0
@@ -5874,6 +5915,9 @@ func _process(delta: float) -> void:
 		zone_col = zone_col.lerp(_zone_bg_target(), clampf(delta / 0.4, 0.0, 1.0))
 	if zone_trans_t >= 0.0:
 		zone_trans_t = maxf(-1.0, zone_trans_t - delta)
+	for st in zone_stars:
+		if float(st["ig"]) > 0.0:
+			st["ig"] = maxf(0.0, float(st["ig"]) - delta)
 	# 적 flinch 감쇠 + 전진/넉백 표시(vis_row) 부드럽게 이징
 	for e in enemies:
 		if e.get("flinch", 0.0) > 0.0:
@@ -6266,9 +6310,6 @@ func _draw() -> void:
 			cpos + Vector2(-hw * ca - hh * sa, -hw * sa + hh * ca),
 		]), col)
 
-	# 존 전이 비트(계단) — PB 크레셴도 '아래'에 먼저 그려 PB가 위로 솟게(위계: 존 전이 < PB 돌파).
-	if zone_trans_t >= 0.0:
-		_draw_zone_trans()
 	# PB 돌파 — 순간 버스트(방사광+링, 1회)는 pb_pop_t 창에서만. 스티커는 넘은 뒤 판 끝까지 상주(계속 갱신 중).
 	if pb_pop_t >= 0.0:
 		_draw_pb_burst()
@@ -6276,31 +6317,37 @@ func _draw() -> void:
 	if endless_beat_best:
 		_draw_pb_sticker(fnt)   # 버스트 위(최상단 헤드라인)
 
-# 존 전이 원샷(계단 비트) — 점수 카드에서 부드러운 링(존색 쿨). 배경 밝기 플래시(_zone_flash)와 한 쌍.
-#   숫자는 안 띄운다(라이브 점수 카드와 중복). PB 버스트보다 작게 = 위계. 코지(셰이크·흰섬광 없음). 전부 오버레이.
-func _draw_zone_trans() -> void:
-	var p: float = clampf(1.0 - zone_trans_t / ZONE_TRANS_DUR, 0.0, 1.0)   # 0→1
-	# ⚠하드코딩 (293,56)은 카드 폭이 464이던 시절 값이라 지금 카드(310)에서 **107px 왼쪽·36px 위**로
-	#   어긋나 있었다 — 링이 카드를 감싸는 대신 왼쪽 위 모서리에 걸쳐 배경으로 샜다(J1).
-	#   `_goal_dock_pos`가 같은 이유로 이미 한 번 고쳐진 자리다. 좌표는 그리는 쪽에서 받아온다.
-	var cc: Vector2 = _goal_card_center()
-	var a: float = 1.0
-	if p < 0.06:
-		a = p / 0.06
-	elif p > 0.55:
-		a = clampf((1.0 - p) / 0.45, 0.0, 1.0)
-	var ring: Color = zone_col.lerp(Color(0.72, 0.8, 1.0), 0.6)   # 존색+쿨 살짝
-	# 반지름도 카드에서 받는다. 옛 값(20→110)은 카드 반폭(155)보다 작아 링이 수명 내내 **숫자 위에**
-	#   머물렀다 — 앵커를 제자리로 돌리고 나서야 드러났다(전엔 모서리로 빗나가 절반이 배경으로 샜다).
-	#   카드 모서리 거리(≈163)에서 시작해 밖으로 퍼지면 글자를 한 번도 안 가리고 '카드에서 나온 파문'이 된다.
-	#   바깥 끝은 PB 갓레이(보드폭 0.42≈302)보다 확실히 작게 = 위계 유지.
-	var r0: float = Vector2(HUD_CARD_W, HUD_CARD_H).length() * 0.5   # 카드 외접원 ≈163
-	for k in range(2):
-		var rr: float = clampf((p - float(k) * 0.12) / 0.55, 0.0, 1.0)
-		if rr <= 0.0 or rr >= 1.0:
+# 밤하늘 별 — 배경 위, 보드 아래. 존마다 한 겹씩 쌓여 판 끝까지 남는다.
+#   ⚠오버레이로 올리지 말 것 — 별이 블록·적 위에 뜨면 판을 읽는 걸 방해한다. 이건 축하가 아니라
+#     '하늘'이라 뒤에 있어야 한다. 그래서 각 바 rect **직후**에만 그리고, 밴드로 잘라 받는다.
+#   두 박자: ①점등(ig>0) = 확 밝고 커졌다 가라앉는다 + 십자 광채 ②상주 = 아주 느린 반짝임.
+#     반짝임 위상을 별마다 흩어 놓지 않으면 하늘 전체가 형광등처럼 껌뻑인다.
+func _draw_zone_stars(band_top: float, band_bot: float) -> void:
+	if zone_stars.is_empty():
+		return
+	for st in zone_stars:
+		var pos: Vector2 = st["pos"]
+		if pos.y < band_top or pos.y > band_bot:
 			continue
-		draw_arc(cc, lerp(r0, r0 + 88.0 + float(k) * 20.0, rr), 0.0, TAU, 48,
-				Color(ring.r, ring.g, ring.b, a * (1.0 - rr) * 0.5), 2.5)
+		var rad: float = float(st["r"])
+		var ig: float = float(st["ig"])
+		# 상주 반짝임 — 진폭을 작게(0.62~0.9). 코지가 원칙이라 '깜빡임'이 아니라 '숨'이어야 한다.
+		var tw: float = 0.76 + 0.14 * sin(anim_t * 1.5 + float(st["phase"]))
+		var a: float = 0.5 * tw
+		var sc: float = 1.0
+		if ig > 0.0:
+			var q: float = ig / STAR_IGNITE          # 1=갓 켜짐 → 0=정착
+			a = lerpf(a, 1.0, q)                     # 켜지는 동안 확 밝게
+			sc = 1.0 + 2.2 * q * q                   # 커졌다 제 크기로
+			# 십자 광채 — 점등 앞머리에만. 별이 '켜졌다'를 점 하나보다 확실히 말한다.
+			var fl: float = clampf((q - 0.55) / 0.45, 0.0, 1.0)
+			if fl > 0.01:
+				var arm: float = rad * (3.0 + 9.0 * fl)
+				var fc: Color = Color(1.0, 0.97, 0.88, 0.55 * fl)
+				draw_line(pos - Vector2(arm, 0.0), pos + Vector2(arm, 0.0), fc, 1.6)
+				draw_line(pos - Vector2(0.0, arm), pos + Vector2(0.0, arm), fc, 1.6)
+		draw_circle(pos, rad * sc * 0.55, Color(1.0, 0.98, 0.9, a * 0.35))   # 부드러운 헤일로
+		draw_circle(pos, rad * sc * 0.28, Color(1.0, 1.0, 0.97, a))          # 심지
 
 # 전이 순간 배경 밝기 플래시 계수(0~) — 존 넘는 초반 0.3s만 쿨하게 밝아졌다 사그라듦.
 #   여백·상하단바가 한 박자 '휙' 밝아지며 새 존색으로 정착 = 이산 스텝이 주변부에서도 확실히 지각됨.
@@ -8031,6 +8078,7 @@ func _draw_hud(fnt: Font) -> void:
 	# 띠는 노치를 덮도록 safe_top만큼 두껍게, 내용은 그만큼 아래에서 시작(sy). 색은 밤하늘 존색으로(C75).
 	var sy: float = safe_top
 	draw_rect(Rect2(0, 0, 800, 144.0 + sy), _zone_tint(C_HUD))   # 존: 상단 바도 여백과 '같은' 존색으로(통일)
+	_draw_zone_stars(0.0, 144.0 + sy)                            # 하늘 = 바. 카드·기어는 뒤에 그려져 별을 덮는다
 	# CORE HP는 보드 하단 방어선(_draw_core)에만 표시 — 상단 중복 제거.
 	# 콤보 상시 카운터는 카드 아래에 그린다(아래 참조) — 노치·기어 다툼과 위계 반대를 피해.
 
@@ -9451,6 +9499,7 @@ func _draw_collapse() -> void:
 
 func _draw_bottom(fnt: Font) -> void:
 	draw_rect(Rect2(0, bot_y, VW_BASE, vh - float(bot_y)), _zone_tint(C_HUD))   # 존: 하단 바도 여백과 '같은' 존색으로(통일)
+	_draw_zone_stars(float(bot_y), vh)                                         # 트레이 슬롯은 뒤에 그려져 별을 덮는다
 
 	# 비행기 슬롯 — 이 판에 비행기가 나오는 판에서만 그린다(안 나오는 판에 빈 칸이 있으면 '고장'으로 읽힌다).
 	if _plane_allowed():
