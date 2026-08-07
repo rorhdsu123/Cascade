@@ -34,6 +34,12 @@ const ROCKET_DUR: float = 0.16  # 로켓 비행 지속(빠르게 질주)
 const CALLOUT_DUR: float = 3.4
 const CALLOUT_FADE: float = 0.6
 const CALLOUT_LINE: float = 36.0   # 접힌 문구의 줄 간격(32px 글자)
+# 튜토리얼 지시문(_draw_tut_msg). 크기는 **고정**이다 — 길면 접지, 줄이지 않는다(C160).
+#   폰 환산: 논리 800폭이 1080px 폰에서 1.35배로 펴지고 밀도 2.75 → 22pt ≈ 10.8dp.
+#   옛 코드의 축소 하한 15pt는 ≈7.4dp로 안드로이드 본문 권장 최소(12sp)의 절반이었다.
+#   ⚠이 환산은 계산이지 실기기 관측이 아니다 — 22pt 자체의 가독성은 기기에서 볼 것.
+const TUT_MSG_SIZE: int = 22
+const TUT_MSG_LINE: float = 26.0   # 접힌 지시문의 줄 간격(22px 글자)
 # 스테이지 인트로 카드 — 캠페인 진입 시 중앙 팝업(이름·태그·목표)이 떠서 잠깐 머물다 상단
 # 목표 카드로 축소·이동하며 녹아든다(BlockBlast 목표 배너 관찰). 탭하면 즉시 스킵.
 const INTRO_APPEAR: float = 0.28
@@ -1297,6 +1303,18 @@ const SFX_WORDS: Dictionary = {
 	#   ①옥타브 위로 올려 사다리 **밖**으로 내보내고(재생 +7/+12/+19 = 1471/1964/3006Hz)
 	#   ②연쇄보다 **위**에 둔다(collect −7 vs chain −9). 알려야 할 소리가 배경보다 조용하면 못 듣는다.
 	"collect": {"gap": 0.00, "db": -7.0, "det": 0.008, "base": 12},
+	# ── 부활 성사(R29 · §22 A-2 E-2) ──────────────────────────────────────────
+	# 이 자리는 **버튼 소리가 사건 소리를 대신하고 있었다** — 광고를 끝까지 보고 돌아왔는데 들리는 게
+	#   CTA의 `tap_go` 한 발뿐이라 "아무 일도 안 일어난 것 같다"가 된다. F2P 경로의 유일한 보상 순간이다.
+	# ⚠**파형이 글로켄이다** — 직전에 운 소리가 `result_lose`(같은 글로켄, base −5)라서다. 같은 악기가
+	#   **아래에서 위로** 되받으면 "그 판이 뒤집혔다"가 문법으로 읽힌다. 다른 파형을 쓰면 앞 소리와
+	#   무관한 새 물건이 하나 더 생길 뿐이다(§19 UI 탭 넷에서 새 음색을 안 늘린 것과 같은 판단).
+	# ⚠**`fanfare`(PB 돌파 = 정점)와 헷갈리면 안 된다.** 둘 다 판당 1회짜리 상승 아르페지오지만
+	#   ①음색이 갈린다(fanfare = 칩 짤랑 / revive = 종) ②발수가 갈린다(4발 0/+4/+7/+12 vs 3발 0/+7/+12)
+	#   ③레벨이 아래다. 부활은 **만회지 정점이 아니다** — 정점 소리를 주면 무한의 정점이 둘이 된다.
+	# ⚠db −13은 3음이 겹쳐 쌓이는 값이다(단음 글로켄 letter −12 · 4음 동시 chord −17 사이).
+	#   이 소리가 나는 창은 팝업이 닫히고 판이 다시 서는 **무음 구간**이라 낮아도 묻히지 않는다.
+	"revive": {"gap": 0.00, "db": -13.0, "det": 0.004, "music": true},
 }
 const SFX_VOICES: int = 8
 # ⚠12다. 글자 6음(각 1.4초)이 아직 울리는 채로 정점 화음 4음이 얹혀 **최대 10**이 겹친다(실측) —
@@ -1368,6 +1386,12 @@ const FB_MAP: Dictionary = {
 	# 보석 도착(R24)도 소리만 — 잡는 순간의 진동은 이미 없고(chain은 무진동, 캐스케이드 뭉갬),
 	#   도착마다 진동을 얹으면 판당 15번이라 승자독식 액추에이터가 통째로 뭉갠다.
 	"collect": {"hap": "", "sfx": "collect"},
+	# 부활(R29)은 **소리 + 진동 둘 다**다. 이 트랙에서 손실 계열(fail·leak·result_lose)을 전부
+	#   무진동으로 둔 건 "벌주지 않는다"는 결정인데(§11), 부활은 손실이 아니라 **만회**라 그 규칙에
+	#   안 걸린다. 창도 깨끗하다 — 직전 `tap_go`는 무진동이고 `fail`도 무진동이라 겹칠 게 없다.
+	#   ⚠`roll`이 아니라 `pop`인 이유: roll은 판을 **닫는** 긴 사건의 어휘다(finish). 부활은 판을 다시
+	#   **여는** 한 순간이라 도장 한 발이 맞는다(HAPTIC_PLAN의 길이=의미 규칙).
+	"revive": {"hap": "pop", "sfx": "revive"},
 }
 
 # 유일한 접점. 호출부는 '무엇이 일어났나'만 말한다.
@@ -1523,6 +1547,9 @@ func _sfx_build_bank() -> void:
 	#   pop_high = 카운터 틱 가족(score와 같은 파형) · 0.8~2.5kHz = 레퍼런스 핑이 앉은 자리.
 	_sfx_bank["goal_dock"] = hi
 	_sfx_bank["collect"] = hi
+	# 부활(R29) = 결과 팝업과 **같은 글로켄**. 앞 소리(result_lose)를 되받아 올라가는 게 요점이라
+	#   파형이 같아야 문법이 성립한다. 선율 파형이 없으면 UI 파형으로 폴백(소리가 얇아질 뿐 안 깨진다).
+	_sfx_bank["revive"] = ml if ml != null else hi
 
 
 # 전용 SFX 버스 + 하드 리미터를 **런타임에** 만든다 — 버스 레이아웃 리소스 파일을 안 만들므로
@@ -1610,6 +1637,18 @@ func _sfx(kind: String, intensity: float = 0.0) -> void:
 		#   그 길이가 근거 없는 장식이 되어 "띠리링거린다"로 들렸다(유저 판정 2026-08-04).
 		#   화면에 하나가 들어가면 소리도 하나 분량이어야 한다.
 		_sfx_tick_run(kind, mini(TICK_N_GEM + maxi(0, int(intensity) - 1), TICK_N_MAX))
+		return
+	elif kind == "revive":
+		# 부활 = **3발 상승 figure**(0 → +7 → +12). 첫 발은 지금, 나머지 둘은 예약한다.
+		#   ⚠간격이 120ms로 `goal_in`(85ms)·`fanfare`(100ms)보다 **넓다.** 글로켄은 지속음이라
+		#   촘촘히 놓으면 세 음이 한 덩어리로 뭉쳐 '상승'이 안 읽힌다(§27이 로고 조립에서 겪은 것의
+		#   반대 방향 — 거기선 타격음이라 촘촘해야 이어졌다). 재료가 바뀌면 간격도 바뀐다.
+		#   ⚠음정은 5음계 사다리 **밖의 넓은 도-솔-도**다. 0/+4/+7/+12(fanfare)와 겹치는 음이 있어도
+		#   figure가 다르면 다른 물건으로 들린다 — 갈리는 건 음이 아니라 **음색 + 발수**다.
+		_sfx_last[kind] = _sfx_t
+		for i in range(1, 3):
+			_sfx_queue.append({"at": _sfx_t + float(i) * 0.12, "kind": kind, "semi": [0, 7, 12][i]})
+		_sfx_fire(kind, 0)
 		return
 	elif kind == "goal_in":
 		# 목표 카드 등장 = **3발 상승 figure**(레퍼런스 온셋 간격 85ms 그대로, §31). 첫 발은 지금,
@@ -3916,6 +3955,13 @@ func advance_step() -> void:
 					bounce_r -= 1
 				en["row"] = bounce_r
 				en["vis_row"] = float(bounce_r)
+				# 2단 콜아웃(C160): 등장 시점의 도둑은 아직 안 훔쳤으니 '쫓아가 잡아라'를 그때 말하면
+				#   아직 일어나지 않은 일을 미리 읽히려는 것이다(옛 문구는 두 절을 3.4초에 욱여넣었다).
+				#   훔치는 지금이 그 절의 자리다 — 자루 보석·상승 쉐브론이 붙는 바로 그 프레임.
+				#   seen_types에 타입이 아닌 **이벤트 키**를 얹어 판당 1회로 묶는다(타입당 1회와 같은 규율).
+				if not seen_types.get("thief_stolen", false):
+					seen_types["thief_stolen"] = true
+					_set_callout(_t("callout_thief_stolen"), int(en["id"]))
 				var stp: Vector2 = _enemy_pos(int(en["col"]), bounce_r)
 				impacts.append({"pos": stp, "life": 0.3, "max": 0.3, "color": Color(0.95, 0.55, 0.5), "radius": CELL * 0.45, "star": true})
 			elif en["etype"] == "gem":
@@ -4204,15 +4250,17 @@ func _split_enemy(parent: Dictionary) -> void:
 
 # 콜아웃 문구를 maxw 안에 들어가게 낱말 단위로 접는다. 한 낱말이 그보다 길면 그 줄만 넘치게 두고
 #   자르지 않는다(문구를 잘라 먹느니 한 줄이 삐져나오는 게 낫다 — 실제 문구엔 그런 낱말이 없다).
-func _wrap_callout(fnt: Font, text: String, maxw: float) -> PackedStringArray:
+# size는 콜아웃 기본값 32. 튜토리얼 지시문(22)도 이 접기를 쓰므로 인자로 뺐다(C160) —
+#   그 전엔 32가 박혀 있어서, 다른 크기로 부르면 접는 지점이 실제 글자 폭과 어긋났다.
+func _wrap_callout(fnt: Font, text: String, maxw: float, size: int = 32) -> PackedStringArray:
 	var out: PackedStringArray = PackedStringArray()
-	if fnt.get_string_size(text, HORIZONTAL_ALIGNMENT_LEFT, -1, 32).x <= maxw:
+	if fnt.get_string_size(text, HORIZONTAL_ALIGNMENT_LEFT, -1, size).x <= maxw:
 		out.append(text)
 		return out
 	var line: String = ""
 	for w in text.split(" ", false):
 		var probe: String = w if line == "" else line + " " + w
-		if line != "" and fnt.get_string_size(probe, HORIZONTAL_ALIGNMENT_LEFT, -1, 32).x > maxw:
+		if line != "" and fnt.get_string_size(probe, HORIZONTAL_ALIGNMENT_LEFT, -1, size).x > maxw:
 			out.append(line)
 			line = w
 		else:
@@ -6508,6 +6556,12 @@ func _revive(method: String = "ad_reward") -> void:
 			board[ROWS - 1 - extra_clear][c] = ""
 		extra_clear += 1
 	_cont_hover = false
+	# 부활 성사(R29). **함수 맨 끝이다** — 보드·트레이·거점 HP가 다 제자리를 찾은 뒤라야 소리가
+	#   가리키는 대상이 화면에 실제로 서 있다. 위쪽(상태 대입 도중)에서 부르면 같은 프레임이라
+	#   귀엔 똑같지만, 나중에 안전망 루프가 길어지면 조용히 어긋난다.
+	# ⚠경로가 둘(광고 시청 `ad_reward` · 재고 없어 공짜 `free_fallback`)인데 **소리는 하나**다.
+	#   플레이어에게 일어난 일은 같고, 광고를 봤냐 아니냐는 보상의 크기가 아니다(AD_PLAN §3).
+	_fb("revive")
 
 # 재도전 = 실패면 같은 스테이지, 클리어면 다음(마지막이면 홈)
 # 결과 화면 → 다음 판. **인터스티셜의 유일한 자리**(AD_PLAN §3): 축하 무대·팝업 개봉이 다 끝나고
@@ -7261,8 +7315,8 @@ const MENU_WM_MAXW: float = 560.0     # 화면의 70%
 #   45ms에 머물렀다. 배율을 고정하니 21ms로 돌아왔다. 크기 전환이 갖는 값어치보다 비싸다.
 const MENU_WM_MAXW_HOME: float = 380.0
 const MENU_WM_CENTER_Y: float = 230.0 # 락업 시각 중심(화면의 18%). 로고 화면은 같은 물건을 47%에 놓는다
-                                      #   ⚠290이던 값이다 — 로고를 줄이기만 하니 위 여백이 324로 늘어
-                                      #     화면이 위로 떠 보였다(유저 지적). 올려서 여백을 264로 정리했다.
+									  #   ⚠290이던 값이다 — 로고를 줄이기만 하니 위 여백이 324로 늘어
+									  #     화면이 위로 떠 보였다(유저 지적). 올려서 여백을 264로 정리했다.
 const MENU_TAGLINE: String = "CASTLE KEEPER"   # 후보 검토 중 — 장르 설명 아님, 플레이어 자칭(레퍼런스 수법)
 const C_TAGLINE := Color("#cbc0a8")   # 저채도 크림. 색 주도권은 워드마크가 독점한다
 const MENU_TAG_SIZE: int = 26         # 스플래시 그림과 같은 치수(논리 800폭 기준)
@@ -8251,12 +8305,17 @@ func _draw_tut_msg(fnt: Font) -> void:
 	#   같은 노랑으로 관통했다 — 카드 아래 ~ 보드 위 띠에 바닥 정렬로 앉힌다(긴 폰에선 갭이 넓어 여유).
 	# 배경 판(불투명 알약)은 필수: 카드든 보드든 뒤에 뭐가 오든 글자가 늘 뜬다. [[hud-signal-by-color-not-text]]는
 	#   '상태를 글자로 알리지 말라'지, 튜토리얼 지시문까지 배경 없이 띄우라는 뜻이 아니다.
-	var sz: int = 22
-	var w: float = fnt.get_string_size(msg, HORIZONTAL_ALIGNMENT_LEFT, -1, sz).x
-	while w > float(COLS * CELL) - 24.0 and sz > 15:   # 보드 폭을 넘으면 줄인다(영어 문장이 길다)
-		sz -= 1
-		w = fnt.get_string_size(msg, HORIZONTAL_ALIGNMENT_LEFT, -1, sz).x
-	var ph: float = float(sz) + 14.0
+	# 폭이 넘치면 **접는다. 줄이지 않는다**(C160). 옛 코드는 22pt를 15pt까지 깎았는데, 논리 800폭이
+	#   폰에서 1080으로 펴지는 걸 감안하면 15pt ≈ 7.4dp다(안드로이드 본문 권장 최소 12sp의 절반).
+	#   더 나쁜 건 **조용하다는 것** — 문구를 길게 쓴 사람에게 아무 신호도 안 갔다. 크기는 고정하고
+	#   자리로만 푼다([[godot-animating-text-size-refires-glyphs]]와 같은 결).
+	#   ⚠한 줄일 때의 판·글자 위치는 옛 산식과 정확히 같게 뒀다(TUT_LINE은 둘째 줄부터만 먹는다).
+	var sz: int = TUT_MSG_SIZE
+	var lines: PackedStringArray = _wrap_callout(fnt, msg, float(COLS * CELL) - 24.0, sz)
+	var w: float = 0.0
+	for ln in lines:
+		w = maxf(w, fnt.get_string_size(ln, HORIZONTAL_ALIGNMENT_LEFT, -1, sz).x)
+	var ph: float = float(lines.size() - 1) * TUT_MSG_LINE + float(sz) + 14.0
 	var pbot: float = float(board_y) - 6.0                       # 판 바닥을 보드 상단에 붙인다
 	var card_bot: float = _hud_card_y() + HUD_CARD_H + 6.0
 	if pbot - ph < card_bot:
@@ -8270,7 +8329,11 @@ func _draw_tut_msg(fnt: Font) -> void:
 	else:
 		draw_rect(plate, Color(0.09, 0.09, 0.14, 0.92 * col.a))
 		draw_rect(plate, Color(col.r, col.g, col.b, 0.55 * col.a), false, 2.0)
-	_draw_text_outlined(fnt, Vector2(400.0 - w * 0.5, pbot - 10.0), msg, sz, col)
+	# 줄마다 가운데 정렬 — 마지막 줄의 베이스라인이 옛 단일 줄 위치(pbot - 10)와 같다.
+	for li in range(lines.size()):
+		var lw: float = fnt.get_string_size(lines[li], HORIZONTAL_ALIGNMENT_LEFT, -1, sz).x
+		var ly: float = pbot - 10.0 - float(lines.size() - 1 - li) * TUT_MSG_LINE
+		_draw_text_outlined(fnt, Vector2(400.0 - lw * 0.5, ly), lines[li], sz, col)
 
 # ── 가산 블렌드 오버레이 ─────────────────────────────────────────────────────
 # Godot의 _draw()는 **그리는 도중 블렌드 모드를 못 바꾼다** — 블렌드는 CanvasItem 단위 머티리얼
@@ -9063,24 +9126,41 @@ func _draw_board(fnt: Font) -> void:
 			"thief":
 				# 도둑 = 후드 쓴 도적: 둥근 후드 몸 + 복면 띠(눈 두 점) + 옆구리 자루. form만으로 '도둑'을 말한다.
 				#   carrying(훔쳐 도망 중): ①따뜻한 회수-촉구 후광 ②자루에 빛나는 보석 ③머리 위 상승 쉐브론(위로 도망).
+				# ⚠전환이 안 읽혔다(C160, 유저 확인 + 실측). 두 상태를 셀 단위로 재보니 **조금이라도 다른
+				#   픽셀 35.4%인데 뚜렷이 다른 픽셀은 2.5%뿐**이었다 — 신호가 거의 전부 알파 0.16~0.28짜리
+				#   넓고 흐린 후광에 실려 있었다. 넓게 조금 바꾸는 건 어두운 보드에서 아무것도 아니다.
+				#   고친 방향: **면을 더 덮지 않고**(칸 상태가 계속 읽혀야 한다, [[enemy-sprite-must-not-cover-cell]])
+				#   테두리와 실루엣으로 옮긴다([[sprite-swap-keeps-signal-channel]] — 강조는 면 덧칠이 아니라 rim).
 				var carrying2: bool = bool(e.get("carrying", false))
 				var tr: float = CELL * 0.32
+				var cpz: float = 0.5 + 0.5 * sin(anim_t * 8.0)
 				if carrying2:
-					var cp: float = 0.5 + 0.5 * sin(anim_t * 8.0)
-					draw_circle(Vector2(cx, cy), tr * (1.5 + 0.2 * cp), Color(1.0, 0.82, 0.32, 0.16 + 0.12 * cp))  # 회수 촉구 후광(앰버)
+					# ⚠후광 알파는 **올리지 않는다.** 반경이 tr*1.5(지름 ~98px)라 90px 셀을 통째로 덮는다 —
+					#   여기를 진하게 하면 밑의 칸 상태가 안 읽힌다([[enemy-sprite-must-not-cover-cell]]).
+					#   실제로 0.26까지 올려봤더니 셀 잉크가 전부 '강'으로 굳었다(중 35%%→0%%). 신호는 아래
+					#   테두리·자루가 진다 — 좁고 진하게. 후광은 거들 뿐.
+					draw_circle(Vector2(cx, cy), tr * (1.5 + 0.2 * cpz), Color(1.0, 0.82, 0.32, 0.16 + 0.12 * cpz))  # 회수 촉구 후광(앰버)
 				draw_circle(Vector2(cx, cy), tr, C_E_THIEF)                              # 몸통
 				draw_circle(Vector2(cx, cy - tr * 0.34), tr * 0.86, C_E_THIEF_DK)        # 후드(위쪽 그늘)
-				draw_circle(Vector2(cx, cy), tr, C_E_RIM, false, C_E_RIM_W)
+				# 테두리가 상태를 진다: 훔치기 전 = 평범한 rim / 훔친 뒤 = 굵은 앰버 rim(맥동).
+				#   면적을 안 늘리면서 대비가 가장 크게 서는 자리다.
+				if carrying2:
+					draw_circle(Vector2(cx, cy), tr, Color(1.0, 0.86, 0.40, 0.85 + 0.15 * cpz), false, C_E_RIM_W + 2.0)
+				else:
+					draw_circle(Vector2(cx, cy), tr, C_E_RIM, false, C_E_RIM_W)
 				var eye_y: float = cy - tr * 0.04
 				draw_rect(Rect2(cx - tr * 0.82, eye_y - tr * 0.17, tr * 1.64, tr * 0.34), C_E_THIEF_DK)  # 복면 띠
 				draw_circle(Vector2(cx - tr * 0.32, eye_y), tr * 0.1, Color(1.0, 0.95, 0.7))             # 눈
 				draw_circle(Vector2(cx + tr * 0.32, eye_y), tr * 0.1, Color(1.0, 0.95, 0.7))
+				# 자루는 **실루엣으로** 상태를 진다 — 빈 자루는 홀쭉, 훔친 자루는 불룩(+35%)하고 앰버 테를 두른다.
+				#   "뭔가 들어 있다"를 색이 아니라 형태가 말하므로 색약·저명도에서도 남는다.
 				var sack: Vector2 = Vector2(cx + tr * 0.74, cy + tr * 0.52)
-				draw_circle(sack, tr * 0.34, C_E_THIEF_DK)                               # 자루
-				draw_circle(sack, tr * 0.34, C_E_RIM, false, C_E_RIM_W - 0.5)
+				var sack_r: float = tr * (0.46 if carrying2 else 0.34)
+				draw_circle(sack, sack_r, C_E_THIEF_DK)                                  # 자루
+				draw_circle(sack, sack_r, (Color(1.0, 0.86, 0.40) if carrying2 else C_E_RIM), false, C_E_RIM_W - 0.5)
 				if carrying2:
 					var gp2: float = 0.5 + 0.5 * sin(anim_t * 9.0)
-					draw_circle(sack, tr * (0.2 + 0.06 * gp2), Color(1.0, 0.9, 0.42))    # 훔친 보석 빛남
+					draw_circle(sack, sack_r * (0.62 + 0.12 * gp2), Color(1.0, 0.9, 0.42))  # 훔친 보석 빛남
 					var chy: float = cy - tr * 1.42
 					var chs: float = tr * 0.34
 					var cha: float = 0.4 + 0.6 * (0.5 + 0.5 * sin(anim_t * 10.0))

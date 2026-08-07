@@ -547,6 +547,64 @@ func _pass_intro(skip: bool) -> Dictionary:
 #   한 발도 안 나온다 — 여기서 안 재면 배선이 통째로 빠져 있어도 초록이다.
 #   R26부터는 소리뿐 아니라 **세 박자 연출**(제자리 대기 → 발사 → 도착)까지 같이 본다: 소리가
 #   발사에 맞춰 나가야 마지막 틱이 도착에 앉으므로, 연출 상수가 바뀌면 소리도 어긋난다.
+# 패스 K — 부활 성사(R29 · §22 A-2 E-2). **봇은 절대 이 경로를 안 탄다** — 부활은 광고 콜백이나
+#   공짜 폴백에서만 들어오고, 프로브의 봇 무브는 게임오버에서 멈춘다. 배선을 검사로 따로 두지 않으면
+#   `_revive` 안의 `_fb` 한 줄이 지워져도 아무 검사도 안 깨진다(§29가 A/B에서 겪은 것과 같은 종류).
+# ⚠부활은 **모드-무관**이다(`revivable = game_over and not revive_used`, 모드 게이트 없음).
+#   그래서 여기선 캠페인으로 잰다 — 무한으로만 재면 '무한 전용'이라는 틀린 이해가 검사에 굳는다.
+func _pass_revive() -> Dictionary:
+	g.sfx_log_on = true
+	g.sound_on = true
+	# ⚠햅틱도 같이 켠다. `haptic_probe`는 봇 패스만 굴리므로 **부활의 진동 배선을 아무도 안 본다** —
+	#   FB_MAP의 "hap": "pop"이 지워져도 검사 하나 안 깨지는 자리였다. 소리와 같은 창에서 같이 잰다.
+	g.hap_log_on = true
+	g._hap_log = []
+	g._sfx_log = []
+	g._sfx_t = 0.0
+	seed(SEED_CAMPAIGN)
+	g.seed_game(SEED_CAMPAIGN)
+	g._start_stage(0)
+	g.intro_t = -1.0
+	g.result_t = -1.0
+	_idle(2)
+	# 거점사로 죽인다(_pass_result와 같은 방식 — pending_core_dead를 세우면 advance_step이 덮는다).
+	g.core_hp = 0
+	g._end_turn()
+	for _i in range(int(15.0 * 60.0)):
+		g._process(1.0 / 60.0)
+		if g.result_t >= 0.0:
+			break
+	# 여기까지가 '죽고 팝업이 뜬' 상태. 로그를 비우고 **부활만** 잰다.
+	g._sfx_log = []
+	g._hap_log = []
+	var t0: float = g._sfx_t
+	g._revive("free_fallback")
+	_idle(30)          # 0.5초 — 3발 figure(0.24초)가 다 나가고도 남는다
+	var ev: Array = []
+	for e0 in g._sfx_log:
+		var e: Dictionary = e0 as Dictionary
+		if String(e["drop"]) != "":
+			continue
+		ev.append({"t": float(e["t"]) - t0, "kind": String(e["kind"]), "semi": int(e["semi"])})
+	var semis: Array = []
+	var gaps: Array = []
+	var prev: float = -1.0
+	for e1 in ev:
+		var e2: Dictionary = e1 as Dictionary
+		if String(e2["kind"]) != "revive":
+			continue
+		semis.append(int(e2["semi"]))
+		if prev >= 0.0:
+			gaps.append(float(e2["t"]) - prev)
+		prev = float(e2["t"])
+	var haps: Array = []
+	for h0 in g._hap_log:
+		var h: Dictionary = h0 as Dictionary
+		if String(h["drop"]) == "":
+			haps.append(String(h["kind"]))
+	g.hap_log_on = false
+	return {"ev": ev, "semis": semis, "gaps": gaps, "haps": haps, "used": bool(g.revive_used)}
+
 func _pass_gem() -> Dictionary:
 	g.sfx_log_on = true
 	g.sound_on = true
@@ -1098,6 +1156,43 @@ func _run() -> void:
 			int(gm["burst"]) == mini(int(g.TICK_N_GEM) + 4, int(g.TICK_N_MAX)) and int(gm["burst_drop"]) == 0
 					and int(gm["music"]) <= MAX_FIRES_IN_1S,
 			"%d발 · 드롭 %d · 롤링 %d" % [int(gm["burst"]), int(gm["burst_drop"]), int(gm["music"])])
+
+	# ── 패스 K — 부활 성사(R29) ────────────────────────────────────────────────
+	var rv: Dictionary = _pass_revive()
+	var rv_semis: Array = rv["semis"] as Array
+	var rv_gaps: Array = rv["gaps"] as Array
+	_check("㉙ 부활 배선(_revive → revive 3발 상승)",
+			rv_semis == [0, 7, 12], str(rv_semis))
+	# ⚠간격이 넓은 게 요점이다(글로켄은 지속음이라 촘촘하면 세 음이 한 덩어리로 뭉친다).
+	#   예약은 다음 프레임에 나가므로 60fps 격자에 붙는다: 0.12 → [0.133, 0.117](최대 어긋남 13ms).
+	#   ⚠허용치는 **18ms**다. 20ms로 뒀더니 사보타주(85ms)의 첫 간격이 경계에 정확히 걸려 통과했다 —
+	#   지터 폭(13)과 잡아야 할 오차(85ms면 20~37) 사이에 자를 놓아야 검사가 일을 한다.
+	var gap_ok: bool = rv_gaps.size() == 2
+	for gp in rv_gaps:
+		if absf(float(gp) - 0.12) > 0.018:
+			gap_ok = false
+	_check("㉙ 3발 간격 120ms(goal_in 85 · fanfare 100보다 넓다)", gap_ok, str(rv_gaps))
+	# ⚠**정점과 안 겹치는지**가 이 어휘의 존재 이유다 — 부활은 만회지 정점이 아니다(fanfare = PB 돌파).
+	#   같은 창에 fanfare가 섞이면 두 정점이 되고, 파형까지 같으면 구분이 아예 사라진다.
+	var rv_kinds: Array = []
+	for e3 in (rv["ev"] as Array):
+		var k3: String = String((e3 as Dictionary)["kind"])
+		if not rv_kinds.has(k3):
+			rv_kinds.append(k3)
+	# ⚠**`rv_kinds.has("revive")`를 먼저 요구한다.** 이 줄이 없으면 배선이 통째로 지워졌을 때
+	#   로그가 비어 "fanfare 없음"이 자동으로 참이 되어 **공허하게 초록**이다(사보타주로 확인했다).
+	#   부정형 검사는 항상 "볼 게 실제로 있었나"를 같이 물어야 한다.
+	_check("㉙ 부활 창에 정점(fanfare) 없음 · 파형은 글로켄(music 풀)",
+			rv_kinds.has("revive") and not rv_kinds.has("fanfare") and _is_music("revive")
+					and g._sfx_bank.get("revive", null) == g._sfx_bank.get("result_lose", null),
+			"%s · music=%s" % [str(rv_kinds), str(_is_music("revive"))])
+	_check("㉙ 부활이 실제로 성사됨(기회 소진)", bool(rv["used"]), str(rv["used"]))
+	# ⚠**부활은 이 트랙에서 진동이 붙는 몇 안 되는 자리다.** 손실 계열(fail·leak·result_lose)은 전부
+	#   무진동인데(§11 "벌주지 않는다") 부활은 손실이 아니라 만회라 그 규칙 밖이다 — 즉 **의도적으로
+	#   예외인 자리**라서, 나중에 누가 "손실 근처니까 무진동" 하고 지우기 쉽다. 검사로 못 박는다.
+	#   `roll`이 아닌 이유도 여기 걸린다: roll은 판을 닫는 어휘(finish)고 부활은 다시 여는 한 순간이다.
+	_check("㉙ 부활 진동 = pop 1발(roll 아님 · 무진동 아님)",
+			(rv["haps"] as Array) == ["pop"], str(rv["haps"]))
 
 	print("=== %s (실패 %d) ===" % ["PASS" if fails == 0 else "FAIL", fails])
 	quit(1 if fails > 0 else 0)
