@@ -63,6 +63,34 @@ extends RefCounted
 #     개수에 민감한 결함은 밀도로 안 잡힌다 — 기전 판은 길이 변경 뒤 개수도 같이 볼 것.
 #   왜 이 축이 생겼나: 세션당 클리어가 **중앙값 1.0판**이었다(실플레이 37세션). 캐주얼 표준은 3~7판이다.
 #     "판이 길다"는 체감의 정체는 판 하나의 초가 아니라 성취 하나에 드는 시간(재시도 포함 중앙값 4.3분)이다.
+# 기준 ⑨ 곡선은 평평하면 안 된다 — **기본 판은 높게, 스파이크는 4~5판 간격으로 깊게**(S23).
+#   S19 길이 하향 뒤 승률이 50~98%로 흩어져 어디가 산인지 안 읽혔다. 목표 모양:
+#     기본 판 82~90%(한두 번에 깬다) · 스파이크 50~58% · 보석 판 93~95%(쉬어가기, 의도된 놀이터)
+#   스파이크 자리는 슬롯 5·10·15·20이고 **전부 이미 가르친 기전의 마지막 rung**이 맡는다
+#   (가르치고 → 익히고 → 시험). 스파이크 전용 신규 판은 만들지 않는다 — 그건 재탕이다.
+#   ⚠**스파이크는 길이가 아니라 조임으로 준다.** total은 다른 판과 같게 두고 core_hp만 내린다.
+#     실패 비용이 이웃 판과 같아야 재도전이 싸다. 하향 전엔 정반대였다 — 어려운 판이 하필 제일 길어
+#     (장갑 189s·55.9% / 분열 179s·57.5%) '길고 또 지는 판'이 한 판에 14.4분을 태웠다.
+#   ⚠core_hp는 **거점사 지배 판에서만** 듣는다(기준 ⑤). 전 판 패배 사유를 먼저 볼 것 —
+#     온보딩은 막힘 100%라 core_hp 7이 이미 놀고 있고, 거기선 이 레버가 아무것도 안 한다.
+#   ⚠**눈금이 굵다.** 이 패스에서 속공 core_hp 4→5가 +26.7pt였다. 5pt 미만의 미세 조정은
+#     core_hp로 불가능하니 시도하지 말 것(±7pt를 목표 적중으로 친다).
+#
+#   S23 곡선 패스 실측(campaign_probe 시드베이스 2개 × N=60, 승률 전→후):
+#      1 온보딩    hp7  93.3 → 93.3      10 복습 ⚡   hp3  73.3 → 50.9
+#      2 무리      hp5  67.5 → 83.3      11 분열      hp6  73.3 → 81.7
+#      3 속공      hp5  60.8 → 87.5      12 보석2     hp3  95.0 → 95.0
+#      4 비행기R1  hp4  83.3 → 80.0      13 폭탄R2 ⚡ hp5  55.0 → 50.0
+#      5 퍼즐LEAN⚡hp4  66.7 → 64.2      14 보석3     hp3  95.0 → 95.0
+#      6 보석1     hp3  94.2 → 95.0      15 폭탄R3    hp9  73.3 → 89.2
+#      7 폭탄R1    hp8  74.2 → 85.8      16 분열×폭탄 hp8  66.7 → 81.7
+#      8 장갑      hp6  76.7 → 88.3      17 클라이맥스⚡hp3 61.6 → 41.6
+#      9 비행기R2  hp5  70.0 → 77.5
+#     ⇒ 기본 판 평균 87.2% · 스파이크 평균 51.7% · **계단 차 35.5pt**. 길이는 불변(최장 102초).
+#   ⚠이 값들은 **봇 승률**이다. 실플레이 애널리틱스에선 사람이 봇보다 못했다
+#     (봇 ~62% ↔ 사람 48% 부활 포함 / 21% 부활 제외, 58시도). 곡선의 **모양**은 이 표로 잡되
+#     **높이**는 봇↔사람 갭을 측정한 뒤 다시 앉힌다. 1차 지표는 '부활 없는 사람 승률'이어야 한다 —
+#     지금 클리어의 57%가 부활 클리어라 이 캠페인은 광고를 켠 상태에서만 굴러간다.
 
 # 조각 풀 프리셋 — {조각키: 가중치}. 공통 '변주 base'(테트로미노·직사각 = 손맛)에 I5만 다르게.
 # sim(pool_probe, basic-only) 실측: I5 0%→50%면 승률 5%→84% 단조 상승. 공정성은 _pool_piece
@@ -214,7 +242,8 @@ const STAGES: Array = [
 		#   ⚠기각한 대안 ③ total 30→26: ON +1pt(75.0%). 길이만 줄고 누수 압력은 그대로라 무효.
 		"name": "st2_name", "tag": "st2_tag",
 		"plane_cd": 3,
-		"total": 30, "core_hp": 4, "base_hp": 32, "hp_ramp": 0.4, "tank_mult": 2.5,
+		# core_hp 4→5 (S23 곡선 패스 — 판별 근거는 개별로 두지 않는다, 기준 ⑨의 표가 정본).
+		"total": 30, "core_hp": 5, "base_hp": 32, "hp_ramp": 0.4, "tank_mult": 2.5,
 		"spawn_every": 2, "step_every": 3, "onboard": 4, "floor": 5, "surge_at": 0.82,
 		"weights": {"basic": 40, "fast": 0, "tank": 0, "swarm": 60, "split": 0}, "pool": POOL_RICH,
 	},
@@ -229,7 +258,8 @@ const STAGES: Array = [
 		"name": "st3_name", "tag": "st3_tag",
 		"plane_cd": 8,
 		# total 32→21(S19 길이 하향): 승배치 37.7 → 목표 25.
-		"total": 21, "core_hp": 4, "base_hp": 34, "hp_ramp": 0.5, "tank_mult": 2.5,
+		# core_hp 4→5 (S23 곡선 패스 — 판별 근거는 개별로 두지 않는다, 기준 ⑨의 표가 정본).
+		"total": 21, "core_hp": 5, "base_hp": 34, "hp_ramp": 0.5, "tank_mult": 2.5,
 		"spawn_every": 2, "step_every": 3, "onboard": 3, "floor": 5, "surge_at": 0.80,
 		"weights": {"basic": 40, "fast": 50, "tank": 0, "swarm": 10, "split": 0}, "pool": POOL_STD,
 	},
@@ -257,7 +287,8 @@ const STAGES: Array = [
 		"name": "st4_name", "tag": "st4_tag",
 		"plane_cd": 7,
 		# total 36→25(S19 길이 하향): 승배치 35.9 → 목표 25.
-		"total": 25, "core_hp": 5, "base_hp": 36, "hp_ramp": 0.4, "tank_mult": 2.5,
+		# core_hp 5→4 (S23 곡선 패스 — 판별 근거는 개별로 두지 않는다, 기준 ⑨의 표가 정본).
+		"total": 25, "core_hp": 4, "base_hp": 36, "hp_ramp": 0.4, "tank_mult": 2.5,
 		"spawn_every": 2, "step_every": 3, "onboard": 3, "floor": 5, "surge_at": 0.80,
 		"weights": {"basic": 55, "fast": 0, "tank": 0, "swarm": 45, "split": 0}, "pool": POOL_LEAN,
 	},
@@ -292,7 +323,8 @@ const STAGES: Array = [
 		#     진짜 결함은 타이밍이 아니라 총량이었고, 그래서 레버도 시점이 아니라 밀도다.
 		"name": "st11_name", "tag": "st11_tag", "bomb_fuse": 8, "bomb_dmg": 2,
 		"plane_cd": 12,
-		"total": 18, "core_hp": 7, "base_hp": 30, "hp_ramp": 0.2, "tank_mult": 2.5,
+		# core_hp 7→8 (S23 곡선 패스 — 판별 근거는 개별로 두지 않는다, 기준 ⑨의 표가 정본).
+		"total": 18, "core_hp": 8, "base_hp": 30, "hp_ramp": 0.2, "tank_mult": 2.5,
 		# spawn_every 3→2(S19 길이 하향): **이 판만 total이 길이 손잡이가 아니다.** total 26으로
 		#   캠페인에서 제일 작은데 승배치는 54.6으로 제일 길었다 — 원인은 적 수가 아니라 유입 속도다
 		#   (spawn_every 3 + floor 2 = 얇게 천천히 들어와서 26마리 소화에 오래 걸린다).
@@ -320,7 +352,8 @@ const STAGES: Array = [
 		"plane_cd": 13,
 		# total 44→20(S19 길이 하향): 승배치 57.4 = 캠페인 최장 → 목표 25. 장갑은 20마리 중 55%=11마리로
 		#   남아 판의 정체(관통 요구)는 유지된다. 1차 하향(20)이 32.2배치로 아직 위라 17로 마저.
-		"total": 17, "core_hp": 5, "base_hp": 44, "hp_ramp": 0.3, "tank_mult": 4.5,
+		# core_hp 5→6 (S23 곡선 패스 — 판별 근거는 개별로 두지 않는다, 기준 ⑨의 표가 정본).
+		"total": 17, "core_hp": 6, "base_hp": 44, "hp_ramp": 0.3, "tank_mult": 4.5,
 		"spawn_every": 2, "step_every": 3, "onboard": 3, "floor": 5, "surge_at": 0.80,
 		"weights": {"basic": 40, "fast": 0, "tank": 55, "swarm": 5, "split": 0}, "pool": POOL_STD,
 	},
@@ -334,7 +367,8 @@ const STAGES: Array = [
 	{
 		"name": "st18_name", "tag": "st18_tag",
 		"plane_first_cd": 3, "plane_cd": 40,
-		"total": 20, "core_hp": 4, "base_hp": 40, "hp_ramp": 0.35, "tank_mult": 4.2,
+		# core_hp 4→5 (S23 곡선 패스 — 판별 근거는 개별로 두지 않는다, 기준 ⑨의 표가 정본).
+		"total": 20, "core_hp": 5, "base_hp": 40, "hp_ramp": 0.35, "tank_mult": 4.2,
 		"spawn_every": 2, "step_every": 3, "onboard": 2, "floor": 5, "surge_at": 0.80,
 		"weights": {"basic": 25, "fast": 30, "tank": 25, "swarm": 20}, "pool": POOL_STD,
 	},
@@ -347,7 +381,8 @@ const STAGES: Array = [
 		"name": "st6_name", "tag": "st6_tag",
 		"plane_cd": 12,
 		# total 48→26(S19 길이 하향): 승배치 46.4 → 목표 25.
-		"total": 26, "core_hp": 5, "base_hp": 46, "hp_ramp": 0.4, "tank_mult": 4.2,
+		# core_hp 5→3 (S23 곡선 패스 — 판별 근거는 개별로 두지 않는다, 기준 ⑨의 표가 정본).
+		"total": 26, "core_hp": 3, "base_hp": 46, "hp_ramp": 0.4, "tank_mult": 4.2,
 		"spawn_every": 2, "step_every": 3, "onboard": 2, "floor": 6, "surge_at": 0.78,
 		"weights": {"basic": 20, "fast": 35, "tank": 25, "swarm": 20, "split": 0}, "pool": POOL_STD,
 	},
@@ -370,7 +405,8 @@ const STAGES: Array = [
 		"plane_cd": 14,
 		# total 48→22(S19 길이 하향): 승배치 54.2 → 목표 25. 분열 40%로 22마리 중 8.8마리는
 		#   기전이 충분히 반복된다(밀도 불변 — 배치당 분열 수는 total과 배치가 같이 줄어 안 바뀐다).
-		"total": 22, "core_hp": 5, "base_hp": 44, "hp_ramp": 0.35, "tank_mult": 4.2,
+		# core_hp 5→6 (S23 곡선 패스 — 판별 근거는 개별로 두지 않는다, 기준 ⑨의 표가 정본).
+		"total": 22, "core_hp": 6, "base_hp": 44, "hp_ramp": 0.35, "tank_mult": 4.2,
 		"spawn_every": 2, "step_every": 3, "onboard": 3, "floor": 6, "surge_at": 0.80,
 		"weights": {"basic": 60, "fast": 0, "tank": 0, "swarm": 0, "split": 40}, "pool": POOL_STD,
 	},
@@ -417,7 +453,8 @@ const STAGES: Array = [
 		#   ⚠추가 범인 하나 — **onboard가 짧은 판에서 비싸졌다.** 첫 N스폰을 basic으로 강제하는데
 		#     total 32일 땐 3/32 = 9%였던 게 total 19에선 3/19 = 16%다. 즉 길이를 깎으면 가중치를
 		#     안 건드려도 신규 기전의 실효 비율이 저절로 떨어진다. onboard 3→2로 같이 내린다.
-		"total": 19, "core_hp": 6, "base_hp": 30, "hp_ramp": 0.25, "tank_mult": 2.5,
+		# core_hp 6→5 (S23 곡선 패스 — 판별 근거는 개별로 두지 않는다, 기준 ⑨의 표가 정본).
+		"total": 19, "core_hp": 5, "base_hp": 30, "hp_ramp": 0.25, "tank_mult": 2.5,
 		"spawn_every": 2, "step_every": 3, "onboard": 2, "floor": 3, "surge_at": 0.80,
 		"weights": {"basic": 27, "fast": 20, "swarm": 15, "bomb": 38}, "pool": POOL_STD,
 	},
@@ -449,7 +486,8 @@ const STAGES: Array = [
 		# ⚠연쇄(bomb_chain)는 폭탄이 **뭉쳐야** 성립하는데 절대 개수가 12.2→6.8로 준다. 밀도는
 		#   불변이라도 인접 확률은 개수에 더 민감하다 — 재측정에서 연쇄가 안 터지면 이 판은
 		#   길이를 되돌리는 게 아니라 weights 38→45%로 뭉침을 복원한다.
-		"total": 18, "core_hp": 8, "base_hp": 30, "hp_ramp": 0.2, "tank_mult": 2.5,
+		# core_hp 8→9 (S23 곡선 패스 — 판별 근거는 개별로 두지 않는다, 기준 ⑨의 표가 정본).
+		"total": 18, "core_hp": 9, "base_hp": 30, "hp_ramp": 0.2, "tank_mult": 2.5,
 		"spawn_every": 2, "step_every": 3, "onboard": 3, "floor": 3, "surge_at": 0.80,
 		"weights": {"basic": 62, "bomb": 38}, "pool": POOL_STD,
 	},
@@ -463,7 +501,8 @@ const STAGES: Array = [
 		"name": "st16_name", "tag": "st16_tag", "bomb_fuse": 8, "bomb_dmg": 2,
 		"plane_cd": 14,
 		# total 20→18(S21): 1차 저작이 32.3배치(107초)로 밴드 위였다.
-		"total": 18, "core_hp": 7, "base_hp": 40, "hp_ramp": 0.3, "tank_mult": 4.2,
+		# core_hp 7→8 (S23 곡선 패스 — 판별 근거는 개별로 두지 않는다, 기준 ⑨의 표가 정본).
+		"total": 18, "core_hp": 8, "base_hp": 40, "hp_ramp": 0.3, "tank_mult": 4.2,
 		"spawn_every": 2, "step_every": 3, "onboard": 2, "floor": 3, "surge_at": 0.80,
 		"weights": {"basic": 40, "split": 30, "bomb": 30}, "pool": POOL_STD,
 	},
@@ -481,7 +520,8 @@ const STAGES: Array = [
 		# total 56→25(S19 길이 하향): 승배치 56.5 → 목표 25. ⚠전체 평균 배치는 45.5로 찍혀 있었지만
 		#   그건 승률 28%가 만든 착시다(진 판이 일찍 끝나 평균을 끌어내린다) — 실제 클리어는 56.5배치·187초로
 		#   캠페인 최장급이었다. 승배치·패배치를 분리해 재기 전엔 이 판이 길다는 게 안 보였다.
-		"total": 25, "core_hp": 4, "base_hp": 50, "hp_ramp": 0.4, "tank_mult": 4.2,
+		# core_hp 4→3 (S23 곡선 패스 — 판별 근거는 개별로 두지 않는다, 기준 ⑨의 표가 정본).
+		"total": 25, "core_hp": 3, "base_hp": 50, "hp_ramp": 0.4, "tank_mult": 4.2,
 		"spawn_every": 2, "step_every": 3, "onboard": 2, "floor": 6, "surge_at": 0.78,
 		"weights": {"basic": 15, "fast": 25, "tank": 20, "swarm": 15, "split": 25}, "pool": POOL_STD,
 	},
