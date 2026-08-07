@@ -14,7 +14,10 @@ func _init() -> void:
 	var S: GDScript = load("res://Main.gd")
 	var g: Node = S.new()
 	root.add_child(g)
-	g.dda_enabled = false
+	# ⚠_ready가 persist_enabled를 켠다. 이 하네스는 판을 이기므로 안 끄면 실유저 진행도에 각인된다
+	#   (regress에서 실제로 겪은 사고와 같은 경로 — S1에서 그쪽은 막았고 여기가 남아 있었다).
+	g.set("persist_enabled", false)
+	g.dda_enabled = false   # 실패 케어(S4)도 이 스위치에 물려 있다 → 순수 난이도만 잰다
 	var wins: int = 0
 	var dead_core: int = 0
 	var dead_stuck: int = 0

@@ -29,6 +29,9 @@ func _click(g: Node, pos: Vector2) -> void:
 	ev.pressed = true
 	ev.position = pos
 	g.call("_input", ev)
+	# 버튼은 **뗄 때** 발동한다(C144) — 누름만 보내면 걸리기만 하고 아무 일도 안 일어난다.
+	ev.pressed = false
+	g.call("_input", ev)
 	await process_frame
 
 func _dump(g: Node, tag: String) -> void:

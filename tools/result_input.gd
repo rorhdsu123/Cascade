@@ -28,6 +28,9 @@ func _init() -> void:
 	cc.button_index = MOUSE_BUTTON_LEFT
 	cc.pressed = true
 	g._input(cc)
+	# 버튼은 **뗄 때** 발동한다(C144)
+	cc.pressed = false
+	g._input(cc)
 	var top_left: int = 0
 	for e in g.enemies:
 		if int(e["row"]) < g.ROWS - g.REVIVE_CLEAR_ROWS:
@@ -71,6 +74,9 @@ func _init() -> void:
 	ccc.button_index = MOUSE_BUTTON_LEFT
 	ccc.pressed = true
 	gc._input(ccc)
+	# 버튼은 **뗄 때** 발동한다(C144)
+	ccc.pressed = false
+	gc._input(ccc)
 	var filled: int = 0
 	var bottom_filled: int = 0
 	for r in range(gc.ROWS):
@@ -111,6 +117,9 @@ func _init() -> void:
 	hc.button_index = MOUSE_BUTTON_LEFT
 	hc.pressed = true
 	ge._input(hc)
+	# 버튼은 **뗄 때** 발동한다(C144)
+	hc.pressed = false
+	ge._input(hc)
 	print("[E] 홈클릭 → mode=%s  (홈이면 select)" % ge.mode)
 
 	var g5: Node = S.new()
@@ -123,6 +132,9 @@ func _init() -> void:
 	stray.position = Vector2(60, 950)
 	stray.button_index = MOUSE_BUTTON_LEFT
 	stray.pressed = true
+	g5._input(stray)
+	# 버튼은 **뗄 때** 발동한다(C144)
+	stray.pressed = false
 	g5._input(stray)
 	print("    빈곳클릭 → mode=%s game_over=%s  (그대로 play/true여야)" % [g5.mode, g5.game_over])
 
