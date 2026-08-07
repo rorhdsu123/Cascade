@@ -5,6 +5,8 @@ extends SceneTree
 #   실행: PROBE_SEED=20260718 REGRESS_N=20 godot --headless --path . --script tools/regress.gd
 #   비교: 리팩터 전 출력을 골든으로 저장 → 매 단계 후 diff. 첫 diff = randi 순서 깨짐 or 동작 변화.
 #   골든: tools/regress.golden.txt (seed=20260718 N=20). 재베이스 이력:
+#     · S17 12판 폭탄 18→24% — **앞 221줄 바이트 동일**이고 첫 불일치가 s11 #00 = 손댄 그 판이다.
+#       그 뒤는 단일 스트림이라 전체 시프트. 판정은 debut_tune_probe SWEEP=ladder(2 시드베이스 × N=100).
 #     · S14 도입판 값 되사기(st3 total 34→32 · st7 core_hp 4→5 · st11 폭탄 15→22%+core_hp 6→7) —
 #       **앞 41줄 바이트 동일**(s0 20줄 + s1 20줄 = 안 건드린 판 둘)이고 첫 불일치가 s2 #00 =
 #       손댄 첫 판(st3)이다. 그 뒤는 단일 스트림이라 전체 시프트(521줄, 판 수 불변).
