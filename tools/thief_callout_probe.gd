@@ -18,7 +18,7 @@ func _run() -> void:
 	await process_frame
 	g.set("persist_enabled", false)
 	g.set("dev_unlock_all", true)
-	# ⚠protect 판(st14)은 STAGES에 없다 — stage_data.PARKED_PROTECT로 캠페인 밖에 파킹돼 있다.
+	# ⚠protect 판은 S27에 캠페인으로 복귀했다(SD.first_protect_idx()). 다만 여기선 안 쓴다 —
 	#   grab 분기는 protect 게이트가 없으므로(적 etype만 본다) 아무 판에서나 재현된다. 폭탄 없는
 	#   1판을 쓴다 — 폭탄 판에서 돌리면 같은 advance_step 후반의 스폰 콜아웃이 결과를 덮어쓴다
 	#   (첫 시도에서 실제로 BOMB 문구가 잡혔다. 프로브가 아니라 판 선택 문제였다).

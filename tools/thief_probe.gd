@@ -3,7 +3,9 @@ extends SceneTree
 #   campaign_probe의 봇에 '도둑 저지/회수' 우선항만 얹은 사본(다른 스테이지엔 영향 0 — 도둑 없음).
 #   실행: godot --headless --path . --script tools/thief_probe.gd
 #   ⚠이 판은 2026-07-31 캠페인에서 빠졌다(재설계 대상) → STAGES 인덱스가 아니라
-#     stage_data.PARKED_PROTECT를 직접 열어 돈다. 재설계 후 캠페인에 복귀하면 이 경로를 되돌릴 것.
+#     stage_data.PARKED_PROTECT를 직접 열어 돌았다. **S27에 캠페인 복귀** → 이제 STAGES 안에 있고,
+#     SD.first_protect_idx()로 찾는다(하드코딩 인덱스 금지 — 배열은 계속 움직인다).
+#     직접 세우는 경로는 유지한다: thief_hp_mult 스윕이 복제본에 값을 먹여야 하기 때문.
 #   스윕: HP_MULTS="0.35,0.6,0.9"로 thief_hp_mult를 런타임 오버라이드해 값별로 한 줄씩 찍는다
 #     (STAGES는 const지만 안의 Dictionary는 쓸 수 있다 — [[balance-corehp-lever-and-probe-gotchas]]).
 #   ⚠A/B는 반드시 시드 고정: PROBE_SEED=20260718 (배치마다 같은 시드로 리셋 = 짝지은 비교).
@@ -23,7 +25,7 @@ func _init() -> void:
 	var g: Node = S.new()
 	root.add_child(g)
 	g.dda_enabled = false
-	var vault_start: int = int(SD.PARKED_PROTECT.get("vault_start", 0))
+	var vault_start: int = int(SD.STAGES[SD.first_protect_idx()].get("vault_start", 0))
 	print("Protect [파킹: 캠페인 밖] (vault_start %d, N %d%s)" % [
 		vault_start, TRIALS, (", seed=" + sd) if sd != "" else ""])
 	if mults.is_empty():
@@ -79,7 +81,7 @@ func _batch(g: Node, TRIALS: int, sd: String, vault_start: int, mult: float) -> 
 # 파킹된 판은 _start_stage(idx) 경로가 없다 → st·감독을 직접 세우고 _init_game만 태운다
 #   (STAGES const는 안의 Dictionary까지 read-only라 어차피 복제본이 필요하다 — 스윕도 여기서 먹인다).
 func _play(g: Node, mult: float = -1.0) -> Dictionary:
-	var d: Dictionary = SD.PARKED_PROTECT.duplicate(true)
+	var d: Dictionary = SD.STAGES[SD.first_protect_idx()].duplicate(true)
 	if mult > 0.0:
 		d["thief_hp_mult"] = mult
 	g.endless = false

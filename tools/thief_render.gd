@@ -14,9 +14,9 @@ func _run() -> void:
 	await process_frame
 	# ⚠**하드코딩 인덱스 금지.** 예전엔 _start_stage(13)이었는데 배열 재배치(S21·S22) 뒤로는
 	#   엉뚱한 판(보석3)을 띄우면서 **금고 카드가 없는 화면**을 도둑 검증용이라고 내놓고 있었다.
-	#   도둑 판은 파킹돼 있어 _start_stage 경로가 아예 없다 → thief_probe와 같은 방식으로 직접 세운다.
+	#   도둑 판은 S27에 캠페인으로 복귀했다 → SD.first_protect_idx()로 찾는다(하드코딩 금지).
 	var SD: GDScript = load("res://stage_data.gd")
-	var d: Dictionary = SD.PARKED_PROTECT.duplicate(true)
+	var d: Dictionary = SD.STAGES[SD.first_protect_idx()].duplicate(true)
 	main.endless = false
 	main.featured = false
 	main.stage_idx = -1

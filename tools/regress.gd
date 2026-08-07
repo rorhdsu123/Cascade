@@ -5,6 +5,8 @@ extends SceneTree
 #   실행: PROBE_SEED=20260718 REGRESS_N=20 godot --headless --path . --script tools/regress.gd
 #   비교: 리팩터 전 출력을 골든으로 저장 → 매 단계 후 diff. 첫 diff = randi 순서 깨짐 or 동작 변화.
 #   골든: tools/regress.golden.txt (seed=20260718 N=20). 재베이스 이력:
+#     · S27 Protect 3판 복귀(17→**20판 = 챕터 1 상한**) — 682→802줄. 앞 **201줄 바이트 동일**
+#       (s0~s9 = 첫 삽입 지점 앞 10판)이고 첫 불일치가 s10 = 새로 끼운 도둑 R1 자리다(sp22 → sp12 = total 12).
 #     · S23 곡선 패스(12판 core_hp 조정) — 682줄 불변(판 수 그대로). 앞 **24줄 바이트 동일**
 #       (s0 = core_hp를 안 건드린 온보딩)이고 첫 불일치가 s1 #03 = 손댄 첫 판(무리)의 첫 패배 게임이다.
 #       인과가 그 줄에 보인다: `lk4 dc1` → `lk5 dc1` = 허용 누수가 한 번 늘어 한 번 더 새고 죽었다.
