@@ -7,6 +7,7 @@ func _init() -> void:
 	var S: GDScript = load("res://Main.gd")
 	var g: Node = S.new()
 	root.add_child(g)
+	g.set("persist_enabled", false)   # ⚠_ready가 켠다 — 안 끄면 봇의 클리어가 실유저 진행도에 각인된다(regress와 동형 가드)
 	g.cleared[0] = true
 	var fails: int = 0
 	# ① 도입판(3판 = fast) — 시작 적이 신규 타입이고, 콜아웃은 대기열에 있어야 한다.

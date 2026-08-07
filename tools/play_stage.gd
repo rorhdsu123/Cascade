@@ -20,15 +20,18 @@ func _run() -> void:
 	var idx: int = clampi(shown - 1, 0, int(main.STAGES.size()) - 1)
 	main.dev_unlock_all = true      # 돌아가기·재도전 시에도 잠금에 안 걸리게
 	# ⚠_start_stage보다 **먼저** 세운다 — 비행기 첫 픽업 완화는 _init_game에서 한 번만 계산된다.
+	# ⚠0도 **명시적으로 박는다** — 안 그러면 세이브에 남은 연속 실패 횟수가 그대로 살아나
+	#   "케어 아닌 시나리오"를 보려는데 조용히 케어가 켜진 판을 플레이하게 된다(화면엔 안 나온다).
 	var care: int = int(OS.get_environment("CARE")) if OS.get_environment("CARE") != "" else 0
-	if care > 0:
-		main.fail_streak[idx] = care
+	main.fail_streak[idx] = care
 	# BAND=0 = 밴드 완화만 끄고 나머지 케어는 그대로 = 그 레버 하나의 손맛을 가른다.
 	if OS.get_environment("BAND") == "0":
 		main.care_band_enabled = false
 	main.call("_start_stage", idx)
 	print("▶ 스테이지 %d 시작 (배열 idx %d, %s)" % [idx + 1, idx, str(main.STAGES[idx].get("name", "?"))])
-	if care > 0:
+	if care == 0:
+		print("   케어 없음 (연속 실패 0으로 박음 — 세이브 값 무시)")
+	else:
 		print("   케어 %d패 상태 (줄-완성 배급 %s · 밴드 완화 %s · 비행기 완화 %s)" % [
 			care,
 			"ON" if care >= main.CARE_CLEAR_FAILS else "off",
