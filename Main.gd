@@ -34,6 +34,12 @@ const ROCKET_DUR: float = 0.16  # 로켓 비행 지속(빠르게 질주)
 const CALLOUT_DUR: float = 3.4
 const CALLOUT_FADE: float = 0.6
 const CALLOUT_LINE: float = 36.0   # 접힌 문구의 줄 간격(32px 글자)
+# 튜토리얼 지시문(_draw_tut_msg). 크기는 **고정**이다 — 길면 접지, 줄이지 않는다(C160).
+#   폰 환산: 논리 800폭이 1080px 폰에서 1.35배로 펴지고 밀도 2.75 → 22pt ≈ 10.8dp.
+#   옛 코드의 축소 하한 15pt는 ≈7.4dp로 안드로이드 본문 권장 최소(12sp)의 절반이었다.
+#   ⚠이 환산은 계산이지 실기기 관측이 아니다 — 22pt 자체의 가독성은 기기에서 볼 것.
+const TUT_MSG_SIZE: int = 22
+const TUT_MSG_LINE: float = 26.0   # 접힌 지시문의 줄 간격(22px 글자)
 # 스테이지 인트로 카드 — 캠페인 진입 시 중앙 팝업(이름·태그·목표)이 떠서 잠깐 머물다 상단
 # 목표 카드로 축소·이동하며 녹아든다(BlockBlast 목표 배너 관찰). 탭하면 즉시 스킵.
 const INTRO_APPEAR: float = 0.28
@@ -3944,6 +3950,13 @@ func advance_step() -> void:
 					bounce_r -= 1
 				en["row"] = bounce_r
 				en["vis_row"] = float(bounce_r)
+				# 2단 콜아웃(C160): 등장 시점의 도둑은 아직 안 훔쳤으니 '쫓아가 잡아라'를 그때 말하면
+				#   아직 일어나지 않은 일을 미리 읽히려는 것이다(옛 문구는 두 절을 3.4초에 욱여넣었다).
+				#   훔치는 지금이 그 절의 자리다 — 자루 보석·상승 쉐브론이 붙는 바로 그 프레임.
+				#   seen_types에 타입이 아닌 **이벤트 키**를 얹어 판당 1회로 묶는다(타입당 1회와 같은 규율).
+				if not seen_types.get("thief_stolen", false):
+					seen_types["thief_stolen"] = true
+					_set_callout(_t("callout_thief_stolen"), int(en["id"]))
 				var stp: Vector2 = _enemy_pos(int(en["col"]), bounce_r)
 				impacts.append({"pos": stp, "life": 0.3, "max": 0.3, "color": Color(0.95, 0.55, 0.5), "radius": CELL * 0.45, "star": true})
 			elif en["etype"] == "gem":
@@ -4232,15 +4245,17 @@ func _split_enemy(parent: Dictionary) -> void:
 
 # 콜아웃 문구를 maxw 안에 들어가게 낱말 단위로 접는다. 한 낱말이 그보다 길면 그 줄만 넘치게 두고
 #   자르지 않는다(문구를 잘라 먹느니 한 줄이 삐져나오는 게 낫다 — 실제 문구엔 그런 낱말이 없다).
-func _wrap_callout(fnt: Font, text: String, maxw: float) -> PackedStringArray:
+# size는 콜아웃 기본값 32. 튜토리얼 지시문(22)도 이 접기를 쓰므로 인자로 뺐다(C160) —
+#   그 전엔 32가 박혀 있어서, 다른 크기로 부르면 접는 지점이 실제 글자 폭과 어긋났다.
+func _wrap_callout(fnt: Font, text: String, maxw: float, size: int = 32) -> PackedStringArray:
 	var out: PackedStringArray = PackedStringArray()
-	if fnt.get_string_size(text, HORIZONTAL_ALIGNMENT_LEFT, -1, 32).x <= maxw:
+	if fnt.get_string_size(text, HORIZONTAL_ALIGNMENT_LEFT, -1, size).x <= maxw:
 		out.append(text)
 		return out
 	var line: String = ""
 	for w in text.split(" ", false):
 		var probe: String = w if line == "" else line + " " + w
-		if line != "" and fnt.get_string_size(probe, HORIZONTAL_ALIGNMENT_LEFT, -1, 32).x > maxw:
+		if line != "" and fnt.get_string_size(probe, HORIZONTAL_ALIGNMENT_LEFT, -1, size).x > maxw:
 			out.append(line)
 			line = w
 		else:
@@ -7295,8 +7310,8 @@ const MENU_WM_MAXW: float = 560.0     # 화면의 70%
 #   45ms에 머물렀다. 배율을 고정하니 21ms로 돌아왔다. 크기 전환이 갖는 값어치보다 비싸다.
 const MENU_WM_MAXW_HOME: float = 380.0
 const MENU_WM_CENTER_Y: float = 230.0 # 락업 시각 중심(화면의 18%). 로고 화면은 같은 물건을 47%에 놓는다
-                                      #   ⚠290이던 값이다 — 로고를 줄이기만 하니 위 여백이 324로 늘어
-                                      #     화면이 위로 떠 보였다(유저 지적). 올려서 여백을 264로 정리했다.
+									  #   ⚠290이던 값이다 — 로고를 줄이기만 하니 위 여백이 324로 늘어
+									  #     화면이 위로 떠 보였다(유저 지적). 올려서 여백을 264로 정리했다.
 const MENU_TAGLINE: String = "CASTLE KEEPER"   # 후보 검토 중 — 장르 설명 아님, 플레이어 자칭(레퍼런스 수법)
 const C_TAGLINE := Color("#cbc0a8")   # 저채도 크림. 색 주도권은 워드마크가 독점한다
 const MENU_TAG_SIZE: int = 26         # 스플래시 그림과 같은 치수(논리 800폭 기준)
@@ -8285,12 +8300,17 @@ func _draw_tut_msg(fnt: Font) -> void:
 	#   같은 노랑으로 관통했다 — 카드 아래 ~ 보드 위 띠에 바닥 정렬로 앉힌다(긴 폰에선 갭이 넓어 여유).
 	# 배경 판(불투명 알약)은 필수: 카드든 보드든 뒤에 뭐가 오든 글자가 늘 뜬다. [[hud-signal-by-color-not-text]]는
 	#   '상태를 글자로 알리지 말라'지, 튜토리얼 지시문까지 배경 없이 띄우라는 뜻이 아니다.
-	var sz: int = 22
-	var w: float = fnt.get_string_size(msg, HORIZONTAL_ALIGNMENT_LEFT, -1, sz).x
-	while w > float(COLS * CELL) - 24.0 and sz > 15:   # 보드 폭을 넘으면 줄인다(영어 문장이 길다)
-		sz -= 1
-		w = fnt.get_string_size(msg, HORIZONTAL_ALIGNMENT_LEFT, -1, sz).x
-	var ph: float = float(sz) + 14.0
+	# 폭이 넘치면 **접는다. 줄이지 않는다**(C160). 옛 코드는 22pt를 15pt까지 깎았는데, 논리 800폭이
+	#   폰에서 1080으로 펴지는 걸 감안하면 15pt ≈ 7.4dp다(안드로이드 본문 권장 최소 12sp의 절반).
+	#   더 나쁜 건 **조용하다는 것** — 문구를 길게 쓴 사람에게 아무 신호도 안 갔다. 크기는 고정하고
+	#   자리로만 푼다([[godot-animating-text-size-refires-glyphs]]와 같은 결).
+	#   ⚠한 줄일 때의 판·글자 위치는 옛 산식과 정확히 같게 뒀다(TUT_LINE은 둘째 줄부터만 먹는다).
+	var sz: int = TUT_MSG_SIZE
+	var lines: PackedStringArray = _wrap_callout(fnt, msg, float(COLS * CELL) - 24.0, sz)
+	var w: float = 0.0
+	for ln in lines:
+		w = maxf(w, fnt.get_string_size(ln, HORIZONTAL_ALIGNMENT_LEFT, -1, sz).x)
+	var ph: float = float(lines.size() - 1) * TUT_MSG_LINE + float(sz) + 14.0
 	var pbot: float = float(board_y) - 6.0                       # 판 바닥을 보드 상단에 붙인다
 	var card_bot: float = _hud_card_y() + HUD_CARD_H + 6.0
 	if pbot - ph < card_bot:
@@ -8304,7 +8324,11 @@ func _draw_tut_msg(fnt: Font) -> void:
 	else:
 		draw_rect(plate, Color(0.09, 0.09, 0.14, 0.92 * col.a))
 		draw_rect(plate, Color(col.r, col.g, col.b, 0.55 * col.a), false, 2.0)
-	_draw_text_outlined(fnt, Vector2(400.0 - w * 0.5, pbot - 10.0), msg, sz, col)
+	# 줄마다 가운데 정렬 — 마지막 줄의 베이스라인이 옛 단일 줄 위치(pbot - 10)와 같다.
+	for li in range(lines.size()):
+		var lw: float = fnt.get_string_size(lines[li], HORIZONTAL_ALIGNMENT_LEFT, -1, sz).x
+		var ly: float = pbot - 10.0 - float(lines.size() - 1 - li) * TUT_MSG_LINE
+		_draw_text_outlined(fnt, Vector2(400.0 - lw * 0.5, ly), lines[li], sz, col)
 
 # ── 가산 블렌드 오버레이 ─────────────────────────────────────────────────────
 # Godot의 _draw()는 **그리는 도중 블렌드 모드를 못 바꾼다** — 블렌드는 CanvasItem 단위 머티리얼
@@ -9097,24 +9121,41 @@ func _draw_board(fnt: Font) -> void:
 			"thief":
 				# 도둑 = 후드 쓴 도적: 둥근 후드 몸 + 복면 띠(눈 두 점) + 옆구리 자루. form만으로 '도둑'을 말한다.
 				#   carrying(훔쳐 도망 중): ①따뜻한 회수-촉구 후광 ②자루에 빛나는 보석 ③머리 위 상승 쉐브론(위로 도망).
+				# ⚠전환이 안 읽혔다(C160, 유저 확인 + 실측). 두 상태를 셀 단위로 재보니 **조금이라도 다른
+				#   픽셀 35.4%인데 뚜렷이 다른 픽셀은 2.5%뿐**이었다 — 신호가 거의 전부 알파 0.16~0.28짜리
+				#   넓고 흐린 후광에 실려 있었다. 넓게 조금 바꾸는 건 어두운 보드에서 아무것도 아니다.
+				#   고친 방향: **면을 더 덮지 않고**(칸 상태가 계속 읽혀야 한다, [[enemy-sprite-must-not-cover-cell]])
+				#   테두리와 실루엣으로 옮긴다([[sprite-swap-keeps-signal-channel]] — 강조는 면 덧칠이 아니라 rim).
 				var carrying2: bool = bool(e.get("carrying", false))
 				var tr: float = CELL * 0.32
+				var cpz: float = 0.5 + 0.5 * sin(anim_t * 8.0)
 				if carrying2:
-					var cp: float = 0.5 + 0.5 * sin(anim_t * 8.0)
-					draw_circle(Vector2(cx, cy), tr * (1.5 + 0.2 * cp), Color(1.0, 0.82, 0.32, 0.16 + 0.12 * cp))  # 회수 촉구 후광(앰버)
+					# ⚠후광 알파는 **올리지 않는다.** 반경이 tr*1.5(지름 ~98px)라 90px 셀을 통째로 덮는다 —
+					#   여기를 진하게 하면 밑의 칸 상태가 안 읽힌다([[enemy-sprite-must-not-cover-cell]]).
+					#   실제로 0.26까지 올려봤더니 셀 잉크가 전부 '강'으로 굳었다(중 35%%→0%%). 신호는 아래
+					#   테두리·자루가 진다 — 좁고 진하게. 후광은 거들 뿐.
+					draw_circle(Vector2(cx, cy), tr * (1.5 + 0.2 * cpz), Color(1.0, 0.82, 0.32, 0.16 + 0.12 * cpz))  # 회수 촉구 후광(앰버)
 				draw_circle(Vector2(cx, cy), tr, C_E_THIEF)                              # 몸통
 				draw_circle(Vector2(cx, cy - tr * 0.34), tr * 0.86, C_E_THIEF_DK)        # 후드(위쪽 그늘)
-				draw_circle(Vector2(cx, cy), tr, C_E_RIM, false, C_E_RIM_W)
+				# 테두리가 상태를 진다: 훔치기 전 = 평범한 rim / 훔친 뒤 = 굵은 앰버 rim(맥동).
+				#   면적을 안 늘리면서 대비가 가장 크게 서는 자리다.
+				if carrying2:
+					draw_circle(Vector2(cx, cy), tr, Color(1.0, 0.86, 0.40, 0.85 + 0.15 * cpz), false, C_E_RIM_W + 2.0)
+				else:
+					draw_circle(Vector2(cx, cy), tr, C_E_RIM, false, C_E_RIM_W)
 				var eye_y: float = cy - tr * 0.04
 				draw_rect(Rect2(cx - tr * 0.82, eye_y - tr * 0.17, tr * 1.64, tr * 0.34), C_E_THIEF_DK)  # 복면 띠
 				draw_circle(Vector2(cx - tr * 0.32, eye_y), tr * 0.1, Color(1.0, 0.95, 0.7))             # 눈
 				draw_circle(Vector2(cx + tr * 0.32, eye_y), tr * 0.1, Color(1.0, 0.95, 0.7))
+				# 자루는 **실루엣으로** 상태를 진다 — 빈 자루는 홀쭉, 훔친 자루는 불룩(+35%)하고 앰버 테를 두른다.
+				#   "뭔가 들어 있다"를 색이 아니라 형태가 말하므로 색약·저명도에서도 남는다.
 				var sack: Vector2 = Vector2(cx + tr * 0.74, cy + tr * 0.52)
-				draw_circle(sack, tr * 0.34, C_E_THIEF_DK)                               # 자루
-				draw_circle(sack, tr * 0.34, C_E_RIM, false, C_E_RIM_W - 0.5)
+				var sack_r: float = tr * (0.46 if carrying2 else 0.34)
+				draw_circle(sack, sack_r, C_E_THIEF_DK)                                  # 자루
+				draw_circle(sack, sack_r, (Color(1.0, 0.86, 0.40) if carrying2 else C_E_RIM), false, C_E_RIM_W - 0.5)
 				if carrying2:
 					var gp2: float = 0.5 + 0.5 * sin(anim_t * 9.0)
-					draw_circle(sack, tr * (0.2 + 0.06 * gp2), Color(1.0, 0.9, 0.42))    # 훔친 보석 빛남
+					draw_circle(sack, sack_r * (0.62 + 0.12 * gp2), Color(1.0, 0.9, 0.42))  # 훔친 보석 빛남
 					var chy: float = cy - tr * 1.42
 					var chs: float = tr * 0.34
 					var cha: float = 0.4 + 0.6 * (0.5 + 0.5 * sin(anim_t * 10.0))

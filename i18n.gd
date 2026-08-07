@@ -28,8 +28,11 @@ const STR: Dictionary = {
 		"st3_tag": "Fast — no time to think",
 		"st4_name": "Line Famine",
 		"st4_tag": "Straights run dry — your hand is the threat",
-		"st5_name": "Armor",
-		"st5_tag": "One hit won't break it — build combos",
+		# 이름은 콜아웃(callout_tank)과 같은 말을 써야 한다 — 스테이지가 "Armor", 적이 "TANK"면
+		#   플레이어는 같은 적을 두 이름으로 본다(C160). 내부 etype이 "tank"라 표기를 그쪽으로 통일.
+		#   '한 줄로는 안 뚫린다'는 인과는 콜아웃이 가져갔다 → 태그는 판 성격만 말한다.
+		"st5_name": "Tank",
+		"st5_tag": "Heavies roll in — save your biggest clears for them",
 		"st6_name": "All-Out",
 		"st6_tag": "Everything comes",
 		"st7_name": "Split",
@@ -132,8 +135,23 @@ const STR: Dictionary = {
 		"collect": "Collect",
 		"vault": "Vault",
 		"result_vault": "Vault kept",
-		"callout_gem": "Gems! — catch them, don't just clear",
-		"callout_plane": "A paper plane! — clear its row or column to grab it",
+		# 픽업 둘도 콜아웃 잣대를 같이 받는다(C160).
+		# ⚠옛 보석 문구 "catch them, don't just clear"는 **없는 구분을 지어냈다** — 보석을 낚아채는
+		#   방법이 곧 그 줄을 지우는 것이다(_hit_one의 gem 분기: 블라스트가 닿으면 획득). '낚아채기 vs
+		#   치우기'라는 두 동사가 있는 것처럼 읽혀서, 정작 뭘 눌러야 하는지는 안 말했다.
+		#   대신 실패 모드를 붙였다 — 보석은 안 잡으면 바닥으로 빠져 사라진다(진행 손해).
+		"callout_gem": "GEMS — clear their line, or they fall through",
+		# ⚠"row or column"은 정확하지만 이 게임의 공용어가 아니다 — 나머지 문구가 전부 'line'을 쓴다
+		#   (tut_kill "Clear a line" · TANK "one line" · SWARM "one line"). 블라스트는 지운 행·열을
+		#   모두 훑으므로 'its line'이 둘 다 덮는다. 라벨도 적 콜아웃과 같은 대문자꼴로 맞췄다 —
+		#   '위협이 아님'은 보드 위 form이 이미 말한다(흰 삼각형·청록 후광, _draw 주석).
+		# ⚠라벨은 **물건 이름**이어야 한다 — 범주로 갈아끼웠더니("POWER-UP") 화면에 뜬 물건과 부르는
+		#   이름이 어긋나 보였다(유저 확인). 대신 범주는 뒤 절 첫 낱말로 옮겨 "좋은 물건"임을 즉시 말한다.
+		#   이름 + 범주 + 줍는 법이 한 줄에 다 들어간다.
+		# ⚠효과(확정 처치)는 일부러 뺐다 — 아직 못 주운 물건의 사용법은 지금 쓸 데가 없다. 그 몫은
+		#   슬롯 맥동(보유)과 조준 링(표적 지시)이 진다(_draw_bottom 주석: 색·테두리로만 구분).
+		#   ⚠단 그 배움이 실제로 되는지는 사람 플테로 확인할 것 — 코드가 보장하는 건 링이 뜬다는 것뿐이다.
+		"callout_plane": "PLANE — power-up! Clear its line to grab it",
 		# ── 거점(보드 하단 방어선) ──
 		"core_hp": "Core  %d / %d",
 		# ── 게임플레이 콜아웃/tell(원래 영어로 authored — 값 동일, 로케일 확장용으로만 키화) ──
@@ -141,12 +159,35 @@ const STR: Dictionary = {
 		"tut_leak": "Enemy slipped through — Core took damage!",
 		"combo_flash": "COMBO x%d",
 		"tell_block": "BLOCK",
-		"callout_fast": "FAST — quick!",
-		"callout_tank": "TANK — big combo!",
-		"callout_swarm": "SWARM — sweep them!",
-		"callout_split": "SPLIT — kill above the line!",
-		"callout_bomb": "BOMB — clear it before the fuse runs out!",
-		"callout_thief": "THIEF — stop it before it loots the vault, or chase it down!",
+		# 콜아웃 = 그 적을 처음 만난 3.4초. 답해야 하는 건 "지금 이걸 어떻게 상대하나" 하나뿐이라
+		#   이름은 라벨로만 두고 정보는 뒤 절에 싣는다. 이름을 형용사로 되풀이하면(옛 "FAST — quick!")
+		#   글자만 차지하고 행동이 안 나온다. C160서 여섯 개 전부 '기전 → 할 일' 꼴로 다시 씀.
+		"callout_fast": "FAST — it arrives first, so kill it first",
+		# ⚠"big combo"는 모호했고("Combo x%d"는 연속 스트릭인데 동시 2줄과 다른 축), 그 뒤에 쓴
+		#   "clear two at once"는 **첫 조우자에게 동시 삭제라는 고급 조작을 요구했다.** 실제 체험은
+		#   훨씬 단순하다 — 한 대 때리면 안 죽고 HP 바가 뜬다(Main.gd `if e["hp"] < e["maxhp"]` 주석:
+		#   "바가 보이면 = 얘는 한 방에 안 죽었다"). 문구가 그 바와 같은 말을 하게 맞췄다.
+		# ⚠숫자를 안 박은 이유(tools/tank_hits_probe.gd 실측): 첫 조우판(st5) 탱크 HP 198~257 →
+		#   줄을 **이어서** 지우면 2번(120+180=300), 스트릭이 끊기면 3번(120+120=240 < 257).
+		#   후반 st8은 연속이어도 3번. "twice"는 늘 참이 아니라 약속하지 않는다.
+		"callout_tank": "TANK — one line won't kill it; hit it again",
+		# ⚠"weak, but many"의 '약하다'는 **스탯 설명**이지 할 일이 아니다(HP 0.4배). 지우고 결과만 남겼다 —
+		#   한 줄로 무리째 잡힌다는 말 안에 '약하다'가 이미 들어 있다. 두 절 → 한 절.
+		"callout_swarm": "SWARM — one line takes the whole group",
+		# 파랑 점선은 미분열 개체가 있을 때만 뜬다 = 이 문구가 뜨는 순간 가리킬 선이 실제로 화면에 있다.
+		#   ⚠단 "the line"만으론 어느 선인지 안 잡힌다 → 색을 부른다. 그 점선은 화면의 유일한 파랑이고
+		#   분열체와 같은 파랑이라(_draw 주석 참조), 색을 부르는 것만으로 글자가 그 짝을 가리킨다.
+		"callout_split": "SPLIT — kill above the blue line, or it doubles",
+		# ⚠옛 "before the fuse runs out"은 **시간을 암시했다** — 실제 도화선은 남은 배치 수고(조각을 놓을
+		#   때마다 1 감소) 이 게임엔 시간 압박이 없다. 그 뒤에 쓴 "that number counts your moves"는
+		#   반대로 **UI를 가르치려 들었다**(탱크가 "clear two at once"로 헛디딘 것과 같은 실수).
+		#   숫자는 몸통 한가운데 크게 그려져 있고 0에 가까울수록 붉게·빠르게 맥동한다 — 설명할 게 아니라
+		#   가리킬 물건이다. '남은 수'라는 건 조각을 놓을 때마다 줄어드는 걸 보면 저절로 배운다.
+		"callout_bomb": "BOMB — clear it before the number hits zero",
+		# 도둑은 2단이다(C160). 등장 시점의 도둑은 아직 안 훔쳤으므로 '쫓아가 잡아라'는 아직 일어나지 않은
+		#   일 — 그 절은 실제로 훔치는 순간(carrying=true, 자루 보석·상승 쉐브론이 붙는 그때)으로 옮겼다.
+		"callout_thief": "THIEF — block it before it reaches your vault",
+		"callout_thief_stolen": "STOLEN — kill it before it escapes!",
 		# ── 입력 토글(PC 테스트용) ──
 		# 상시 조작·규칙 안내 4줄(how_*/rule_*)은 C79에서 제거 — 키도 함께 지웠다.
 		# 가르치는 몫은 스테이지1 튜토리얼과 화면이 보여주는 것들이 가져간다(_draw_bottom 주석 참조).
@@ -163,8 +204,8 @@ const STR: Dictionary = {
 		"st3_tag": "빠르다 — 시간이 없다",
 		"st4_name": "줄 굶김",
 		"st4_tag": "직선이 굶는다 — 손이 곧 위협",
-		"st5_name": "장갑",
-		"st5_tag": "한 방으론 안 뚫린다 — 콤보를 쌓아라",
+		"st5_name": "탱크",
+		"st5_tag": "무거운 것들이 온다 — 큰 삭제를 아껴 써라",
 		"st6_name": "총력전",
 		"st6_tag": "전부 온다",
 		"st7_name": "분열",
@@ -257,20 +298,21 @@ const STR: Dictionary = {
 		"collect": "수집",
 		"vault": "금고",
 		"result_vault": "지킨 금고",
-		"callout_gem": "보석! — 그냥 치우지 말고 낚아채라",
-		"callout_plane": "종이비행기! — 그 행이나 열을 터뜨리면 내 것",
+		"callout_gem": "보석 — 그 줄을 지워라, 놓치면 빠져나간다",
+		"callout_plane": "비행기 — 특수 아이템! 그 줄을 지우면 획득",
 		"core_hp": "거점  %d / %d",
 		# ⚠아래 콜아웃/tell·온보딩의 한국어는 초안(원문이 영어라 대응 한글이 없었음). 검수/조정 여지.
 		"tut_kill": "적이 내려와요! 줄을 채워 잡으세요",
 		"tut_leak": "적이 통과했어요 — 거점이 깎였어요!",
 		"combo_flash": "콤보 x%d",
 		"tell_block": "버팀",
-		"callout_fast": "속공 — 빠르다!",
-		"callout_tank": "탱크 — 큰 콤보로!",
-		"callout_swarm": "무리 — 쓸어버려!",
-		"callout_split": "분열 — 선 위에서 잡아!",
-		"callout_bomb": "폭탄 — 도화선 다 타기 전에 걷어내라!",
-		"callout_thief": "도둑 — 금고 털기 전에 막거나, 훔쳐 도망칠 때 쫓아가 잡아라!",
+		"callout_fast": "속공 — 먼저 도착한다, 먼저 잡아라",
+		"callout_tank": "탱크 — 한 줄로는 안 죽는다, 한 번 더",
+		"callout_swarm": "무리 — 한 줄이면 한꺼번에 잡힌다",
+		"callout_split": "분열 — 파란 선 위에서 잡아라, 넘기면 둘이 된다",
+		"callout_bomb": "폭탄 — 숫자가 0이 되기 전에 걷어내라",
+		"callout_thief": "도둑 — 금고에 닿기 전에 막아라",
+		"callout_thief_stolen": "도난! — 도망치기 전에 잡아라",
 		"mode_click": "클릭 모드",
 		"mode_drag": "드래그 모드",
 		"mode_switch": "눌러서 전환",
