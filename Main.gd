@@ -6328,18 +6328,57 @@ func _draw_pb_burst() -> void:
 		for g in range(4):
 			draw_rect(rect.grow(float(g) * 3.0), Color(gold.r, gold.g, gold.b, edge_a * (0.55 - float(g) * 0.12)), false, 4.0)
 	# ② 갓레이 — 왕관 뒤에서 방사(피크 p≈0.12 뒤 사그라듦). 밝은 골드.
-	var ray_a: float = clampf(1.0 - absf(p - 0.12) / 0.24, 0.0, 1.0) * 0.7
+	#   ⚠옛 구현은 `draw_line`을 굵기 6.0 고정으로 16번 돌았다 = 길이·굵기·간격이 전부 균일한 막대 16개
+	#     → 확대하면 빛이 아니라 **클립아트 태양**이었다. 빛의 신호는 굵기가 아니라 **테이퍼**다.
+	#   그래서 선 대신 삼각형(`draw_polygon`)을 쓰고 **꼭짓점 색**으로 뿌리는 밝게·끝은 알파 0으로 뺀다.
+	#     draw_polygon은 점 수만큼 색을 받아 보간하므로, 블렌드 모드를 안 건드리고도 감쇠가 나온다.
+	#   길이·굵기를 홀짝으로 교대 = 균일 간격의 '바퀴살' 느낌을 깬다(클래식 선버스트 문법).
+	var ray_a: float = clampf(1.0 - absf(p - 0.12) / 0.24, 0.0, 1.0) * 0.8
 	if ray_a > 0.01:
-		var n: int = 16
+		var n: int = 14
 		var outer: float = lerp(90.0, bw * 0.42, clampf(p / 0.45, 0.0, 1.0))
+		# ⚠뿌리 반지름은 왕관 **잉크 밖**이어야 한다. 옛 값 40은 왕관(88px, 가로로 넓고 세로로 낮은
+		#   실루엣)의 세로 잉크(≈30)보다 커서, 위아래 광선의 안쪽 끝이 왕관 밑에서 삐져나와 허공에서
+		#   뚝 끊겼다. 52면 사방으로 고른 틈이 생겨 '엠블럼 뒤에서 새어나오는 빛'이 된다.
+		var inner: float = 52.0
 		for i in range(n):
 			var ang: float = p * 0.16 + float(i) * TAU / float(n)
 			var d: Vector2 = Vector2(cos(ang), sin(ang))
-			draw_line(emb + d * 40.0, emb + d * outer, Color(1.0, 0.95, 0.65, ray_a), 6.0)
-	# ③ 코어 플래시 — 짧은 흰 광폭발(왕관 자리).
-	var core_a: float = clampf(1.0 - p / 0.28, 0.0, 1.0) * 0.6
+			var perp: Vector2 = Vector2(-d.y, d.x)
+			var long_ray: bool = i % 2 == 0
+			var tip: float = outer * (1.0 if long_ray else 0.62)
+			var hw: float = 7.0 if long_ray else 4.5   # 뿌리 반폭
+			var base: Vector2 = emb + d * inner
+			draw_polygon(
+					PackedVector2Array([base - perp * hw, base + perp * hw, emb + d * tip]),
+					PackedColorArray([
+						Color(1.0, 0.93, 0.62, ray_a), Color(1.0, 0.93, 0.62, ray_a),
+						Color(1.0, 0.85, 0.45, 0.0),   # 끝은 투명 — 여기가 '광선'과 '막대'를 가른다
+					]))
+	# ③ 왕관 후광(구 '코어 플래시') — 엠블럼 **밖**으로 번지는 따뜻한 블룸.
+	#   ⚠옛 구현은 흰빛 알파 0.6 원 하나를 '왕관 자리'에 그렸다. 두 가지가 틀렸다.
+	#     ⓐ **구조**: 왕관은 p=0.06에 이미 83% 크기다(cr_scale) — 즉 밝은 중심은 **언제나 왕관에 가려**
+	#        어두운 치맛단만 보인다. 설계상 절대 안 보이는 빛이었다.
+	#     ⓑ **색**: 알파 블렌딩은 섞는 연산이라 어두운 남색 위 흰색 0.6 = ≈RGB(167,167,160) **회색**이다.
+	#        밝아지는 게 아니라 탁해진다 → 빛이 아니라 '검은 돔'으로 읽혔다.
+	#   그래서 흰색을 버리고 **광선과 같은 따뜻한 금색**으로 간다. 한색 배경 위의 난색은 명도만 올리는
+	#     흰색과 달리 색상 대비로 발광을 말한다(가산 없이 얻는 유일한 길). 실제로 같은 화면의 갓레이가
+	#     이미 그 방식으로 빛처럼 읽히고 있었다.
+	#   반지름도 왕관 실루엣 **바깥**에서 시작해, 광선 뿌리(inner 52)와 왕관 사이의 빈 틈을 메운다
+	#     = 광선이 허공에서 시작하지 않고 후광에 뿌리내린 것처럼 보인다. [[sprite-swap-keeps-signal-channel]]
+	#     강조는 면을 덧칠하지 말고 실루엣 뒤에 깔 것 — 왕관 금색은 그대로 두고 뒤에서만 번진다.
+	var core_a: float = clampf(1.0 - p / 0.42, 0.0, 1.0)
 	if core_a > 0.01:
-		draw_circle(emb, lerp(20.0, 78.0, clampf(p / 0.28, 0.0, 1.0)), Color(1.0, 0.98, 0.85, core_a))
+		var cr: float = lerp(78.0, 150.0, clampf(p / 0.42, 0.0, 1.0))
+		# ⚠단 수가 적으면 동심원 경계가 **띠로 보인다**(10단에서 실제로 보였다). 22단으로 잘게 쪼개고
+		#   링당 알파를 그만큼 낮춰 총량은 유지한다. PB 순간에만 도는 22번 draw_circle이라 비용은 무시 가능.
+		var steps: int = 22
+		for k in range(steps, 0, -1):
+			var f: float = float(k) / float(steps)   # 1=가장 바깥 → 안쪽으로 알파가 쌓인다
+			# ⚠지수를 세우면(2.2 등) 바깥 링이 뭉개져 **왕관 바로 밖이 안 밝아진다** — 채워진 동심원은
+			#   반지름 r의 알파가 'r보다 큰 링들의 누적'이라 완만한 감쇠라야 한다. 0.8 + 계수 0.45로
+			#   왕관 테두리(r≈55)에서 유효알파 ≈0.36이 나온다(실측).
+			draw_circle(emb, cr * f, Color(1.0, 0.86, 0.46, core_a * 0.21 * pow(1.0 - f, 0.8)))
 	# ④ 왕관 — 엠블럼 앵커에 오버슛 팝인(갓레이가 뒤에서 뻗는 BB 구도). 이모지(_font OS 폴백).
 	var cr_ip: float = clampf(p / 0.14, 0.0, 1.0)
 	var cr_scale: float = (1.0 - pow(1.0 - cr_ip, 2.0)) + sin(clampf(cr_ip, 0.0, 1.0) * PI) * 0.16
