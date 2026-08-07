@@ -115,6 +115,8 @@ const STR: Dictionary = {
 		"sel_msg_first": "Clear stages to raise your castle.",
 		"sel_msg_go": "Keep the walls rising.",
 		"sel_msg_retry": "So close. One more try.",
+		# 전클리어 — 성취 인정만. 앞을 보는 말(약속·길 안내)은 푸터 두 줄 몫이라 여기서 겹치지 않는다.
+		"sel_msg_done": "Your castle stands.",
 		"dev_unlock": "DEV: unlock all (0)",
 		"unlock_req": "Clear stage %d to unlock",
 		"done_badge": "Done",
@@ -295,6 +297,7 @@ const STR: Dictionary = {
 		"sel_msg_first": "판을 깨서 성을 쌓아 올려요",
 		"sel_msg_go": "성벽을 계속 올려요",
 		"sel_msg_retry": "아깝네요 — 한 번 더",
+		"sel_msg_done": "성이 다 섰다.",
 		"dev_unlock": "DEV: 전체 해금 (0)",
 		"unlock_req": "%d 스테이지를 클리어하면 열림",
 		"done_badge": "클리어",

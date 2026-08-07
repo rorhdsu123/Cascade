@@ -7406,6 +7406,54 @@ func _castle_cell_size() -> float:
 	var maxh: float = SEL_VIEW_BOT - SEL_TOP
 	return floorf(minf(CASTLE_CELL_MAX, minf(maxw / float(cols), maxh / float(rows.size()))))
 
+# ── 전클리어 표식 헬퍼(S28) ──
+# 창이 붙는 칸. **인덱스 나머지(i%3)로 고르면 안 된다** — 도안과 무관한 자리라 얼룩처럼 흩어진다
+#   (시안 렌더에서 실제로 그렇게 보였다). 도안 좌표로 고른다: 탑(위 두 행) 전부 + 성벽 가운데 행의
+#   홀수 열. 그러면 '탑에 불이 켜지고 성벽 한 층이 밝다'는 건물 조명이 된다.
+func _castle_has_window(i: int) -> bool:
+	var cl: Array = _castle_order()
+	if i < 0 or i >= cl.size():
+		return false
+	var p: Vector2i = cl[i]
+	if p.y <= 1:
+		return true                      # 탑
+	return p.y == 3 and p.x % 2 == 0     # 성벽 가운데 행, 한 칸 걸러
+
+# 깃발이 꽂히는 칸 = **가운데 열의 최상단 벽돌**(첨탑). 유저 선택: 두 탑에 각각 꽂으면 좌우 대칭이라
+#   장식으로만 읽히고, 하나면 성의 중심을 짚는다. ⚠인덱스를 박지 말 것 — 도안이 바뀌면 따라와야 한다.
+func _castle_flag_idx() -> int:
+	var cl: Array = _castle_order()
+	var cc: int = int(String(SD.CASTLE_MAP[0]).length() / 2)
+	var best: int = -1
+	var best_row: int = 1 << 30
+	for i in range(cl.size()):
+		var p: Vector2i = cl[i]
+		if p.x == cc and p.y < best_row:
+			best_row = p.y
+			best = i
+	return best
+
+# 창 — 따뜻한 불빛. 칸을 덮지 않게 작게(폭 20%) 두고, 아래 벽돌색이 계속 읽히게 한다.
+func _draw_castle_window(r: Rect2) -> void:
+	var w: float = r.size.x * 0.19
+	var h: float = w * 1.30
+	var o: Vector2 = Vector2(r.position.x + r.size.x * 0.5 - w * 0.5, r.position.y + r.size.y * 0.46 - h * 0.5)
+	draw_rect(Rect2(o - Vector2(2.0, 2.0), Vector2(w + 4.0, h + 4.0)), Color(0.42, 0.24, 0.06, 0.55))  # 창틀 그늘
+	draw_rect(Rect2(o, Vector2(w, h)), Color(1.0, 0.90, 0.56, 0.95))
+
+# 깃발 — 장대 + 삼각 페넌트. 벽돌 위로 솟되 위 칸을 침범하지 않는 높이(칸의 46%).
+func _draw_castle_flag(r: Rect2) -> void:
+	if r.size.x <= 0.0:
+		return
+	var px: float = r.position.x + r.size.x * 0.5
+	var top: float = r.position.y - r.size.y * 0.46
+	draw_line(Vector2(px, top), Vector2(px, r.position.y + 2.0), Color(0.88, 0.90, 0.96), 3.0)
+	draw_circle(Vector2(px, top), 3.5, Color(0.96, 0.93, 0.80))          # 장대 끝 구슬
+	draw_colored_polygon(PackedVector2Array([
+			Vector2(px + 1.5, top + 2.0),
+			Vector2(px + r.size.x * 0.32, top + r.size.y * 0.10),
+			Vector2(px + 1.5, top + r.size.y * 0.19)]), Color(0.93, 0.36, 0.40))
+
 # i번째 벽돌의 화면 사각형. 성 전체를 영역 정중앙에 놓고 거기서 센다.
 #   ⚠도안 밖 인덱스면 빈 Rect2 — 호출부가 `_castle_order().size()`로 막지만 방어로 남긴다.
 func _stage_rect(i: int) -> Rect2:
@@ -7838,10 +7886,13 @@ func _draw_dev_reset(fnt: Font) -> void:
 #     레퍼런스의 '오늘 N판 깼다' 류는 못 만든다 — 배관을 깔기 전엔 상태를 늘리지 말 것.
 #   ⚠**케어를 발설하지 말 것**: 3패에 배급·밴드가 완화되는 건 들키면 안 되는 장치다
 #     ([[stage-failure-care-ladder]]). 그래서 패배 문구는 진 횟수와 무관하게 한 가지 격려로 끝난다.
-#   모두 클리어면 빈 문자열 = 줄 자체가 안 나온다. 그 상태의 말은 푸터가 이미 두 줄로 한다.
+#   모두 클리어(S28): 예전엔 빈 문자열이었다 — "그 상태의 말은 푸터가 이미 한다"는 이유였는데,
+#     실물로 띄워 보니 제목 아래가 통째로 비어 그 상태만 화면이 말을 안 거는 꼴이었다.
+#     ⚠단 푸터와 **같은 말을 하면 안 된다.** 푸터 두 줄은 앞을 본다(약속 + 길 안내) →
+#       여기서는 뒤를 본다(해낸 것의 인정). 둘이 겹치면 한 말을 세 번 하는 화면이 된다.
 func _sel_message() -> String:
 	if _all_cleared():
-		return ""
+		return _t("sel_msg_done")
 	if int(fail_streak.get(_current_stage(), 0)) > 0:
 		return _t("sel_msg_retry")    # 지금 판에서 진 적이 있다 — 격려가 설명·부추김을 이긴다
 	if _cleared_count() == 0:
@@ -7857,12 +7908,27 @@ func _draw_select(fnt: Font) -> void:
 	# ── 성 ── 도안의 칸을 **전부** 돈다. 스테이지 수보다 칸이 많으면(지금 13 < 20) 남는 칸은
 	#   영영 안 켜지고 그게 "앞으로 올 판"이라는 예고다(stage_data.gd CASTLE_MAP 주석).
 	var cl: Array = _castle_order()
+	# ── 전클리어 표식(S28) ── 성이 다 차면 **창에 불이 켜지고 중앙 첨탑에 깃발이 오른다.**
+	#   왜 이 둘인가: 이 화면의 존재 이유가 '완주'가 아니라 '따라잡음'이라
+	#   ([[stage-last-clear-is-frontier-not-finale]]) 표식이 "끝났다"를 말하면 안 된다.
+	#   불 켜진 창 = 완성이 아니라 **사람이 사는 성** = 살아 있음. 깃발 = 준공 표식이지 종료 표식이 아니다.
+	#   ⚠기각 ① **금빛 벽돌**: 화면에서 제일 크게 읽히는 말이 "끝났다"가 되고, 금색은 프런티어(다음에
+	#     지을 칸) 신호로 이미 쓰고 있어 뜻이 뒤집힌다. 벽돌색을 바꾸면 '성 = 보드 블록과 같은 물건'이라는
+	#     연결(셀 90px을 맞춘 이유)도 끊긴다.
+	#   ⚠기각 ② **성 위 다음 층 실루엣**: 개념은 제일 정확했지만(빈 칸이 하던 말을 그림이 되살린다)
+	#     유저 판정으로 기각 — 그 그림은 "나중에 온다"와 "지금 어딘가 있는데 못 찾았다"를 구분해주지
+	#     못한다. 앞을 보는 말은 푸터 두 줄(글자)이 계속 진다.
+	#   ⚠벽돌 색·실루엣은 안 건드린다 — 표식은 위에 얹을 뿐이다([[transient-celebration-overlay-not-base-ui]]).
 	for i in range(cl.size()):
 		var r: Rect2 = _stage_rect(i)
 		if i < STAGES.size() and bool(cleared.get(i, false)):
 			_blit_block(r, CASTLE_BRICK)   # 지어진 벽돌 = 보드와 **같은 블록 그림**
+			if all_done and _castle_has_window(i):
+				_draw_castle_window(r)
 		else:
 			_blit_cell(r)                  # 아직 안 지어진 자리 = 보드와 같은 빈 셀 판(어두운 홈)
+	if all_done:
+		_draw_castle_flag(_stage_rect(_castle_flag_idx()))
 
 	# 프런티어(다음에 지을 자리)는 **모든 칸을 그린 뒤 맨 위에** 두른다. 벽돌은 붙여서 그리고
 	#   빈 셀 판은 불투명이라, 칸 안에서 같이 그리면 다음 칸이 테를 덮어 반쪽만 남는다(실제로 그랬다).
