@@ -2,7 +2,7 @@ extends SceneTree
 # 도둑 가독성 검증 — 창 모드 필수. 4상태를 한 판에 늘어놓고 원본/확대로 본다.
 #   ① 하강 중(안 훔침) ② 훔친 직후(carrying, 바닥) ③ 도망 중(carrying, 중단) ④ 탈출 직전(상단)
 #   비교군으로 basic 하나(같은 보라 원)를 옆에 둔다 — 형태가 실제로 갈리는지.
-const SP := "/private/tmp/claude-501/-Users-im-yujin-Desktop-Cascade-worktrees-stage/e428d88b-4bd5-4bfe-9f14-2a04806df7eb/scratchpad"
+const SP := "/private/tmp/claude-501/-Users-im-yujin-Desktop-Cascade-worktrees-stage/c4f0ea00-30c5-4dfc-9c13-65e4483f2cae/scratchpad"
 var main: Node
 
 func _initialize() -> void:
@@ -12,7 +12,18 @@ func _run() -> void:
 	main = load("res://Main.tscn").instantiate()
 	root.add_child(main)
 	await process_frame
-	main.call("_start_stage", 13)
+	# ⚠**하드코딩 인덱스 금지.** 예전엔 _start_stage(13)이었는데 배열 재배치(S21·S22) 뒤로는
+	#   엉뚱한 판(보석3)을 띄우면서 **금고 카드가 없는 화면**을 도둑 검증용이라고 내놓고 있었다.
+	#   도둑 판은 파킹돼 있어 _start_stage 경로가 아예 없다 → thief_probe와 같은 방식으로 직접 세운다.
+	var SD: GDScript = load("res://stage_data.gd")
+	var d: Dictionary = SD.PARKED_PROTECT.duplicate(true)
+	main.endless = false
+	main.featured = false
+	main.stage_idx = -1
+	main.st = d
+	main.director = load("res://modes/stage_mode.gd").new(d)
+	main.mode = "play"
+	main.call("_init_game")
 	main.intro_t = -1.0
 	await process_frame
 	main.enemies.clear()

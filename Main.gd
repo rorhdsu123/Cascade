@@ -310,7 +310,10 @@ const C_E_BOMB_HI := Color("#6d7688")   # 구 하이라이트(둥근 느낌)
 # 도둑(Protect) = 후드 쓴 도적. 색은 로스터 미사용 마젠타/자홍(basic 바이올렛·gem 로즈와 확연히 다름), form(복면+자루+웅크림)이 '도둑'을 말한다.
 #   훔쳐 도망 중(carrying)엔 자루에 빛나는 보석 + 위로 도망 쉐브론(자가설명). 몸색은 처치 파편/후광에도 재사용.
 const C_E_THIEF := Color("#e879f9")     # 자홍(후드 몸통)
-const C_E_THIEF_DK := Color("#a21caf")  # 후드 그늘·복면 띠
+const C_E_THIEF_DK := Color("#a21caf")  # 후드 그늘·자루
+# 복면은 후드보다 **한 단 더 어두워야** 후드 위에서 띠로 읽힌다(S25). 같은 색이던 시절엔
+#   후드 원에 먹혀 사라졌고, 그 결과 몸이 '어두운 위 + 밝은 아래 = 웃는 얼굴'로 읽혔다.
+const C_E_THIEF_MASK := Color("#3b0764")  # 복면 띠(후드보다 어두운 보라)
 
 # 잔해(감시자가 뻗는 뿌리 셀 "#") — 무채색 강철회색. 조각 3색·적 색과 모두 분리(죽은 칸임을 색으로 말함).
 const C_DEBRIS := Color("#4a4a55")
@@ -9148,10 +9151,20 @@ func _draw_board(fnt: Font) -> void:
 					draw_circle(Vector2(cx, cy), tr, Color(1.0, 0.86, 0.40, 0.85 + 0.15 * cpz), false, C_E_RIM_W + 2.0)
 				else:
 					draw_circle(Vector2(cx, cy), tr, C_E_RIM, false, C_E_RIM_W)
+				# ⚠**복면이 없는 거나 마찬가지였다**(S25, 렌더 실측). 띠를 후드와 **같은 색**
+				#   (C_E_THIEF_DK)으로 칠하는데 바로 위에서 후드 원이 이미 몸의 위쪽 2/3을 그 색으로
+				#   덮는다 → 띠가 후드에 먹혀 사라진다. 화면에 남는 건 '어두운 위 + 밝은 아래 + 점 두 개'고,
+				#   그 **밝은 아래가 입으로 읽힌다** = 유저가 기각 사유로 적은 "몸이 웃는 얼굴로 읽힌다".
+				#   도둑다움을 지어야 할 셋(후드·복면·자루) 중 자루 하나만 살아 있었다.
+				# 고침 ① 띠를 후드보다 **더 어둡게**(전용 색) → 후드 위에서 실제로 보인다.
+				# 고침 ② 눈을 원이 아니라 **가로로 긴 슬릿**으로 → 동그란 눈은 귀엽고 슬릿은 노려본다.
+				#   면적은 오히려 줄었다(원 2개 πr²≈0.063tr² → 슬릿 0.050tr²) = 칸을 더 안 덮는다.
 				var eye_y: float = cy - tr * 0.04
-				draw_rect(Rect2(cx - tr * 0.82, eye_y - tr * 0.17, tr * 1.64, tr * 0.34), C_E_THIEF_DK)  # 복면 띠
-				draw_circle(Vector2(cx - tr * 0.32, eye_y), tr * 0.1, Color(1.0, 0.95, 0.7))             # 눈
-				draw_circle(Vector2(cx + tr * 0.32, eye_y), tr * 0.1, Color(1.0, 0.95, 0.7))
+				draw_rect(Rect2(cx - tr * 0.82, eye_y - tr * 0.19, tr * 1.64, tr * 0.38), C_E_THIEF_MASK)  # 복면 띠
+				var slit_w: float = tr * 0.25
+				var slit_h: float = tr * 0.10
+				draw_rect(Rect2(cx - tr * 0.44, eye_y - slit_h * 0.5, slit_w, slit_h), Color(1.0, 0.95, 0.7))  # 눈(슬릿)
+				draw_rect(Rect2(cx + tr * 0.19, eye_y - slit_h * 0.5, slit_w, slit_h), Color(1.0, 0.95, 0.7))
 				# 자루는 **실루엣으로** 상태를 진다 — 빈 자루는 홀쭉, 훔친 자루는 불룩(+35%)하고 앰버 테를 두른다.
 				#   "뭔가 들어 있다"를 색이 아니라 형태가 말하므로 색약·저명도에서도 남는다.
 				var sack: Vector2 = Vector2(cx + tr * 0.74, cy + tr * 0.52)
