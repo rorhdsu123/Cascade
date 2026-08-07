@@ -93,6 +93,10 @@ const STR: Dictionary = {
 		"best_score": "Best %s",     # 메뉴 · HUD 무한 최고점
 		# ── 스테이지 선택 ── 제목은 모드 이름이라 허브 버튼 라벨(adv_big)을 그대로 쓴다(C156).
 		#   ("cleared_count"는 C156서 삭제 — 진행도를 숫자로 안 보여준다)
+		# 제목 아래 한 줄 = 상태별 한마디(_sel_message, C157). 셋 다 짧게 — 길면 두 줄로 넘쳐 그리드를 민다.
+		"sel_msg_first": "Clear stages to raise your castle.",
+		"sel_msg_go": "Keep the walls rising.",
+		"sel_msg_retry": "So close. One more try.",
 		"dev_unlock": "DEV: unlock all (0)",
 		"unlock_req": "Clear stage %d to unlock",
 		"done_badge": "Done",
@@ -218,6 +222,9 @@ const STR: Dictionary = {
 		"endless_big": "무한",
 		"endless_locked": "스테이지 1을 깨면 열려요",
 		"best_score": "최고 %s",
+		"sel_msg_first": "판을 깨서 성을 쌓아 올려요",
+		"sel_msg_go": "성벽을 계속 올려요",
+		"sel_msg_retry": "아깝네요 — 한 번 더",
 		"dev_unlock": "DEV: 전체 해금 (0)",
 		"unlock_req": "%d 스테이지를 클리어하면 열림",
 		"done_badge": "클리어",

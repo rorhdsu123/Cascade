@@ -55,5 +55,12 @@ func _run() -> void:
 	g.call("_sel_enter")
 	await _shot("s3_allclear.png")
 
+	# 4) 지금 판에서 진 적 있음 — 제목 아래 한 줄이 격려로 바뀐다(_sel_message, C157).
+	#    ⚠케어(3패 완화)를 발설하면 안 되므로 진 횟수와 무관하게 같은 문구여야 한다.
+	g.set("cleared", _cleared(4))
+	g.set("fail_streak", {4: 2})
+	g.call("_sel_enter")
+	await _shot("s4_retry.png")
+
 	print("DONE total=", total)
 	quit()
