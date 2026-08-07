@@ -40,8 +40,11 @@ func _init() -> void:
 	# 초 환산 = 배치 × SEC_PER_PLACE. 실플레이 애널리틱스(analytics.jsonl 58시도)와 이 프로브를
 	#   13판 전부에서 맞춰 얻은 실측 계수 — 비율이 2.0~4.8에 중앙값 3.3이었다.
 	#   ⚠사람 한 명(개발자) 표본이므로 절대치가 아니라 판 간 비교용으로 읽을 것.
-	print("idx | 승률   | 거점사 | 막힘 | 배치  | 승배치 | 승초  | 패배치 | 패초  | 줄   | 동시2 | 동시3 | 콤보 | 이름키")
-	print("----+--------+--------+------+-------+--------+-------+--------+-------+------+-------+-------+------+-------")
+	# 첫줄 = 판 시작부터 **첫 줄이 터지기까지의 배치 수** = 첫 도파민까지의 시간. 캐주얼 기준은 10초(배치 3)다.
+	#   실플레이 실측(analytics.jsonl n=37): 중앙값 26.2초 · 꼬리 97·121초. 판을 짧게 만들면 이 무음
+	#   구간의 **비중이 커지므로** 길이 작업과 짝으로 봐야 한다(80초 판에서 26초면 판의 3분의 1이다).
+	print("idx | 승률   | 거점사 | 막힘 | 배치  | 승배치 | 승초  | 패배치 | 패초  | 첫줄 | 첫초  | 줄   | 동시2 | 동시3 | 콤보 | 이름키")
+	print("----+--------+--------+------+-------+--------+-------+--------+-------+------+-------+------+-------+-------+------+-------")
 	for si in range(g.STAGES.size()):
 		if not only.is_empty() and not only.has(si):
 			continue
@@ -60,6 +63,8 @@ func _probe_stage(g: Node, si: int, TRIALS: int) -> void:
 	var multi2: float = 0.0
 	var multi3: float = 0.0
 	var maxcombo: float = 0.0
+	var first_sum: float = 0.0   # 첫 줄까지의 배치(첫 도파민). 캐주얼 기준 10초 = 배치 3
+	var first_n: int = 0
 	for t in range(TRIALS):
 		var r: Dictionary = _play(g, si)
 		if r["win"]:
@@ -76,13 +81,18 @@ func _probe_stage(g: Node, si: int, TRIALS: int) -> void:
 		multi2 += float(r["multi2"])
 		multi3 += float(r["multi3"])
 		maxcombo += float(r["maxcombo"])
+		if int(r["first_clear"]) > 0:
+			first_sum += float(r["first_clear"])
+			first_n += 1
 	var n: float = float(TRIALS)
 	var losses: int = TRIALS - wins
 	var wp: float = win_places / float(wins) if wins > 0 else 0.0
 	var lp: float = lose_places / float(losses) if losses > 0 else 0.0
-	print(" %2d | %5.1f%% |  %3d   | %3d  | %5.1f | %6.1f | %4.0fs | %6.1f | %4.0fs | %4.1f | %5.2f | %5.2f | %4.1f | %s" % [
+	var fc: float = first_sum / float(first_n) if first_n > 0 else 0.0
+	print(" %2d | %5.1f%% |  %3d   | %3d  | %5.1f | %6.1f | %4.0fs | %6.1f | %4.0fs | %4.1f | %4.0fs | %4.1f | %5.2f | %5.2f | %4.1f | %s" % [
 		si + 1, 100.0 * float(wins) / n, dead_core, dead_stuck,
 		places / n, wp, wp * SEC_PER_PLACE, lp, lp * SEC_PER_PLACE,
+		fc, fc * SEC_PER_PLACE,
 		clears / n, multi2 / n, multi3 / n, maxcombo / n,
 		String(g.STAGES[si]["name"])])
 
@@ -93,6 +103,7 @@ func _play(g: Node, si: int) -> Dictionary:
 	var defuse: int = 0
 	var places: int = 0
 	var clears: int = 0   # 판정법은 regress와 동일(resolving 진입 or 콤보 증가)
+	var first_clear: int = -1   # 첫 줄이 터진 배치 번호(1-based) = '첫 도파민까지'. -1 = 판 내내 못 터뜨림
 	var multi2: int = 0
 	var multi3: int = 0
 	while not g.game_over and not g.game_clear and guard < 3000:
@@ -119,6 +130,8 @@ func _play(g: Node, si: int) -> Dictionary:
 		places += 1
 		if g.resolving or g.combo > combo_before:
 			clears += 1
+			if first_clear < 0:
+				first_clear = places
 		if nlines >= 2:
 			multi2 += 1
 		if nlines >= 3:
@@ -144,7 +157,7 @@ func _play(g: Node, si: int) -> Dictionary:
 	return {
 		"win": g.game_clear, "leaked": g.leaked, "killed": g.killed,
 		"deton": deton, "defuse": defuse, "places": places, "clears": clears,
-		"multi2": multi2, "multi3": multi3, "maxcombo": g.run_max_combo,
+		"multi2": multi2, "multi3": multi3, "maxcombo": g.run_max_combo, "first_clear": first_clear,
 		"dead_core": g.game_over and not g.stuck,
 		"dead_stuck": g.game_over and g.stuck,
 	}
