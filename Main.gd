@@ -2237,7 +2237,12 @@ func _init_game() -> void:
 	# 케어 판은 첫 픽업을 앞당긴다. 재등장 간격만 줄이면 판 초반은 평소와 똑같아서 "달라진 게 없다"가
 	#   그대로 남는다 — 이 게임에서 케어가 유일하게 눈에 보이는 자리가 '초반에 비행기가 떴다'다.
 	#   슬롯에 공짜로 꽂아주지는 않는다: 여전히 보드에서 플레이어가 따야 한다('세상에 한 대'·귀속 유지).
-	plane_cd_left = CARE_PLANE_FIRST_CD if _care_level() >= CARE_PLANE_FAILS else int(st.get("plane_cd", 10))
+	# 첫 픽업까지의 대기는 재보충 대기와 **다른 값을 쓸 수 있다**(plane_first_cd, 없으면 plane_cd와 동일).
+	#   왜 나뉘었나(S22): plane_cd 하나로는 "한 대만, 일찍" 이 표현이 안 된다 — 값을 키우면 첫 등장까지
+	#   같이 늦어져 짧은 판에선 비행기가 아예 안 나오고, 값을 줄이면 계속 리필돼 희소가 아니게 된다.
+	#   '아껴 쓰기'를 가르치는 판(비행기 R2)은 first_cd 작게 + cd 크게 = 일찍 한 대, 그 뒤론 없음.
+	plane_cd_left = CARE_PLANE_FIRST_CD if _care_level() >= CARE_PLANE_FAILS \
+			else int(st.get("plane_first_cd", st.get("plane_cd", 10)))
 	plane_flights = []
 	plane_shots = []
 	plane_pop = 0.0
