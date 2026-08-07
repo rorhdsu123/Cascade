@@ -8989,7 +8989,14 @@ func _draw_board(fnt: Font) -> void:
 			"tank":
 				# 장갑 = 강철 판금 블록. 베벨 하이라이트 + 세로 이음선 2줄 + 코너 리벳 4개 + 두꺼운
 				# 외곽선 → 색(강철)과 form(판·리벳)이 함께 "장갑"을 즉시 말한다(basic 보라 원과 분리). C73.
-				var hs: float = CELL * 0.42
+				# 0.42→0.35(S18): **적은 배치를 안 막는다**(`_can_place`는 board만 본다) = 적 밑의 칸이
+				#   비었는지 찼는지가 계속 읽혀야 조준이 성립하는데, 0.42는 외곽선까지 79/90px라
+				#   칸을 덮어 버렸다. 프레임으로 확인하니 **블록 위 탱크와 빈 칸 위 탱크가 똑같이 보였다**
+				#   (tools/tank_size_shot.gd). 하필 정사각이라 놓인 블록과 실루엣도 같다.
+				#   0.35 = 66/90px(여백 12px/변)로 다른 적(basic 원 0.66·fast 0.52)과 같은 급의 여백을
+				#   남기되, 사각+리벳이라 여전히 제일 육중하다 — 크기 위계는 안 뒤집힌다.
+				#   ⚠리벳 반지름을 hs에 묶는다 — CELL 고정이면 판만 줄고 리벳은 그대로라 더 시끄러워진다.
+				var hs: float = CELL * 0.35
 				var full: Rect2 = Rect2(cx - hs, cy - hs, hs * 2.0, hs * 2.0)
 				draw_rect(full, C_E_TANK)
 				draw_rect(Rect2(cx - hs, cy - hs, hs * 2.0, hs * 2.0 * 0.30), Color(C_E_TANK_HI.r, C_E_TANK_HI.g, C_E_TANK_HI.b, 0.55))  # 상단 베벨
@@ -8997,7 +9004,7 @@ func _draw_board(fnt: Font) -> void:
 				var seam_dk: Color = Color(C_E_TANK_DK.r, C_E_TANK_DK.g, C_E_TANK_DK.b, 0.9)
 				draw_line(Vector2(cx - hs * 0.34, cy - hs), Vector2(cx - hs * 0.34, cy + hs), seam_dk, 1.8)  # 판 이음선
 				draw_line(Vector2(cx + hs * 0.34, cy - hs), Vector2(cx + hs * 0.34, cy + hs), seam_dk, 1.8)
-				var rv: float = CELL * 0.055
+				var rv: float = hs * 0.131   # 판 크기에 비례(0.42 시절의 CELL*0.055와 같은 비율)
 				var inset: float = hs * 0.72
 				for sx in [-1.0, 1.0]:
 					for sy in [-1.0, 1.0]:
