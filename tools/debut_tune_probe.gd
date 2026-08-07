@@ -50,6 +50,28 @@ func _sweeps(name: String) -> Array:
 				["22% hp8", 5, {"weights": {"basic": 78, "bomb": 22}, "core_hp": 8}],
 				["30% hp9", 5, {"weights": {"basic": 70, "bomb": 30}, "core_hp": 9}],
 			]
+		# 지금 값 vs 옛 값 — "그래서 폭탄이 몇 개 나오나"를 묻는 자리. 동시 개수(트리아지 압력)까지 본다.
+		"conc":
+			return [
+				["현재 22% hp7", 5, {}],
+				["옛 15% hp6", 5, {"weights": {"basic": 85, "bomb": 15}, "core_hp": 6}],
+			]
+		# 폭탄 3판 사다리 — R1(격리)·R2(통합+트리아지)·R3(연쇄)를 **같은 자로** 잰다.
+		#   R1의 밀도를 올릴 때 물어야 할 것은 "몇 개가 적당한가"가 아니라 "다음 칸이 아직 위인가"다.
+		"ladder":
+			return [
+				["R1 격리(6판)", 5, {}],
+				["R2 통합(12판)", 11, {}],
+				["R3 연쇄(13판)", 12, {}],
+			]
+		# R2(12판) 밀도 — R1을 22%로 올리자 **R2가 R1보다 폭탄이 적어졌다**(4.3 vs 6.1, ladder 스윕).
+		#   R2는 승률도 62%로 저작 목표(~55%)보다 물러서 여유가 있다 = 고칠 곳이 R1이 아니라 여기일 수 있다.
+		"r2":
+			return [
+				["R2 18%(현재)", 11, {}],
+				["R2 24%", 11, {"weights": {"basic": 41, "fast": 20, "swarm": 15, "bomb": 24}}],
+				["R2 30%", 11, {"weights": {"basic": 35, "fast": 20, "swarm": 15, "bomb": 30}}],
+			]
 		# st3(속공 도입)는 core_hp가 레버로 너무 굵다(+19pt로 −8pt 손실을 지나쳐 되산다).
 		#   더 가는 눈금 후보 = total(적 수, 기준 ⑤). 판 길이도 같이 줄어드는 게 값이다.
 		"st3":
@@ -80,8 +102,8 @@ func _init() -> void:
 	g.cleared[0] = true   # 튜토리얼 비활성(봇 통계 오염 방지)
 	g.dda_enabled = false
 	print("(sweep=%s seed=%d TRIALS=%d)" % [sweep, base_seed, TRIALS])
-	print("판 | 조건            | 승률   | 거점사 | 막힘사 | 배치  | 폭탄/판 | 2번째 | 해체 | 폭발")
-	print("---+-----------------+--------+--------+--------+-------+---------+-------+------+-----")
+	print("판 | 조건            | 승률   | 거점사 | 막힘사 | 배치  | 폭탄/판 | 2번째 | 해체 | 폭발 | 동시(평균/최대)")
+	print("---+-----------------+--------+--------+--------+-------+---------+-------+------+------+----------------")
 	for c in conds:
 		var si: int = int(c[1])
 		# 시드 되감기 = 모든 조건이 같은 난수 스트림을 본다(짝지은 비교, care_probe와 동형)
@@ -98,6 +120,8 @@ func _run(g: Node, si: int, label: String, ov: Dictionary, TRIALS: int) -> void:
 	var bombs: float = 0.0
 	var deton: float = 0.0
 	var defuse: float = 0.0
+	var conc_mean: float = 0.0
+	var conc_max: int = 0
 	var seconds: Array = []
 	for t in range(TRIALS):
 		var r: Dictionary = _play(g, si, ov)
@@ -111,6 +135,8 @@ func _run(g: Node, si: int, label: String, ov: Dictionary, TRIALS: int) -> void:
 		bombs += float(r["bombs"])
 		deton += float(r["deton"])
 		defuse += float(r["defuse"])
+		conc_mean += float(r["conc_mean"])
+		conc_max = maxi(conc_max, int(r["conc_max"]))
 		if int(r["second"]) >= 0:
 			seconds.append(int(r["second"]))
 	var n: float = float(TRIALS)
@@ -118,10 +144,10 @@ func _run(g: Node, si: int, label: String, ov: Dictionary, TRIALS: int) -> void:
 	# 중앙값은 '두 번째가 나온 판'들 안에서만 — 안 나온 판은 미등장률로 따로 읽는다.
 	var med2: String = "%3d" % int(seconds[seconds.size() / 2]) if not seconds.is_empty() else " — "
 	var miss2: int = TRIALS - seconds.size()
-	print("%2d | %-15s | %5.1f%% | %5.1f%% | %5.1f%% | %5.1f | %7.2f | %s%s | %4.2f | %4.2f" % [
+	print("%2d | %-15s | %5.1f%% | %5.1f%% | %5.1f%% | %5.1f | %7.2f | %s%s | %4.2f | %4.2f | %.2f / %d" % [
 		si + 1, label, 100.0 * float(wins) / n, 100.0 * float(dc) / n, 100.0 * float(ds) / n,
 		places / n, bombs / n, med2, ("(미%d)" % miss2) if miss2 > 0 else "     ",
-		defuse / n, deton / n])
+		defuse / n, deton / n, conc_mean / n, conc_max])
 
 # 판 데이터를 덮어쓴 사본으로 한 판. _start_stage를 손수 재현해 st·director를 _init_game **앞에서**
 #   갈아끼운다(care_probe와 동형) — 뒤에서 바꾸면 시작 적이 이미 원래 값으로 스폰된 뒤다.
@@ -146,6 +172,11 @@ func _play(g: Node, si: int, ov: Dictionary) -> Dictionary:
 	var places: int = 0
 	var deton: int = 0
 	var defuse: int = 0
+	# 동시 = 배치 직후 보드에 서 있는 폭탄 수. 총량(폭탄/판)과 다른 축이다 —
+	#   "둘 다 못 잡을 때 어느 것부터"(트리아지)가 실제로 생기는지는 이 값이 답한다.
+	var conc_sum: float = 0.0
+	var conc_n: int = 0
+	var conc_max: int = 0
 	var seen_bombs: Dictionary = {}   # 폭탄 id -> 처음 본 배치 시점
 	var second: int = -1
 	var order: Array = []
@@ -189,6 +220,13 @@ func _play(g: Node, si: int, ov: Dictionary) -> Dictionary:
 					deton += 1
 				else:
 					defuse += 1
+		var live: int = 0
+		for e in g.enemies:
+			if String(e["etype"]) == "bomb":
+				live += 1
+		conc_sum += float(live)
+		conc_n += 1
+		conc_max = maxi(conc_max, live)
 		# 새로 나온 폭탄 기록(두 번째가 언제 오나 = 이 판의 핵심 질문)
 		for e in g.enemies:
 			if String(e["etype"]) != "bomb":
@@ -207,6 +245,7 @@ func _play(g: Node, si: int, ov: Dictionary) -> Dictionary:
 	return {
 		"win": g.game_clear, "places": places, "bombs": seen_bombs.size(),
 		"second": second, "deton": deton, "defuse": defuse,
+		"conc_mean": (conc_sum / float(conc_n)) if conc_n > 0 else 0.0, "conc_max": conc_max,
 		"dead_core": g.game_over and not g.stuck,
 		"dead_stuck": g.game_over and g.stuck,
 	}
