@@ -6,12 +6,20 @@ extends SceneTree
 #     시드 노이즈에 묻힌다(analytics_probe 교훈). PROBE_SEED / TRIALS 환경변수로 고정·조절:
 #     PROBE_SEED=20260718 TRIALS=40 godot --headless --path . --script tools/campaign_probe.gd
 
+# 배치 1회 → 사람 실시간 초. 위 표 주석의 실측 계수(중앙값 3.3).
+const SEC_PER_PLACE: float = 3.3
+
 func _init() -> void:
 	var TRIALS: int = int(OS.get_environment("TRIALS")) if OS.get_environment("TRIALS") != "" else 100
 	var S: GDScript = load("res://Main.gd")
 	var g: Node = S.new()
 	root.add_child(g)
 	g.set("persist_enabled", false)   # ⚠_ready가 켠다 — 안 끄면 봇의 클리어가 실유저 진행도에 각인된다(regress와 동형 가드)
+	# 핸디캡 전용 RNG — 게임 스트림과 분리(위 주석). 시드는 PROBE_SEED에서 파생해 재현 가능하게.
+	_hrng = RandomNumberGenerator.new()
+	_hrng.seed = int(OS.get_environment("PROBE_SEED")) + 91127 if OS.get_environment("PROBE_SEED") != "" else 91127
+	if _handicap() > 1:
+		print("(HANDICAP=%d — 상위 k개 중 무작위. 사람의 막힘 축을 재는 관측 도구다)" % _handicap())
 	var sd: String = OS.get_environment("PROBE_SEED")
 	if sd != "":
 		seed(int(sd))
@@ -28,28 +36,64 @@ func _init() -> void:
 	# 배치·줄 = 판 길이(체감 소요 시간)의 대리 지표. 승률만 보면 '쉽지만 지루한 판'을 못 잡는다.
 	# 동시2·3 = 한 배치로 2줄·3줄 이상을 한꺼번에 지운 횟수 = '싹 터지는 맛'의 계측치.
 	#   콤보(연속 배치로 이어감)와 다른 축이다 — 맛을 볼 땐 둘 다 봐야 한다.
-	print("idx | 승률   | 거점사 | 막힘 | 배치  | 줄   | 동시2 | 동시3 | 콤보 | 이름키")
-	print("----+--------+--------+------+-------+------+-------+-------+------+-------")
+	# ⚠**'배치'(전체 평균)는 길이 설계의 자로 쓰면 안 된다** — 승·패를 섞은 값이라 승률에 오염된다.
+	#   진 판은 일찍 끝나므로 어려운 판일수록 평균이 짧게 나온다(클라이맥스는 승률 28%라 45.5배치로
+	#   찍히지만 실제 클리어는 그보다 훨씬 길다). 그래서 두 값을 따로 낸다:
+	#     승배치 = 이긴 판의 배치 수 = **클리어 길이**(플레이어가 성공했을 때 쓴 시간)
+	#     패배치 = 진 판의 배치 수   = **실패 비용**(원점으로 돌아가며 잃는 시간)
+	#   길이 목표는 이 둘에 각각 걸어야 한다. 캐주얼 기준 실패 비용 60~90초.
+	# 초 환산 = 배치 × SEC_PER_PLACE. 실플레이 애널리틱스(analytics.jsonl 58시도)와 이 프로브를
+	#   13판 전부에서 맞춰 얻은 실측 계수 — 비율이 2.0~4.8에 중앙값 3.3이었다.
+	#   ⚠사람 한 명(개발자) 표본이므로 절대치가 아니라 판 간 비교용으로 읽을 것.
+	# 첫줄 = 판 시작부터 **첫 줄이 터지기까지의 배치 수** = 첫 도파민까지의 시간. 캐주얼 기준은 10초(배치 3)다.
+	#   실플레이 실측(analytics.jsonl n=37): 중앙값 26.2초 · 꼬리 97·121초. 판을 짧게 만들면 이 무음
+	#   구간의 **비중이 커지므로** 길이 작업과 짝으로 봐야 한다(80초 판에서 26초면 판의 3분의 1이다).
+	print("idx | 승률   | 거점사 | 막힘 | 배치  | 승배치 | 승초  | 패배치 | 패초  | 첫줄 | 첫초  | 줄   | 동시2 | 동시3 | 콤보 | 이름키")
+	print("----+--------+--------+------+-------+--------+-------+--------+-------+------+-------+------+-------+-------+------+-------")
 	for si in range(g.STAGES.size()):
 		if not only.is_empty() and not only.has(si):
 			continue
 		_probe_stage(g, si, TRIALS)
 	quit()
 
+# CARE=n이면 **실패 케어를 n패 상태로 켜고** 잰다(0 = 꺼짐 = 현행·기본값).
+#   왜 필요한가: 이 프로브는 dda_enabled=false로 돌아서 지금껏 낸 값이 전부 **안전망이 꺼진 순수 난이도**다.
+#   그런데 실제 플레이어는 2패부터 케어를 받는다(3패가 천장) → 재도전 경험은 이 표보다 무조건 낫다.
+#   HANDICAP과 짝지으면 '못 두는 사람이 그물까지 받았을 때'를 잴 수 있다 = 실제 재도전에 제일 가까운 값.
+#   ⚠**CARE와 DDA는 다른 스위치다.** 실제 게임은 dda_enabled=true가 기본이고, 케어는 그 위에
+#     연패 수로 얹히는 별개 층이다. 이 프로브는 예전부터 dda_enabled=false로 돌아서
+#     **여기서 나온 모든 수치가 "DDA까지 끈 순수 난이도"** 였다 — 실제 플레이어가 겪는 값이 아니다.
+#     둘을 섞으면(CARE=1을 켜면서 DDA도 같이 켜지면) 케어 한 단의 효과와 DDA의 효과가 붙어 나온다.
+#     그래서 **CARE 환경변수가 설정되면 값이 0이어도 DDA를 켠다** = CARE=0이 '실게임 1번째 시도'다.
+#     CARE 미설정 = 옛 동작(DDA·케어 다 꺼짐) = 기존 결과와 byte-identical.
+func _care_env_set() -> bool:
+	return OS.get_environment("CARE") != ""
+
+func _care_level_env() -> int:
+	var c: String = OS.get_environment("CARE")
+	return maxi(0, int(c)) if c != "" else 0
+
 func _probe_stage(g: Node, si: int, TRIALS: int) -> void:
-	g.dda_enabled = false
+	g.dda_enabled = _care_env_set()
 	var wins: int = 0
 	var dead_core: int = 0
 	var dead_stuck: int = 0
 	var places: float = 0.0
+	var win_places: float = 0.0    # 이긴 판의 배치 합 = 클리어 길이
+	var lose_places: float = 0.0   # 진 판의 배치 합 = 실패 비용
 	var clears: float = 0.0
 	var multi2: float = 0.0
 	var multi3: float = 0.0
 	var maxcombo: float = 0.0
+	var first_sum: float = 0.0   # 첫 줄까지의 배치(첫 도파민). 캐주얼 기준 10초 = 배치 3
+	var first_n: int = 0
 	for t in range(TRIALS):
 		var r: Dictionary = _play(g, si)
 		if r["win"]:
 			wins += 1
+			win_places += float(r["places"])
+		else:
+			lose_places += float(r["places"])
 		if r["dead_core"]:
 			dead_core += 1
 		if r["dead_stuck"]:
@@ -59,19 +103,37 @@ func _probe_stage(g: Node, si: int, TRIALS: int) -> void:
 		multi2 += float(r["multi2"])
 		multi3 += float(r["multi3"])
 		maxcombo += float(r["maxcombo"])
+		if int(r["first_clear"]) > 0:
+			first_sum += float(r["first_clear"])
+			first_n += 1
 	var n: float = float(TRIALS)
-	print(" %2d | %5.1f%% |  %3d   | %3d  | %5.1f | %4.1f | %5.2f | %5.2f | %4.1f | %s" % [
+	var losses: int = TRIALS - wins
+	var wp: float = win_places / float(wins) if wins > 0 else 0.0
+	var lp: float = lose_places / float(losses) if losses > 0 else 0.0
+	var fc: float = first_sum / float(first_n) if first_n > 0 else 0.0
+	print(" %2d | %5.1f%% |  %3d   | %3d  | %5.1f | %6.1f | %4.0fs | %6.1f | %4.0fs | %4.1f | %4.0fs | %4.1f | %5.2f | %5.2f | %4.1f | %s" % [
 		si + 1, 100.0 * float(wins) / n, dead_core, dead_stuck,
-		places / n, clears / n, multi2 / n, multi3 / n, maxcombo / n,
+		places / n, wp, wp * SEC_PER_PLACE, lp, lp * SEC_PER_PLACE,
+		fc, fc * SEC_PER_PLACE,
+		clears / n, multi2 / n, multi3 / n, maxcombo / n,
 		String(g.STAGES[si]["name"])])
 
 func _play(g: Node, si: int) -> Dictionary:
+	# ⚠**연패 수는 _start_stage보다 먼저 박아야 한다.** _init_game이 그 안에서 케어 레벨을 읽어
+	#   비행기 쿨다운(plane_cd_left)을 정하기 때문이다. 뒤에 박으면 **직전 시행에서 남은 연패 수**가
+	#   새 판의 배급에 새고, CARE_PLANE_FAILS를 내리는 순간 '케어 0'인데도 비행기가 후해진다
+	#   (실제로 그 버그로 케어 0 승률이 26.7 → 31.7%로 찍혔다). 시행 간 오염이라 재현도 된다.
+	if _care_env_set():
+		g.fail_streak[si] = _care_level_env()
 	g._start_stage(si)
+	if _care_env_set():
+		g.fail_streak[si] = _care_level_env()   # _start_stage가 건드렸을 수 있으니 한 번 더 고정
 	var guard: int = 0
 	var deton: int = 0
 	var defuse: int = 0
 	var places: int = 0
 	var clears: int = 0   # 판정법은 regress와 동일(resolving 진입 or 콤보 증가)
+	var first_clear: int = -1   # 첫 줄이 터진 배치 번호(1-based) = '첫 도파민까지'. -1 = 판 내내 못 터뜨림
 	var multi2: int = 0
 	var multi3: int = 0
 	while not g.game_over and not g.game_clear and guard < 3000:
@@ -98,6 +160,8 @@ func _play(g: Node, si: int) -> Dictionary:
 		places += 1
 		if g.resolving or g.combo > combo_before:
 			clears += 1
+			if first_clear < 0:
+				first_clear = places
 		if nlines >= 2:
 			multi2 += 1
 		if nlines >= 3:
@@ -123,7 +187,7 @@ func _play(g: Node, si: int) -> Dictionary:
 	return {
 		"win": g.game_clear, "leaked": g.leaked, "killed": g.killed,
 		"deton": deton, "defuse": defuse, "places": places, "clears": clears,
-		"multi2": multi2, "multi3": multi3, "maxcombo": g.run_max_combo,
+		"multi2": multi2, "multi3": multi3, "maxcombo": g.run_max_combo, "first_clear": first_clear,
 		"dead_core": g.game_over and not g.stuck,
 		"dead_stuck": g.game_over and g.stuck,
 	}
@@ -160,7 +224,26 @@ func _lines_of(g: Node, mv: Dictionary) -> int:
 	return n
 
 # ── 그리디 봇 (sim.gd에서 복사, 폭탄 우선항 포함) ──
+# ── 핸디캡 봇(S31) ── HANDICAP=k면 **최선수가 아니라 상위 k개 중 무작위**로 둔다(k=1 = 현행 그리디).
+# 왜 필요한가: 그리디 봇은 패킹이 완벽해서 **막힘사에 구조적으로 저항한다**(같은 3판 240시행에서
+#   막힘 4 / 거점사 35). 그런데 실플레이의 사람은 정반대다(막힘 5 / 거점사 1) —
+#   즉 **사람이 실제로 죽는 축을 지금 봇으로는 잴 수가 없다.** 조각 풀·tank_mult 같은 퍼즐 축
+#   레버를 고쳐도 봇 승률이 안 움직이니 검증이 성립하지 않는다.
+# ⚠**게임 난수를 건드리지 않는다.** 봇의 무작위는 전용 RNG(_hrng)에서 뽑는다 — 전역 스트림을
+#   쓰면 k를 바꿀 때마다 **보드와 배급까지 달라져** '실력만 다른 같은 판' 비교가 깨진다.
+#   (regress 골든이 기대는 "봇은 randi를 안 쓴다"는 불변식도 k=1에선 그대로 유지된다.)
+# ⚠k는 난이도 손잡이가 아니라 **관측 도구**다. 이걸로 스테이지 값을 튜닝하지 말 것 —
+#   사람의 실력 분포를 재현하는 게 아니라 '실수하는 플레이어'를 흉내 낼 뿐이다.
+var _hrng: RandomNumberGenerator = null
+
+func _handicap() -> int:
+	var h: String = OS.get_environment("HANDICAP")
+	return maxi(1, int(h)) if h != "" else 1
+
 func _best_move(g: Node) -> Dictionary:
+	var k: int = _handicap()
+	if k > 1:
+		return _best_move_handicap(g, k)
 	var best: Dictionary = {}
 	var best_score: float = -1e9
 	for slot in range(3):
@@ -188,6 +271,37 @@ func _best_move(g: Node) -> Dictionary:
 					best_score = sc
 					best = {"slot": slot, "col": c, "row": r}
 	return best
+
+# 상위 k개 후보 중 하나를 뽑는다. 후보가 k보다 적으면 있는 만큼에서.
+func _best_move_handicap(g: Node, k: int) -> Dictionary:
+	var cands: Array = []
+	for slot in range(3):
+		if g.tray[slot].is_empty():
+			continue
+		var offsets: Array = g.tray[slot]["offsets"]
+		for r in range(g.ROWS):
+			for c in range(g.COLS):
+				var cells: Array = []
+				var ok: bool = true
+				for o in offsets:
+					var ov: Vector2i = o as Vector2i
+					var cc: Vector2i = Vector2i(c + ov.x, r + ov.y)
+					if cc.x < 0 or cc.x >= g.COLS or cc.y < 0 or cc.y >= g.ROWS:
+						ok = false
+						break
+					if g.board[cc.y][cc.x] != "":
+						ok = false
+						break
+					cells.append(cc)
+				if not ok:
+					continue
+				cands.append({"sc": _score(g, cells, slot), "slot": slot, "col": c, "row": r})
+	if cands.is_empty():
+		return {}
+	cands.sort_custom(func(a, b): return float(a["sc"]) > float(b["sc"]))
+	var top: int = mini(k, cands.size())
+	var pick: Dictionary = cands[_hrng.randi_range(0, top - 1)]
+	return {"slot": pick["slot"], "col": pick["col"], "row": pick["row"]}
 
 func _score(g: Node, cells: Array, slot: int) -> float:
 	var occ: Array = []

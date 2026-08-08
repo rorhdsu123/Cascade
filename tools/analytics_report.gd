@@ -23,6 +23,7 @@ func _initialize() -> void:
 	_funnel(evs)
 	_deaths(evs)
 	_pillars(evs)
+	_human_gap(evs)
 	quit()
 
 func _read(path: String) -> Array:
@@ -189,3 +190,63 @@ func _pillars(evs: Array) -> void:
 		peaks.sort()
 		print("\n[콤보] 판당 최대 콤보 평균 %.1f · 중앙값 %d · 최고 %d" % [
 			_avg(peaks), int(peaks[peaks.size() / 2]), int(peaks[peaks.size() - 1])])
+
+
+# ── 봇↔사람 승률 갭 ── campaign_probe의 승률과 **직접 맞대는** 절(S30).
+# 왜 필요한가: 캠페인 난이도 곡선을 전부 봇으로 짜왔는데, 봇은 사람이 아니다. 봇 승률만 보고
+#   목표를 정하면 사람에겐 전혀 다른 게임이 나간다. 여기서 내는 값이 그 보정의 기준선이다.
+# **첫 목숨 승률**을 1차 지표로 낸다 = 그 런의 **첫 종료 이벤트**가 클리어였나.
+#   부활은 광고를 봐야 얻는 것이므로 부활 포함 승률은 '광고를 켠 세계'의 값이다 —
+#   광고를 안 보는 유저(또는 no-fill)가 겪는 난이도는 첫 목숨 쪽이다.
+# ⚠**작은 n을 판별로 읽지 말 것.** 판당 5회면 95% 구간이 ±40pt를 넘는다 — 그 숫자로 판을
+#   튜닝하면 노이즈를 쫓게 된다. 그래서 판별 줄에 구간 폭을 같이 찍는다.
+# ⚠**부활 전환율이 너무 높으면 그 표본은 실플레이가 아니다.** 개발자가 광고 경로를 시험하면
+#   제안마다 수락해 첫 목숨 승률이 실제보다 낮게 찍힌다(2026-08 표본이 69%였다).
+#   위 [부활] 절의 전환율을 먼저 보고, 이상하면 이 절의 값은 상한으로만 읽을 것.
+func _human_gap(evs: Array) -> void:
+	print("\n[봇↔사람 갭] 첫 목숨 승률 — campaign_probe 승률과 같은 자로 비교")
+	var runs: Dictionary = {}          # run_id -> 첫 종료 이벤트
+	for e in evs:
+		var d: Dictionary = e as Dictionary
+		var ev: String = String(d.get("event", ""))
+		if ev != "run_failed" and ev != "stage_cleared":
+			continue
+		var rid: String = String(d.get("run_id", ""))
+		if not runs.has(rid) or int(d.get("t_ms", 0)) < int((runs[rid] as Dictionary).get("t_ms", 1 << 60)):
+			runs[rid] = d
+	var per: Dictionary = {}           # stage_id -> [시도, 첫목숨승]
+	var n_all: int = 0
+	var w_all: int = 0
+	for rid in runs:
+		var d: Dictionary = runs[rid]
+		# ⚠봇 프로브 런 제외: 같은 파일에 프로브 기록이 섞인다(수십 ms로 끝난다).
+		if int(d.get("duration_ms", 0)) <= 5000:
+			continue
+		var sid: int = int(d.get("stage_id", 0))
+		if sid <= 0:
+			continue
+		if not per.has(sid):
+			per[sid] = [0, 0]
+		var row: Array = per[sid]
+		row[0] += 1
+		n_all += 1
+		if String(d.get("event", "")) == "stage_cleared":
+			row[1] += 1
+			w_all += 1
+	if n_all == 0:
+		print("   사람 플레이 표본 없음(5초 넘는 런이 없다)")
+		return
+	print("   판 | 시도 | 첫목숨 승률 | 95% 구간")
+	var keys: Array = per.keys()
+	keys.sort()
+	for sid in keys:
+		var row: Array = per[sid]
+		var pr: float = float(row[1]) / float(row[0])
+		# 구간이 0으로 접히면(전승·전패) 표본이 작다는 사실이 가려진다 → 분산에 하한을 둔다.
+		var half: float = 1.96 * sqrt(maxf(pr * (1.0 - pr), 0.05) / float(row[0])) * 100.0
+		print("   %2d | %4d | %10.1f%% | ±%.0fpt" % [sid, row[0], 100.0 * pr, half])
+	var p_all: float = float(w_all) / float(n_all)
+	var half_all: float = 1.96 * sqrt(maxf(p_all * (1.0 - p_all), 0.02) / float(n_all)) * 100.0
+	print("   ── 전체 첫 목숨 승률 %.1f%% (%d/%d, ±%.0fpt) ──" % [100.0 * p_all, w_all, n_all, half_all])
+	print("   ⇒ 같은 빌드에서 `campaign_probe`를 돌려 이 값과 맞댈 것.")
+	print("     판별 비교는 시도수로 가중할 것 — 사람 시도는 판마다 고르지 않다(어려운 판에 몰린다).")

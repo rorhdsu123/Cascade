@@ -150,8 +150,8 @@ const DDA_GOD_FAILS: int = 2      # 같은 스테이지 연속 실패 이 횟수
 #       코드는 지웠지만 계단·게이팅·보석 제외까지 검증된 설계였다(seam = _plan_advance의
 #       director.effective_step_every 직후, 보석·비행기는 위협이 아니므로 제외).
 # 줄 완성은 보드를 비운다 = 막힘사·누수사를 동시에 줄이는 유일한 방향이라 이걸 주 레버로 삼았다.
-const CARE_CLEAR_FAILS: int = 2      # 줄-완성 조각 우선 배급이 켜지는 연속 실패 수(= 3번째 판)
-const CARE_PLANE_FAILS: int = 3      # 비행기 배급 완화가 얹히는 연속 실패 수(= 4번째 판)
+const CARE_CLEAR_FAILS: int = 1      # 줄-완성 조각 우선 배급이 켜지는 연속 실패 수(= 2번째 판)
+const CARE_PLANE_FAILS: int = 2      # 비행기 배급 완화가 얹히는 연속 실패 수(= 3번째 판)
 # 밴드 완화(3패) — 완성 줄이 쓸어내는 레인을 +1(C24 '콤보 = 청소 범위'의 그 손잡이).
 #   왜 이 축인가: 배급 케어는 **막힘사만** 고친다(7.6%→1.1%). 거점사는 59.1→59.3으로 1pt도
 #   안 움직인다 — 팡팡 터뜨려 보드를 비우는 건 '놓을 데가 없어 죽는' 문제의 답이고, 클라이맥스의
@@ -166,7 +166,7 @@ const CARE_PLANE_FAILS: int = 3      # 비행기 배급 완화가 얹히는 연�
 #   ⚠유일한 실질 비용: 콤보 2에 3레인이 나가므로 **콤보-레인 관계가 어긋난다**. 플테 판정
 #     (2026-08-06) = "보이긴 하는데 내가 잘한 걸로 읽힌다" → 규칙 ①에 안 걸린다고 봤다.
 #     이게 뒤집히면 대안은 위 기각 목록의 전진 완화다.
-const CARE_BAND_FAILS: int = 3       # 밴드 완화가 켜지는 연속 실패 수(= 4번째 판)
+const CARE_BAND_FAILS: int = 2       # 밴드 완화가 켜지는 연속 실패 수(= 3번째 판)
 const CARE_BAND_BONUS: int = 1       # 케어 중 블라스트 밴드에 더할 레인 수(콤보=청소 범위, C24)
 const CARE_MAX_FAILS: int = 3        # 케어 천장. 더 져도 여기서 멈춘다(끝없이 물러주면 판이 사라진다)
 const CARE_CANDIDATES: int = 12      # 케어 중 줄-완성 조각을 찾는 재추첨 횟수(기본 DDA는 6)
@@ -313,7 +313,10 @@ const C_E_BOMB_HI := Color("#6d7688")   # 구 하이라이트(둥근 느낌)
 # 도둑(Protect) = 후드 쓴 도적. 색은 로스터 미사용 마젠타/자홍(basic 바이올렛·gem 로즈와 확연히 다름), form(복면+자루+웅크림)이 '도둑'을 말한다.
 #   훔쳐 도망 중(carrying)엔 자루에 빛나는 보석 + 위로 도망 쉐브론(자가설명). 몸색은 처치 파편/후광에도 재사용.
 const C_E_THIEF := Color("#e879f9")     # 자홍(후드 몸통)
-const C_E_THIEF_DK := Color("#a21caf")  # 후드 그늘·복면 띠
+const C_E_THIEF_DK := Color("#a21caf")  # 후드 그늘·자루
+# 복면은 후드보다 **한 단 더 어두워야** 후드 위에서 띠로 읽힌다(S25). 같은 색이던 시절엔
+#   후드 원에 먹혀 사라졌고, 그 결과 몸이 '어두운 위 + 밝은 아래 = 웃는 얼굴'로 읽혔다.
+const C_E_THIEF_MASK := Color("#3b0764")  # 복면 띠(후드보다 어두운 보라)
 
 # 잔해(감시자가 뻗는 뿌리 셀 "#") — 무채색 강철회색. 조각 3색·적 색과 모두 분리(죽은 칸임을 색으로 말함).
 const C_DEBRIS := Color("#4a4a55")
@@ -510,6 +513,15 @@ var dbg_block: int = 0               # 앞이 막혀 한 박자 대기한 횟수
 var collect_pop: Array = []          # 타입별 카운터 도착 팝(스케일 바운스) 타이머
 # 폭탄 피해 비행(보석 비행의 역방향): 폭발이 뱉은 '깨진 하트 −N' 토큰이 HP 바의 곧-깎일 구간으로 날아가 착지하며 바를 부순다.
 var dmg_flights: Array = []          # [{from,to,t,dur,dmg}] 도착 시 core_hp_vis -= dmg + 바 파쇄
+# 도둑이 훔치는 순간 **거점 띠에서 다이아가 튀어나와 그 놈 자루로 빨려간다**(S25). [{from,to,eid,t,dur}]
+#   왜 필요했나: 도둑은 바닥(거점)에서 터는데 금고는 화면 최상단 카드로만 존재한다 — 800px 떨어져 있어
+#   훔치는 순간 눈은 바닥에 있고 숫자는 위에서 준다. 다이아가 **한 번도 있어본 적 없는 곳에서 사라졌다**
+#   (유저 기각 사유 ③: "상단 금고 카드와 바닥의 도둑이 아무 인과로도 안 이어진다").
+#   dmg_flights와 같은 문법이고 방향만 반대다 — 움직이는 물체가 인과를 잇는다.
+# ⚠**순수 연출이다. 로직을 물지 않는다.** vault 차감은 지금처럼 grab 프레임에 즉시 일어나고 이 비행은
+#   그걸 설명만 한다([[fx-timing-that-gates-logic-is-balance]] — 보석 홀드 0.18초가 수집판 승률을
+#   20/20 → 0/20으로 만든 전례). 도착 시점에 아무 상태도 안 바뀌므로 봇 결과는 byte-identical이다.
+var steal_flights: Array = []
 var core_hp_vis: float = 0.0         # 표시용 HP(논리 core_hp보다 늦음) — 토큰이 착지하는 순간에만 깎여 인과가 읽힌다
 var core_shatter: Array = []         # [{x0,x1,life}] 착지 시 깎여나간 바 구간이 부서지는 플래시
 var boom_queue: Array = []            # [{pos,to_pt,dmg,junk,col,delay}] 연쇄 도미노 순차 재생 — hop별 딜레이 후 발화(연출 전용)
@@ -2260,6 +2272,7 @@ func _init_game() -> void:
 	core_hp = director.core_hp_max()
 	core_hp_vis = float(core_hp)
 	dmg_flights = []
+	steal_flights = []
 	core_shatter = []
 	boom_queue = []
 	core_death_armed = false
@@ -2377,7 +2390,12 @@ func _init_game() -> void:
 	# 케어 판은 첫 픽업을 앞당긴다. 재등장 간격만 줄이면 판 초반은 평소와 똑같아서 "달라진 게 없다"가
 	#   그대로 남는다 — 이 게임에서 케어가 유일하게 눈에 보이는 자리가 '초반에 비행기가 떴다'다.
 	#   슬롯에 공짜로 꽂아주지는 않는다: 여전히 보드에서 플레이어가 따야 한다('세상에 한 대'·귀속 유지).
-	plane_cd_left = CARE_PLANE_FIRST_CD if _care_level() >= CARE_PLANE_FAILS else int(st.get("plane_cd", 10))
+	# 첫 픽업까지의 대기는 재보충 대기와 **다른 값을 쓸 수 있다**(plane_first_cd, 없으면 plane_cd와 동일).
+	#   왜 나뉘었나(S22): plane_cd 하나로는 "한 대만, 일찍" 이 표현이 안 된다 — 값을 키우면 첫 등장까지
+	#   같이 늦어져 짧은 판에선 비행기가 아예 안 나오고, 값을 줄이면 계속 리필돼 희소가 아니게 된다.
+	#   '아껴 쓰기'를 가르치는 판(비행기 R2)은 first_cd 작게 + cd 크게 = 일찍 한 대, 그 뒤론 없음.
+	plane_cd_left = CARE_PLANE_FIRST_CD if _care_level() >= CARE_PLANE_FAILS \
+			else int(st.get("plane_first_cd", st.get("plane_cd", 10)))
 	plane_flights = []
 	plane_shots = []
 	plane_pop = 0.0
@@ -4060,6 +4078,14 @@ func advance_step() -> void:
 					_set_callout(_t("callout_thief_stolen"), int(en["id"]))
 				var stp: Vector2 = _enemy_pos(int(en["col"]), bounce_r)
 				impacts.append({"pos": stp, "life": 0.3, "max": 0.3, "color": Color(0.95, 0.55, 0.5), "radius": CELL * 0.45, "star": true})
+				# 훔침을 **보드 위에서 완결**시킨다: 거점 띠(그 놈이 서 있던 열)에서 다이아가 튀어나와
+				#   자루로 빨려간다. 상단 카드의 vault_pop·vault_flash는 사후 확인으로 남는다 —
+				#   그것만으론 눈이 거기 없어서 못 본다(선언부 주석 참조).
+				var steal_from: Vector2 = Vector2(
+						BOARD_X + (float(int(en["col"])) + 0.5) * CELL,
+						board_y + float(ROWS) * CELL + 4.0 + 16.0)   # 거점 띠 중앙(_draw_core와 같은 산식)
+				steal_flights.append({"from": steal_from, "to": _thief_sack_pos(stp),
+						"eid": int(en["id"]), "t": 0.0, "dur": 0.30})
 			elif en["etype"] == "gem":
 				# 보석 놓침 — 거점 무피해, 진행 손해일 뿐. 바닥에서 회색 파프로 '놓쳤다'를 짧게 알림(보석이 중요함을 학습).
 				var gmp: Vector2 = _enemy_pos(int(en["col"]), ROWS - 1)
@@ -4938,6 +4964,7 @@ func _begin_core_death() -> void:
 	core_burst_done = false
 	core_hp_vis = float(core_hp)   # 폭탄 토큰이 아직 날던 중이어도 죽는 순간 바를 실제 값(0)으로 스냅
 	dmg_flights = []
+	steal_flights = []
 	hitstop = maxf(hitstop, CORE_HITSTOP)   # 뚫리는 순간 시간이 멎는다 (hitstop 중엔 core_t도 멈춘다)
 
 # 거점 띠가 터지는 순간 — 파편이 아래로 쏟아지고 화면이 붉게 흔들린다
@@ -5893,6 +5920,20 @@ func _process(delta: float) -> void:
 	var core_max_t: int = maxi(1, director.core_hp_max())
 	var sw_t: float = COLS * CELL
 	var bar_y_t: float = board_y + ROWS * CELL + 4.0
+	# 훔친 다이아 비행 — 도착해도 **아무 상태도 안 바꾼다**(vault는 grab 프레임에 이미 깎였다).
+	#   목표(자루)는 매 프레임 다시 찾는다: 도둑이 반등 직후 위로 도망치기 시작하면 자루도 따라가야
+	#   '저 놈이 들고 갔다'가 성립한다. 그 놈이 사라졌으면(회수·탈출) 마지막 좌표로 그냥 마저 난다.
+	var sf: int = steal_flights.size() - 1
+	while sf >= 0:
+		steal_flights[sf]["t"] += delta
+		var s_eid: int = int(steal_flights[sf]["eid"])
+		for e_s in enemies:
+			if int(e_s["id"]) == s_eid:
+				steal_flights[sf]["to"] = _thief_sack_pos(_enemy_pos(int(e_s["col"]), int(e_s["row"])))
+				break
+		if float(steal_flights[sf]["t"]) >= float(steal_flights[sf]["dur"]):
+			steal_flights.remove_at(sf)
+		sf -= 1
 	var df: int = dmg_flights.size() - 1
 	while df >= 0:
 		dmg_flights[df]["t"] += delta
@@ -6150,6 +6191,17 @@ func _draw() -> void:
 		var psz: float = lerpf(CELL * 0.58, CELL * 0.26, pft)
 		draw_circle(ppos, psz * 0.5 + 5.0, Color(C_PLANE_GLOW.r, C_PLANE_GLOW.g, C_PLANE_GLOW.b, 0.30 * (1.0 - pft)))
 		_draw_plane_icon(ppos, psz)
+	# 훔친 다이아: 거점 띠 → 도둑 자루. 폭탄 피해 토큰과 같은 문법이고 **방향만 반대**다
+	#   (저건 위협이 내 바를 깎으러 오고, 이건 내 것이 뜯겨 나간다). 아치는 위로 — 뜯겨 올라가는 궤적.
+	for sfl in steal_flights:
+		var sft: float = clampf(float(sfl["t"]) / float(sfl["dur"]), 0.0, 1.0)
+		var sbase: Vector2 = (sfl["from"] as Vector2).lerp(sfl["to"] as Vector2, sft * sft)
+		var spos: Vector2 = sbase + Vector2(0.0, sin(sft * PI) * -CELL * 0.34)
+		var ssz: float = lerpf(CELL * 0.46, CELL * 0.26, sft)   # 커졌다 작아지며 자루로 빨려든다
+		draw_circle(spos, ssz * 0.72, Color(1.0, 0.84, 0.35, 0.30 * (1.0 - sft)))
+		# ⚠금고 카드 핍과 **똑같은 아이콘**(_draw_gem_icon gtype 0 = 금 다이아)을 쓴다. 다른 그림이면
+		#   날아가는 게 '내 금고 것'이라는 게 안 읽힌다 — 인과를 잇자고 만든 연출이 물건을 바꿔버린다.
+		_draw_gem_icon(spos, ssz, 0)
 	# 폭탄 피해 토큰: 깨진 하트 + −N 이 폭발서 HP 바로 날아간다(움직이는 물체 = 강한 인과). 살짝 아치 그리며 내려꽂힘.
 	for dfl in dmg_flights:
 		var dft: float = clampf(float(dfl["t"]) / float(dfl["dur"]), 0.0, 1.0)
@@ -6973,6 +7025,7 @@ func _revive(method: String = "ad_reward") -> void:
 	core_hp = director.core_hp_max()   # 거점 HP 풀 복구
 	core_hp_vis = float(core_hp)
 	dmg_flights = []
+	steal_flights = []
 	core_shatter = []
 	boom_queue = []
 	core_death_armed = false
@@ -7857,6 +7910,54 @@ func _castle_cell_size() -> float:
 	var maxh: float = SEL_VIEW_BOT - SEL_TOP
 	return floorf(minf(CASTLE_CELL_MAX, minf(maxw / float(cols), maxh / float(rows.size()))))
 
+# ── 전클리어 표식 헬퍼(S28) ──
+# 창이 붙는 칸. **인덱스 나머지(i%3)로 고르면 안 된다** — 도안과 무관한 자리라 얼룩처럼 흩어진다
+#   (시안 렌더에서 실제로 그렇게 보였다). 도안 좌표로 고른다: 탑(위 두 행) 전부 + 성벽 가운데 행의
+#   홀수 열. 그러면 '탑에 불이 켜지고 성벽 한 층이 밝다'는 건물 조명이 된다.
+func _castle_has_window(i: int) -> bool:
+	var cl: Array = _castle_order()
+	if i < 0 or i >= cl.size():
+		return false
+	var p: Vector2i = cl[i]
+	if p.y <= 1:
+		return true                      # 탑
+	return p.y == 3 and p.x % 2 == 0     # 성벽 가운데 행, 한 칸 걸러
+
+# 깃발이 꽂히는 칸 = **가운데 열의 최상단 벽돌**(첨탑). 유저 선택: 두 탑에 각각 꽂으면 좌우 대칭이라
+#   장식으로만 읽히고, 하나면 성의 중심을 짚는다. ⚠인덱스를 박지 말 것 — 도안이 바뀌면 따라와야 한다.
+func _castle_flag_idx() -> int:
+	var cl: Array = _castle_order()
+	var cc: int = int(String(SD.CASTLE_MAP[0]).length() / 2)
+	var best: int = -1
+	var best_row: int = 1 << 30
+	for i in range(cl.size()):
+		var p: Vector2i = cl[i]
+		if p.x == cc and p.y < best_row:
+			best_row = p.y
+			best = i
+	return best
+
+# 창 — 따뜻한 불빛. 칸을 덮지 않게 작게(폭 20%) 두고, 아래 벽돌색이 계속 읽히게 한다.
+func _draw_castle_window(r: Rect2) -> void:
+	var w: float = r.size.x * 0.19
+	var h: float = w * 1.30
+	var o: Vector2 = Vector2(r.position.x + r.size.x * 0.5 - w * 0.5, r.position.y + r.size.y * 0.46 - h * 0.5)
+	draw_rect(Rect2(o - Vector2(2.0, 2.0), Vector2(w + 4.0, h + 4.0)), Color(0.42, 0.24, 0.06, 0.55))  # 창틀 그늘
+	draw_rect(Rect2(o, Vector2(w, h)), Color(1.0, 0.90, 0.56, 0.95))
+
+# 깃발 — 장대 + 삼각 페넌트. 벽돌 위로 솟되 위 칸을 침범하지 않는 높이(칸의 46%).
+func _draw_castle_flag(r: Rect2) -> void:
+	if r.size.x <= 0.0:
+		return
+	var px: float = r.position.x + r.size.x * 0.5
+	var top: float = r.position.y - r.size.y * 0.46
+	draw_line(Vector2(px, top), Vector2(px, r.position.y + 2.0), Color(0.88, 0.90, 0.96), 3.0)
+	draw_circle(Vector2(px, top), 3.5, Color(0.96, 0.93, 0.80))          # 장대 끝 구슬
+	draw_colored_polygon(PackedVector2Array([
+			Vector2(px + 1.5, top + 2.0),
+			Vector2(px + r.size.x * 0.32, top + r.size.y * 0.10),
+			Vector2(px + 1.5, top + r.size.y * 0.19)]), Color(0.93, 0.36, 0.40))
+
 # i번째 벽돌의 화면 사각형. 성 전체를 영역 정중앙에 놓고 거기서 센다.
 #   ⚠도안 밖 인덱스면 빈 Rect2 — 호출부가 `_castle_order().size()`로 막지만 방어로 남긴다.
 func _stage_rect(i: int) -> Rect2:
@@ -8321,10 +8422,13 @@ func _draw_dev_reset(fnt: Font) -> void:
 #     레퍼런스의 '오늘 N판 깼다' 류는 못 만든다 — 배관을 깔기 전엔 상태를 늘리지 말 것.
 #   ⚠**케어를 발설하지 말 것**: 3패에 배급·밴드가 완화되는 건 들키면 안 되는 장치다
 #     ([[stage-failure-care-ladder]]). 그래서 패배 문구는 진 횟수와 무관하게 한 가지 격려로 끝난다.
-#   모두 클리어면 빈 문자열 = 줄 자체가 안 나온다. 그 상태의 말은 푸터가 이미 두 줄로 한다.
+#   모두 클리어(S28): 예전엔 빈 문자열이었다 — "그 상태의 말은 푸터가 이미 한다"는 이유였는데,
+#     실물로 띄워 보니 제목 아래가 통째로 비어 그 상태만 화면이 말을 안 거는 꼴이었다.
+#     ⚠단 푸터와 **같은 말을 하면 안 된다.** 푸터 두 줄은 앞을 본다(약속 + 길 안내) →
+#       여기서는 뒤를 본다(해낸 것의 인정). 둘이 겹치면 한 말을 세 번 하는 화면이 된다.
 func _sel_message() -> String:
 	if _all_cleared():
-		return ""
+		return _t("sel_msg_done")
 	if int(fail_streak.get(_current_stage(), 0)) > 0:
 		return _t("sel_msg_retry")    # 지금 판에서 진 적이 있다 — 격려가 설명·부추김을 이긴다
 	if _cleared_count() == 0:
@@ -8340,12 +8444,27 @@ func _draw_select(fnt: Font) -> void:
 	# ── 성 ── 도안의 칸을 **전부** 돈다. 스테이지 수보다 칸이 많으면(지금 13 < 20) 남는 칸은
 	#   영영 안 켜지고 그게 "앞으로 올 판"이라는 예고다(stage_data.gd CASTLE_MAP 주석).
 	var cl: Array = _castle_order()
+	# ── 전클리어 표식(S28) ── 성이 다 차면 **창에 불이 켜지고 중앙 첨탑에 깃발이 오른다.**
+	#   왜 이 둘인가: 이 화면의 존재 이유가 '완주'가 아니라 '따라잡음'이라
+	#   ([[stage-last-clear-is-frontier-not-finale]]) 표식이 "끝났다"를 말하면 안 된다.
+	#   불 켜진 창 = 완성이 아니라 **사람이 사는 성** = 살아 있음. 깃발 = 준공 표식이지 종료 표식이 아니다.
+	#   ⚠기각 ① **금빛 벽돌**: 화면에서 제일 크게 읽히는 말이 "끝났다"가 되고, 금색은 프런티어(다음에
+	#     지을 칸) 신호로 이미 쓰고 있어 뜻이 뒤집힌다. 벽돌색을 바꾸면 '성 = 보드 블록과 같은 물건'이라는
+	#     연결(셀 90px을 맞춘 이유)도 끊긴다.
+	#   ⚠기각 ② **성 위 다음 층 실루엣**: 개념은 제일 정확했지만(빈 칸이 하던 말을 그림이 되살린다)
+	#     유저 판정으로 기각 — 그 그림은 "나중에 온다"와 "지금 어딘가 있는데 못 찾았다"를 구분해주지
+	#     못한다. 앞을 보는 말은 푸터 두 줄(글자)이 계속 진다.
+	#   ⚠벽돌 색·실루엣은 안 건드린다 — 표식은 위에 얹을 뿐이다([[transient-celebration-overlay-not-base-ui]]).
 	for i in range(cl.size()):
 		var r: Rect2 = _stage_rect(i)
 		if i < STAGES.size() and bool(cleared.get(i, false)):
 			_blit_block(r, CASTLE_BRICK)   # 지어진 벽돌 = 보드와 **같은 블록 그림**
+			if all_done and _castle_has_window(i):
+				_draw_castle_window(r)
 		else:
 			_blit_cell(r)                  # 아직 안 지어진 자리 = 보드와 같은 빈 셀 판(어두운 홈)
+	if all_done:
+		_draw_castle_flag(_stage_rect(_castle_flag_idx()))
 
 	# 프런티어(다음에 지을 자리)는 **모든 칸을 그린 뒤 맨 위에** 두른다. 벽돌은 붙여서 그리고
 	#   빈 셀 판은 불투명이라, 칸 안에서 같이 그리면 다음 칸이 테를 덮어 반쪽만 남는다(실제로 그랬다).
@@ -8396,13 +8515,18 @@ func _draw_select(fnt: Font) -> void:
 func _draw_allclear_footer(fnt: Font) -> void:
 	var r: Rect2 = PLAY_BTN
 	# ① 약속 — '이건 끝이 아니다'. 결과화면 frontier_sub와 같은 톤(연한 파랑).
+	# ⚠크기 24/18 → **30/24**(S28, 유저 실물 확인). 이 두 줄은 성이 다 차고 나면 "이건 끝이 아니다"를
+	#   **혼자 지는** 문구다(빈 벽돌이 하던 말을 물려받는다) — 그런데 화면에서 제일 작았다.
+	#   C160이 세운 자로 재면(폰 환산 15pt ≈ 7.4dp) 24pt = 11.8dp · 18pt = 8.9dp라, 안드로이드 본문
+	#   권장 12sp를 둘 다 밑돌았다. 특히 길 안내는 절반 수준이라 '조용해서 안 읽히는' 그 자리였다.
+	#   30/24 = 14.8dp · 11.8dp. 위계(약속 > 길 안내)는 유지 — 비율 1.33 → 1.25.
 	var t1: String = _t("frontier_sub")
-	var w1: float = fnt.get_string_size(t1, HORIZONTAL_ALIGNMENT_LEFT, -1, 24).x
-	_draw_text_outlined(fnt, Vector2(400.0 - w1 * 0.5, r.position.y + 56.0), t1, 24, Color(0.72, 0.78, 1.0))
+	var w1: float = fnt.get_string_size(t1, HORIZONTAL_ALIGNMENT_LEFT, -1, 30).x
+	_draw_text_outlined(fnt, Vector2(400.0 - w1 * 0.5, r.position.y + 56.0), t1, 30, Color(0.72, 0.78, 1.0))
 	# ② 길 안내 — 좌상단 뒤로화살표가 가리키는 곳(허브의 파란 무한). 여기서 실행 아님, 표지판일 뿐.
 	var t2: String = _t("frontier_home")
-	var w2: float = fnt.get_string_size(t2, HORIZONTAL_ALIGNMENT_LEFT, -1, 18).x
-	_draw_text_outlined(fnt, Vector2(400.0 - w2 * 0.5, r.position.y + 92.0), t2, 18, Color(0.58, 0.6, 0.72))
+	var w2: float = fnt.get_string_size(t2, HORIZONTAL_ALIGNMENT_LEFT, -1, 24).x
+	_draw_text_outlined(fnt, Vector2(400.0 - w2 * 0.5, r.position.y + 96.0), t2, 24, Color(0.58, 0.6, 0.72))
 
 # 천 단위 콤마 (점수 가독성)
 func _comma(n: int) -> String:
@@ -8557,6 +8681,22 @@ func _draw_hud(fnt: Font) -> void:
 			_btn_press_end()
 		return
 
+	# ── 📌미착수 아이디어(S35): **"내 것"은 상단 카드가 아니라 하단(거점 자리)에 있어야 하지 않나** ──
+	#   유저 착안(2026-08-08): "HP바 대신 수집 보석을 하단으로 내려야 하지 않을까."
+	#   즉 지금 상단 카드가 지고 있는 **수집 보석·금고**를 보드 아래 거점 띠 쪽으로 내리고,
+	#   거점 HP는 그 자리를 비켜주는(상단으로 올리거나 다른 형태가 되는) 재배치안.
+	#   왜 나왔나: 도둑판 진단에서 **금고가 화면 최상단인데 도둑은 바닥에서 턴다**는 게 걸렸다.
+	#     800px 떨어져 있어서 훔치는 순간 눈은 바닥에 있고 숫자는 위에서 준다 — S26의 다이아 비행은
+	#     그 간격을 연출로 메꾼 **보정**이었고, 애초에 같은 자리에 있으면 필요가 없는 문제였다.
+	#     보석도 같은 구조다(블라스트가 바닥에서 낚아채는데 카운터는 맨 위).
+	#   ⚠제약: 세로 공간이 이미 빡빡하다. 보드 720px + 거점 띠가 HUD와 트레이 사이에 끼어 있고
+	#     짧은 창에서는 _relayout의 클램프에 걸린다(board_y = clampi(...)). 하단에 줄을 더하려면
+	#     CORE_BLOCK_H를 키워야 하고 그만큼 보드 여유가 깎인다 → **레이아웃 재설계 없이는 못 얹는다.**
+	#   ⚠같이 풀 것(도둑판 폴리싱, 유저가 다음으로 미룸): Protect 판은 금고 카드가 **목표 카드를
+	#     대체**해서 승리 조건(💀 남은 적 N)이 화면에서 사라진다. "무슨 판인지 모르겠다"의 정체가 이거다
+	#     (유저 실플레이 확인). 금고가 하단으로 내려가면 상단이 비어 목표 카드가 저절로 돌아온다
+	#     = 이 아이디어가 그 결함까지 같이 고친다. 그래서 둘을 한 작업으로 묶는 게 맞다.
+	#   ⚠금고 0 = 패배라는 것도 안 읽힌다. 글자를 얹지 말고 **마지막 핍을 붉게**(색으로 신호).
 	# 받기형 수집: GOAL 카드 = 보석 수집(N/K). ADVANCE 카드(적 전진 시계)는 아래서 그대로 유지 — 적이 밀려오니까.
 	if bool(st.get("collect", false)):
 		_draw_collect_goal(fnt, goal_r, gw, box_y)
@@ -8753,6 +8893,13 @@ func _draw_broken_heart(c: Vector2, s: float, col: Color) -> void:
 	draw_line(c + Vector2(0.0, -s * 0.34), c + Vector2(-s * 0.10, 0.0), Color(0.25, 0.03, 0.05), 2.2)
 	draw_line(c + Vector2(-s * 0.10, 0.0), c + Vector2(s * 0.06, s * 0.16), Color(0.25, 0.03, 0.05), 2.2)
 	draw_line(c + Vector2(s * 0.06, s * 0.16), c + Vector2(0.0, s * 0.5), Color(0.25, 0.03, 0.05), 2.2)
+
+# 도둑 자루의 화면 좌표 — 몸 중심을 받아 자루로 옮긴다. 도둑 그리기(_draw match "thief")의
+#   sack 산식과 **같은 값을 쓴다**(tr = CELL*0.32, 오프셋 0.74/0.52). 훔친 다이아가 몸통 한가운데가
+#   아니라 자루에 꽂혀야 "저기 들어갔다"가 된다.
+func _thief_sack_pos(center: Vector2) -> Vector2:
+	var tr: float = CELL * 0.32
+	return center + Vector2(tr * 0.74, tr * 0.52)
 
 func _draw_gem_icon(center: Vector2, s: float, gtype: int = 0) -> void:
 	var col: Color = GEM_COLORS[gtype % GEM_COLORS.size()]
@@ -9731,10 +9878,20 @@ func _draw_board(fnt: Font) -> void:
 					draw_circle(Vector2(cx, cy), tr, Color(1.0, 0.86, 0.40, 0.85 + 0.15 * cpz), false, C_E_RIM_W + 2.0)
 				else:
 					draw_circle(Vector2(cx, cy), tr, C_E_RIM, false, C_E_RIM_W)
+				# ⚠**복면이 없는 거나 마찬가지였다**(S25, 렌더 실측). 띠를 후드와 **같은 색**
+				#   (C_E_THIEF_DK)으로 칠하는데 바로 위에서 후드 원이 이미 몸의 위쪽 2/3을 그 색으로
+				#   덮는다 → 띠가 후드에 먹혀 사라진다. 화면에 남는 건 '어두운 위 + 밝은 아래 + 점 두 개'고,
+				#   그 **밝은 아래가 입으로 읽힌다** = 유저가 기각 사유로 적은 "몸이 웃는 얼굴로 읽힌다".
+				#   도둑다움을 지어야 할 셋(후드·복면·자루) 중 자루 하나만 살아 있었다.
+				# 고침 ① 띠를 후드보다 **더 어둡게**(전용 색) → 후드 위에서 실제로 보인다.
+				# 고침 ② 눈을 원이 아니라 **가로로 긴 슬릿**으로 → 동그란 눈은 귀엽고 슬릿은 노려본다.
+				#   면적은 오히려 줄었다(원 2개 πr²≈0.063tr² → 슬릿 0.050tr²) = 칸을 더 안 덮는다.
 				var eye_y: float = cy - tr * 0.04
-				draw_rect(Rect2(cx - tr * 0.82, eye_y - tr * 0.17, tr * 1.64, tr * 0.34), C_E_THIEF_DK)  # 복면 띠
-				draw_circle(Vector2(cx - tr * 0.32, eye_y), tr * 0.1, Color(1.0, 0.95, 0.7))             # 눈
-				draw_circle(Vector2(cx + tr * 0.32, eye_y), tr * 0.1, Color(1.0, 0.95, 0.7))
+				draw_rect(Rect2(cx - tr * 0.82, eye_y - tr * 0.19, tr * 1.64, tr * 0.38), C_E_THIEF_MASK)  # 복면 띠
+				var slit_w: float = tr * 0.25
+				var slit_h: float = tr * 0.10
+				draw_rect(Rect2(cx - tr * 0.44, eye_y - slit_h * 0.5, slit_w, slit_h), Color(1.0, 0.95, 0.7))  # 눈(슬릿)
+				draw_rect(Rect2(cx + tr * 0.19, eye_y - slit_h * 0.5, slit_w, slit_h), Color(1.0, 0.95, 0.7))
 				# 자루는 **실루엣으로** 상태를 진다 — 빈 자루는 홀쭉, 훔친 자루는 불룩(+35%)하고 앰버 테를 두른다.
 				#   "뭔가 들어 있다"를 색이 아니라 형태가 말하므로 색약·저명도에서도 남는다.
 				var sack: Vector2 = Vector2(cx + tr * 0.74, cy + tr * 0.52)
@@ -9820,6 +9977,8 @@ func _draw_board(fnt: Font) -> void:
 			# 셀 배경에서 제 색으로 밝아진다 — 원본의 '어둡게 나타나 밝아짐' (실측 페이드 50ms)
 			_blit_block(frect, C_CELL.lerp(_color_of(stuck_fill[cell]), fa))
 
+# ⚠거점 띠 = 지금 하단을 독점하는 요소다. 📌미착수 아이디어 "수집 보석·금고를 하단으로"(S35,
+#   _draw_hud의 수집 카드 분기 위 주석)가 이 자리를 요구한다 — 그 작업에 들어가면 여기가 같이 바뀐다.
 func _draw_core(fnt: Font) -> void:
 	if bool(st.get("boss", false)):
 		return   # 보스 스테이지: 방어선 없음(적 없음) → 거점 HP 바 숨김. 보스 HP는 상단 카드가 표시.

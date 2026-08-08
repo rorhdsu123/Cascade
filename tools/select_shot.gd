@@ -1,7 +1,7 @@
 extends SceneTree
 # 진행(select) 화면 폴리싱 확인.
 #   godot --path . --script tools/select_shot.gd   (창 모드 — 헤드리스는 렌더텍스처 null)
-const DIR: String = "/private/tmp/claude-501/-Users-im-yujin-Desktop-Cascade-worktrees-stage/2e271b2e-cf92-4d5f-ba11-2347ef54100e/scratchpad/shots/"
+const DIR: String = "/private/tmp/claude-501/-Users-im-yujin-Desktop-Cascade-worktrees-stage/c4f0ea00-30c5-4dfc-9c13-65e4483f2cae/scratchpad/shots/"
 var g: Node = null
 
 func _initialize() -> void:
@@ -54,6 +54,7 @@ func _run() -> void:
 	g.set("cleared", _cleared(total))
 	g.call("_sel_enter")
 	await _shot("s3_allclear.png")
+
 
 	# 4) 지금 판에서 진 적 있음 — 제목 아래 한 줄이 격려로 바뀐다(_sel_message, C157).
 	#    ⚠케어(3패 완화)를 발설하면 안 되므로 진 횟수와 무관하게 같은 문구여야 한다.
