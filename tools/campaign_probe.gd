@@ -15,6 +15,11 @@ func _init() -> void:
 	var g: Node = S.new()
 	root.add_child(g)
 	g.set("persist_enabled", false)   # ⚠_ready가 켠다 — 안 끄면 봇의 클리어가 실유저 진행도에 각인된다(regress와 동형 가드)
+	# 핸디캡 전용 RNG — 게임 스트림과 분리(위 주석). 시드는 PROBE_SEED에서 파생해 재현 가능하게.
+	_hrng = RandomNumberGenerator.new()
+	_hrng.seed = int(OS.get_environment("PROBE_SEED")) + 91127 if OS.get_environment("PROBE_SEED") != "" else 91127
+	if _handicap() > 1:
+		print("(HANDICAP=%d — 상위 k개 중 무작위. 사람의 막힘 축을 재는 관측 도구다)" % _handicap())
 	var sd: String = OS.get_environment("PROBE_SEED")
 	if sd != "":
 		seed(int(sd))
@@ -194,7 +199,26 @@ func _lines_of(g: Node, mv: Dictionary) -> int:
 	return n
 
 # ── 그리디 봇 (sim.gd에서 복사, 폭탄 우선항 포함) ──
+# ── 핸디캡 봇(S31) ── HANDICAP=k면 **최선수가 아니라 상위 k개 중 무작위**로 둔다(k=1 = 현행 그리디).
+# 왜 필요한가: 그리디 봇은 패킹이 완벽해서 **막힘사에 구조적으로 저항한다**(같은 3판 240시행에서
+#   막힘 4 / 거점사 35). 그런데 실플레이의 사람은 정반대다(막힘 5 / 거점사 1) —
+#   즉 **사람이 실제로 죽는 축을 지금 봇으로는 잴 수가 없다.** 조각 풀·tank_mult 같은 퍼즐 축
+#   레버를 고쳐도 봇 승률이 안 움직이니 검증이 성립하지 않는다.
+# ⚠**게임 난수를 건드리지 않는다.** 봇의 무작위는 전용 RNG(_hrng)에서 뽑는다 — 전역 스트림을
+#   쓰면 k를 바꿀 때마다 **보드와 배급까지 달라져** '실력만 다른 같은 판' 비교가 깨진다.
+#   (regress 골든이 기대는 "봇은 randi를 안 쓴다"는 불변식도 k=1에선 그대로 유지된다.)
+# ⚠k는 난이도 손잡이가 아니라 **관측 도구**다. 이걸로 스테이지 값을 튜닝하지 말 것 —
+#   사람의 실력 분포를 재현하는 게 아니라 '실수하는 플레이어'를 흉내 낼 뿐이다.
+var _hrng: RandomNumberGenerator = null
+
+func _handicap() -> int:
+	var h: String = OS.get_environment("HANDICAP")
+	return maxi(1, int(h)) if h != "" else 1
+
 func _best_move(g: Node) -> Dictionary:
+	var k: int = _handicap()
+	if k > 1:
+		return _best_move_handicap(g, k)
 	var best: Dictionary = {}
 	var best_score: float = -1e9
 	for slot in range(3):
@@ -222,6 +246,37 @@ func _best_move(g: Node) -> Dictionary:
 					best_score = sc
 					best = {"slot": slot, "col": c, "row": r}
 	return best
+
+# 상위 k개 후보 중 하나를 뽑는다. 후보가 k보다 적으면 있는 만큼에서.
+func _best_move_handicap(g: Node, k: int) -> Dictionary:
+	var cands: Array = []
+	for slot in range(3):
+		if g.tray[slot].is_empty():
+			continue
+		var offsets: Array = g.tray[slot]["offsets"]
+		for r in range(g.ROWS):
+			for c in range(g.COLS):
+				var cells: Array = []
+				var ok: bool = true
+				for o in offsets:
+					var ov: Vector2i = o as Vector2i
+					var cc: Vector2i = Vector2i(c + ov.x, r + ov.y)
+					if cc.x < 0 or cc.x >= g.COLS or cc.y < 0 or cc.y >= g.ROWS:
+						ok = false
+						break
+					if g.board[cc.y][cc.x] != "":
+						ok = false
+						break
+					cells.append(cc)
+				if not ok:
+					continue
+				cands.append({"sc": _score(g, cells, slot), "slot": slot, "col": c, "row": r})
+	if cands.is_empty():
+		return {}
+	cands.sort_custom(func(a, b): return float(a["sc"]) > float(b["sc"]))
+	var top: int = mini(k, cands.size())
+	var pick: Dictionary = cands[_hrng.randi_range(0, top - 1)]
+	return {"slot": pick["slot"], "col": pick["col"], "row": pick["row"]}
 
 func _score(g: Node, cells: Array, slot: int) -> float:
 	var occ: Array = []
