@@ -119,10 +119,15 @@ func _probe_stage(g: Node, si: int, TRIALS: int) -> void:
 		String(g.STAGES[si]["name"])])
 
 func _play(g: Node, si: int) -> Dictionary:
-	g._start_stage(si)
-	# 케어 레벨은 그 판의 연패 수에서 나온다 → 시행마다 다시 박는다(_start_stage가 초기화할 수 있다).
+	# ⚠**연패 수는 _start_stage보다 먼저 박아야 한다.** _init_game이 그 안에서 케어 레벨을 읽어
+	#   비행기 쿨다운(plane_cd_left)을 정하기 때문이다. 뒤에 박으면 **직전 시행에서 남은 연패 수**가
+	#   새 판의 배급에 새고, CARE_PLANE_FAILS를 내리는 순간 '케어 0'인데도 비행기가 후해진다
+	#   (실제로 그 버그로 케어 0 승률이 26.7 → 31.7%로 찍혔다). 시행 간 오염이라 재현도 된다.
 	if _care_env_set():
 		g.fail_streak[si] = _care_level_env()
+	g._start_stage(si)
+	if _care_env_set():
+		g.fail_streak[si] = _care_level_env()   # _start_stage가 건드렸을 수 있으니 한 번 더 고정
 	var guard: int = 0
 	var deton: int = 0
 	var defuse: int = 0

@@ -26,7 +26,8 @@ func _init() -> void:
 	print("\n── ① 계단: 연속 실패 횟수 → 케어 단계 ──")
 	# 두 칸 계단(2026-08-04 st12 실플레이로 교정). 조각=2패(3번째 판) / 비행기=3패 / 천장 3패.
 	#   [n패, 줄-완성 케어, 비행기 케어]
-	for row in [[0, false, false], [1, false, false], [2, true, false], [3, true, true], [7, true, true]]:
+	#   S34에서 사다리를 한 칸 앞당겼다: 줄-완성 1패 · 비행기/밴드 2패(전엔 2패 · 3패).
+	for row in [[0, false, false], [1, true, false], [2, true, true], [3, true, true], [7, true, true]]:
 		var n: int = int(row[0])
 		g.dda_enabled = true
 		g.fail_streak[2] = n
@@ -38,13 +39,13 @@ func _init() -> void:
 			"실제=%s" % ("ON" if clear_on else "off"))
 		_ok(plane_on == bool(row[2]), "%d패 → 비행기 케어 %s" % [n, "ON" if bool(row[2]) else "off"],
 			"실제=%s" % ("ON" if plane_on else "off"))
-		# 밴드 완화는 비행기와 같은 칸(3패). 같은 칸이라도 따로 본다 — 한쪽만 조정될 수 있다.
+		# 밴드 완화는 비행기와 같은 칸(2패). 같은 칸이라도 따로 본다 — 한쪽만 조정될 수 있다.
 		_ok(band_on == bool(row[2]), "%d패 → 밴드 완화 %s" % [n, "ON" if bool(row[2]) else "off"],
 			"실제=%s" % ("ON" if band_on else "off"))
-	# 2패에서 줄-완성만 걸리고 비행기는 아직 안 걸린다 = 계단이 실제로 두 칸이다(한 칸이면 천장이 무의미).
-	g.fail_streak[2] = 2
+	# 첫 칸에서 줄-완성만 걸리고 비행기는 아직 안 걸린다 = 계단이 실제로 두 칸이다(한 칸이면 천장이 무의미).
+	g.fail_streak[2] = 1
 	g._start_stage(2)
-	_ok(g._plane_cd() == int(g.st.get("plane_cd", 10)), "2패 단계는 비행기 재등장 간격도 원본")
+	_ok(g._plane_cd() == int(g.st.get("plane_cd", 10)), "1패 단계는 비행기 재등장 간격도 원본")
 	g.fail_streak[2] = 7
 	g._start_stage(2)
 	var cd_cap: int = g.plane_cd_left
@@ -120,8 +121,16 @@ func _init() -> void:
 	_ok(g._plane_cd() < int(g.st.get("plane_cd", 10)), "재등장 간격도 짧아진다 %d → %d" % [
 		int(g.st.get("plane_cd", 10)), g._plane_cd()])
 	# 수집·튜토리얼 판엔 비행기가 아예 없다 → 케어는 조각 풀로만 걸린다(레버 하나로 전 판을 못 덮는다).
-	g.fail_streak[4] = 3
-	g._start_stage(4)
+	# ⚠**인덱스를 박지 말 것.** 예전엔 4번이 수집 판이었는데 판을 추가·재배치하면서(S21·S22·S27)
+	#   그 자리가 퍼즐 판으로 바뀌어 이 단언이 조용히 다른 걸 재고 있었다. 데이터로 찾는다.
+	var collect_i: int = -1
+	for ci in range(g.STAGES.size()):
+		if bool(g.STAGES[ci].get("collect", false)):
+			collect_i = ci
+			break
+	_ok(collect_i >= 0, "수집 판이 캠페인에 있다")
+	g.fail_streak[collect_i] = 3
+	g._start_stage(collect_i)
 	_ok(not g._plane_allowed(), "수집 판은 비행기 없음 = 줄-완성 케어가 그 판의 유일한 레버")
 	_ok(g._care_level() >= g.CARE_CLEAR_FAILS, "그 판도 줄-완성 케어는 받는다")
 
