@@ -285,6 +285,9 @@ const C_INK_GOLD  := Color("#b0800f")   # 밝은 판 위의 금색 — C_GOLD는
 const C_INK_WIN   := Color("#1e7a3c")   # 성공 수치(초록) — 밝은 판용으로 내린 명도
 const C_INK_LOSE  := Color("#bf3a2b")   # 실패 수치(빨강) — 위와 같은 이유
 const C_BORD := Color(0.24, 0.24, 0.38)
+# 보드 외곽 프레임의 평상시 색. 납품본이 청색 글로우로 와서(8/8) 그 인상을 여기로 옮겼다 —
+#   그림은 회색조로 되돌려 두고, 무한 '기록 갱신 중' 골드가 같은 채널을 계속 쓸 수 있게 한다.
+const C_FRAME := Color(0.80, 0.90, 1.0)
 
 # 적 타입별 대표 색 (한눈 구분)
 #
@@ -729,6 +732,10 @@ var plane_tex: Texture2D = null
 const ICON_DIR: String = "res://art/icons/"
 const ICON_NAMES: Array = ["gear", "skull", "check", "lock", "flag", "infinity", "play", "retry"]
 var icon_tex: Dictionary = {}          # 이름 → Texture2D (파일 있는 것만 채워진다)
+# 이름 → 잉크가 캔버스를 차지하는 비율(0~1). 호출부는 **도형이 뻗는 폭**을 side로 넘긴다
+#   ("체크는 c.x±s로 벌어진다") — 그림에 여백이 있으면 그만큼 작게 그려져 옆 글자와 균형이 깨진다.
+#   납품본 실측 여백이 25~46%라 눈에 띄게 작았다. 로드할 때 한 번 재서 나눠 준다.
+var icon_fill: Dictionary = {}
 
 # ── 패널·버튼 9-slice(UI_ART_PLAN §4 P0) ──
 # 블록·아이콘과 같은 규약: art/ui/<이름>.png가 있으면 그것만 갈아타고, 없으면 기존 드로잉으로 떨어진다.
@@ -759,27 +766,41 @@ const UI_9S: Dictionary = {
 	#   각진 사각형으로 남는 걸 막으려고 슬롯을 미리 판다.
 	"btn_ghost":     [32, 32, 32, 32],
 	# ── P1 (8/6 납품) ── 아래는 전부 같은 계약이다. 파일이 오는 순서대로 그것만 갈아탄다.
-	"card":          [40, 40, 40, 40],   # 상단 목표 카드 본체(기준 310×104). 패널과 같이 **다크 톤을 그림이 갖는다**
+	"card":          [24, 24, 24, 24],   # 상단 목표 카드 본체(310×104 = 화면 크기와 1:1). 패널과 같이 **다크 톤을 그림이 갖는다**
 	# ⚠테두리가 **색 채널**인 부품은 본체와 나눠 받는다(panel_bar와 같은 이유이자 세 번째 사례다).
 	#   목표 카드의 테는 동사마다 색이 다르고(수집=젬색·방어=보라·보스=자주), 그게 "이번 판이 무슨 판인지"를
 	#   말하는 신호다. 각진 테를 라운드 카드 위에 코드가 얹으면 모서리 밖으로 삐져나온다 —
 	#   **카드와 같은 캔버스·같은 마진**에 테만 그린 회색조 레이어로 받는다.
-	"card_edge":     [40, 40, 40, 40],
-	"hp_track":      [20, 24, 20, 24],   # 거점 HP 바 빈 트랙(보드 바로 아래, 폭 720×높이 32)
+	"card_edge":     [24, 24, 24, 24],
+	"hp_track":      [20, 20, 20, 20],   # 거점 HP 바 빈 트랙(보드 바로 아래, 폭 720×높이 32)
 	# 채움은 **회색조**로 받는다 — 빨강↔초록 그라데이션이 잔량 신호라 색은 코드가 계속 쥔다.
 	#   ⚠HP가 줄면 목적지 폭이 모서리 합보다 좁아진다. 그때는 이음새가 모서리를 비율대로 줄인다.
-	"hp_fill":       [20, 24, 20, 24],
+	"hp_fill":       [20, 20, 20, 20],
 	# 트레이 슬롯(240×200 = 120×100의 2배). 비행기 보유 슬롯(90×90)도 **같은 부품**을 쓴다 —
-	#   둘 다 '물건이 앉는 자리'라 같은 물건으로 읽혀야 한다. 상태(빈/참·보유/조준)는 코드가 틴트한다.
+	#   둘 다 '물건이 앉는 자리'라 같은 물건으로 읽혀야 한다.
+	# ⚠납품본이 **색을 갖고 왔다**(다크 네이비 판 + 밝은 테). 패널·빈 셀과 같은 처리를 한다 —
+	#   판은 틴트 없이 그리고, 상태(빈/참·보유/조준)는 그 위에 얇게 덧칠한다(_draw_slot_box).
 	"slot":          [36, 36, 36, 36],
 	"board_frame":   [48, 48, 48, 48],   # 8×8 보드 외곽. ⚠**가운데는 투명**이어야 한다(보드를 덮으면 안 된다)
 	# (스테이지 타일 3종 `tile`·`tile_front`·`tile_off`는 C158서 삭제 — 진행 화면이 번호 격자를 버리고
 	#  **성**이 되면서 쓰는 곳이 없어졌다. 성은 보드와 같은 부품으로 짓는다: 벽돌=block.png, 빈자리=cell.png.
 	#  ⚠docs/UI_ART_PLAN.md의 P1 목록에도 남아 있다 — 디자이너에게 다시 요청하지 말 것.)
-	# 튜토리얼 말풍선(알약형, 높이 36 기준). ⚠**반드시 불투명** — 뒤에 보드가 비치면 글자가 안 읽힌다.
-	#   테는 지시(노랑)/손해(붉은색) 2색이라 카드와 같이 레이어로 나눈다.
-	"tut_bubble":    [36, 24, 36, 24],
-	"tut_bubble_edge": [36, 24, 36, 24],
+	# 튜토리얼 말풍선(알약형, 높이 36 = 화면과 1:1). ⚠**반드시 불투명** — 뒤에 보드가 비치면 글자가 안 읽힌다.
+	# ⚠2색 신호(지시=노랑 / 손해=붉은색)를 **본체+테 레이어가 아니라 판 두 장**으로 받았다(8/8).
+	#   알약이 통째로 물드는 그림이라 테만 떼어낼 데가 없다 → 판을 갈아끼우는 쪽으로 이음새를 맞췄다.
+	#   `tut_bubble_edge`는 그래서 비어 있다(레이어로 오면 그때 다시 산다).
+	"tut_bubble":    [18, 18, 18, 18],
+	"tut_bubble_warn": [18, 18, 18, 18],
+	"tut_bubble_edge": [18, 18, 18, 18],
+}
+# 부품마다 다른 납품 배율. §5는 2배가 원칙이지만 **화면 크기가 이미 정해져 있는 부품**은 1:1로 온다
+#   (목표 카드 310×104 · 말풍선 높이 36). 여기 없으면 UI_TEX_SCALE(2.0)을 쓴다.
+#   ⚠배율을 틀리면 모서리만 절반/두 배로 그려져 라운드가 찌그러진다(가운데는 어차피 늘어나므로 안 티난다).
+const UI_TEX_SCALE_OVR: Dictionary = {
+	"card": 1.0, "card_edge": 1.0,
+	"tut_bubble": 1.0, "tut_bubble_warn": 1.0, "tut_bubble_edge": 1.0,
+	# HP 바는 520×40으로 왔고 화면에선 높이 32다 — 40/32 = 1.25면 알약 반경이 안 찌그러진다.
+	"hp_track": 1.25, "hp_fill": 1.25,
 }
 var ui_9s: Dictionary = {}             # 이름 → {tex, m} (파일 있는 것만 채워진다)
 # 보드 프레임을 보드 사각형 **바깥으로** 얼마나 키워 그리는가. 프레임의 안쪽 구멍이 이 여백 안에서
@@ -828,7 +849,9 @@ func _init_block_art() -> void:
 	for n in ICON_NAMES:
 		var ip: String = ICON_DIR + String(n) + ".png"
 		if ResourceLoader.exists(ip):
-			icon_tex[n] = load(ip) as Texture2D
+			var it: Texture2D = load(ip) as Texture2D
+			icon_tex[n] = it
+			icon_fill[n] = _icon_fill_of(it)
 	for en in ENEMY_NAMES:
 		var ep2: String = ENEMY_DIR + String(en) + ".png"
 		if ResourceLoader.exists(ep2):
@@ -7948,11 +7971,11 @@ func _draw_card(r: Rect2, accent: Color) -> void:
 const SKULL_RIM: float = 0.07   # s 대비 테 두께
 func _draw_enemy_icon(center: Vector2, s: float) -> void:
 	var rim: float = s * SKULL_RIM if _ink_light else 0.0
-	if _blit_icon("skull", center, s * 1.0):
-		if rim > 0.0:
-			# 텍스처 경로 — 같은 그림을 키워 어두운 실루엣으로 먼저 깐다(면은 원본이 덮는다)
-			_blit_icon("skull", center, s + rim * 2.0, C_INK_TITLE)
-			_blit_icon("skull", center, s * 1.0)
+	if icon_tex.has("skull"):
+		# ⚠위 주석의 전제("색을 못 바꾼다")는 **납품본에서 깨졌다**(8/8). 뼈색+어두운 눈 2색이 아니라
+		#   눈·코가 뚫린 **단색 흰 마스크**로 왔다 — 밝은 판 위에선 실루엣도 구멍도 크림에 묻힌다
+		#   (테를 뒤에 깔아도 구멍은 못 살린다). 단색이라 이제 통째로 틴트할 수 있으므로 그게 답이다.
+		_blit_icon("skull", center, s * 1.0, C_INK_TITLE if _ink_light else Color.WHITE)
 		return
 	# 목표=밀려오는 적 전부 처치(타입 무관, 못 없애면 거점 hp↓). 특정 타입 대신
 	# 타입 중립 "처치 대상" 기호=해골로 그린다. 뼈색+어두운 눈·코·이빨.
@@ -8290,6 +8313,7 @@ func _draw_tut_msg(fnt: Font) -> void:
 	#   꺼지면 서 있는 지시(tut_msg, 노랑)로 자연 복귀. 마지막 0.9초는 알파 감쇠(사건은 흘러가듯).
 	var msg: String = tut_msg
 	var col: Color = Color(1.0, 0.95, 0.5)   # 노랑 = 지시(서 있는 상태)
+	var warn: bool = tut_flash_t > 0.0       # 손해 사건 = 붉은 판(아래 판 선택이 이걸 본다)
 	if tut_flash_t > 0.0:
 		msg = tut_flash_msg
 		col = Color(1.0, 0.55, 0.45)         # 온기 있는 붉은색 = 손해 사건(누수 신호와 동색 계열)
@@ -8316,11 +8340,20 @@ func _draw_tut_msg(fnt: Font) -> void:
 	if pbot - ph < card_bot:
 		pbot = card_bot + ph    # 갭이 모자라면 카드를 피해 아래로(보드 상단을 조금 덮더라도 판이 불투명)
 	var plate: Rect2 = Rect2(400.0 - w * 0.5 - 14.0, pbot - ph, w + 28.0, ph)
+	# 글자색은 판이 무엇이냐에 따라 갈린다. 다크 폴백 위에선 신호색(노랑/붉은색) 그대로,
+	#   납품 판(불투명 노랑·붉은 알약) 위에선 **어두운 잉크 + 외곽선 끄기**다 — 밝은 판 위에
+	#   같은 색 글자를 얹으면 사라지고, 검은 외곽선 8겹은 그 자체로 판을 만든다([[readability-is-not-contrast]]).
+	var ink: Color = col
+	var ink_out: Color = Color(0.0, 0.0, 0.0, 0.9)
 	if ui_9s.has("tut_bubble"):
-		# 판은 틴트 안 함(불투명 다크를 그림이 갖는다) + 알파만 사건 감쇠에 태운다.
-		# 테는 지시(노랑)/손해(붉은색) 2색 신호라 같은 캔버스 레이어로 나눠 받는다(목표 카드와 같은 구조).
-		_blit_9s("tut_bubble", plate, Color(1.0, 1.0, 1.0, col.a))
+		# 판은 틴트 안 함(불투명 색을 그림이 갖는다) + 알파만 사건 감쇠에 태운다.
+		# ⚠2색 신호를 **판 두 장**으로 받았다(8/8 납품) — 지시=노랑, 손해=붉은색. 테 레이어가 아니라
+		#   알약이 통째로 물드는 그림이라, 색을 코드가 곱하는 대신 그림을 갈아끼운다.
+		var plate_name: String = "tut_bubble_warn" if (warn and ui_9s.has("tut_bubble_warn")) else "tut_bubble"
+		_blit_9s(plate_name, plate, Color(1.0, 1.0, 1.0, col.a))
 		_blit_9s("tut_bubble_edge", plate, Color(col.r, col.g, col.b, 0.55 * col.a))
+		ink = Color(0.16, 0.11, 0.02, col.a)
+		ink_out = Color(0.0, 0.0, 0.0, 0.0)
 	else:
 		draw_rect(plate, Color(0.09, 0.09, 0.14, 0.92 * col.a))
 		draw_rect(plate, Color(col.r, col.g, col.b, 0.55 * col.a), false, 2.0)
@@ -8328,7 +8361,7 @@ func _draw_tut_msg(fnt: Font) -> void:
 	for li in range(lines.size()):
 		var lw: float = fnt.get_string_size(lines[li], HORIZONTAL_ALIGNMENT_LEFT, -1, sz).x
 		var ly: float = pbot - 10.0 - float(lines.size() - 1 - li) * TUT_MSG_LINE
-		_draw_text_outlined(fnt, Vector2(400.0 - lw * 0.5, ly), lines[li], sz, col)
+		_draw_text_outlined(fnt, Vector2(400.0 - lw * 0.5, ly), lines[li], sz, ink, ink_out)
 
 # ── 가산 블렌드 오버레이 ─────────────────────────────────────────────────────
 # Godot의 _draw()는 **그리는 도중 블렌드 모드를 못 바꾼다** — 블렌드는 CanvasItem 단위 머티리얼
@@ -8384,8 +8417,23 @@ func _blit_icon(icon: String, center: Vector2, side: float, col: Color = Color.W
 	var t: Texture2D = icon_tex.get(icon, null) as Texture2D
 	if t == null:
 		return false
-	draw_texture_rect(t, Rect2(center - Vector2(side, side) * 0.5, Vector2(side, side)), false, col)
+	# 잉크가 side를 채우도록 캔버스를 키운다(icon_fill 참조). 여백은 투명이라 커져도 안 겹친다.
+	var sd: float = side / clampf(float(icon_fill.get(icon, 1.0)), 0.2, 1.0)
+	draw_texture_rect(t, Rect2(center - Vector2(sd, sd) * 0.5, Vector2(sd, sd)), false, col)
 	return true
+
+# 아이콘 한 장의 잉크 비율 = 알파 바운딩 박스의 긴 변 ÷ 캔버스 변. 로드 시 1회.
+func _icon_fill_of(t: Texture2D) -> float:
+	if t == null:
+		return 1.0
+	var img: Image = t.get_image()
+	if img == null:
+		return 1.0
+	var used: Rect2i = img.get_used_rect()
+	var sz: Vector2i = img.get_size()
+	if used.size.x <= 0 or used.size.y <= 0 or sz.x <= 0 or sz.y <= 0:
+		return 1.0
+	return maxf(float(used.size.x) / float(sz.x), float(used.size.y) / float(sz.y))
 
 # ── 9-slice 이음새(패널·버튼) ────────────────────────────────────────────────
 # 텍스처가 있으면 늘려 그리고 true, 없으면 false를 돌려 호출부가 기존 draw_rect 렌더로 잇는다.
@@ -8398,12 +8446,13 @@ func _blit_9s(name: String, r: Rect2, col: Color = Color.WHITE) -> bool:
 	var tex: Texture2D = e["tex"] as Texture2D
 	var ts: Vector2 = tex.get_size()
 	var m: Array = e["m"] as Array
-	# 원본(텍스처 px) 마진 → 목적지(화면 px) 마진
+	# 원본(텍스처 px) 마진 → 목적지(화면 px) 마진. 배율은 부품마다 다를 수 있다(UI_TEX_SCALE_OVR).
 	var s: PackedFloat32Array = PackedFloat32Array([float(m[0]), float(m[1]), float(m[2]), float(m[3])])
-	var dl: float = s[0] / UI_TEX_SCALE
-	var dt: float = s[1] / UI_TEX_SCALE
-	var dr: float = s[2] / UI_TEX_SCALE
-	var db: float = s[3] / UI_TEX_SCALE
+	var ts2: float = float(UI_TEX_SCALE_OVR.get(name, UI_TEX_SCALE))
+	var dl: float = s[0] / ts2
+	var dt: float = s[1] / ts2
+	var dr: float = s[2] / ts2
+	var db: float = s[3] / ts2
 	# 목적지가 모서리 합보다 좁으면 모서리를 비율대로 줄인다 — 안 그러면 좌우가 겹쳐 그려져 뭉갠다
 	#   (작은 버튼·얇은 강조바에서 실제로 걸린다).
 	var hsc: float = minf(1.0, r.size.x / maxf(0.001, dl + dr))
@@ -8538,11 +8587,20 @@ func _draw_btn_box(r: Rect2, body: Color, shadow: Color, edge: Color,
 #   둘 다 "여기 뭔가 놓인다"는 같은 말을 하므로 다른 물건으로 보이면 안 된다.
 #   테두리는 상태 신호다(비행기 조준=굵고 밝게, 트레이=늘 같게) → 색·두께를 코드가 계속 쥔다.
 # 텍스처 경로에선 테를 **조금 키워 뒤에 깐다** — 각진 스트로크를 라운드 판 위에 두르면 귀퉁이가 튄다.
+const SLOT_ART_MARGIN: float = 4.0   # 납품 판의 투명 여백(240×200 캔버스에 8px = 화면 4px)
+const SLOT_STATE_WASH: float = 0.45  # 상태색을 판 위에 얼마나 얹는가
 func _draw_slot_box(r: Rect2, body: Color, edge: Color, edge_w: float) -> void:
 	if ui_9s.has("slot"):
+		# 테는 판을 **키워 뒤에** 깐다. ⚠키우는 값에 그림의 투명 여백을 더해야 한다 —
+		#   안 그러면 키운 판의 잉크가 앞판 잉크와 같은 자리에 떨어져 테가 한 픽셀도 안 보인다.
 		if edge_w > 0.0:
-			_blit_9s("slot", r.grow(edge_w), edge)
-		_blit_9s("slot", r, body)
+			_blit_9s("slot", r.grow(edge_w + SLOT_ART_MARGIN), edge)
+		# 판은 틴트하지 않는다 — 납품본이 색을 갖고 있다(패널·빈 셀과 같은 예외).
+		#   상태는 그 위에 body를 **얇게 덧칠**해 말한다. 곱셈으로 하면 어두운 상태색(0.10)이
+		#   그림을 새까맣게 눌러 네 상태가 전부 같아진다. 알파 합성이라야 조준(밝은 청록)이
+		#   실제로 밝아진다([[hud-signal-by-color-not-text]]의 색 신호를 살리는 유일한 길).
+		_blit_9s("slot", r)
+		_blit_9s("slot", r, Color(body.r, body.g, body.b, SLOT_STATE_WASH))
 		return
 	draw_rect(r, body)
 	if edge_w > 0.0:
@@ -8618,6 +8676,9 @@ func _draw_board(fnt: Font) -> void:
 	#   "지금부터 최고 갱신 중"을 판 전체가 계속 신호(색으로, [[hud-signal-by-color-not-text]]). 폭발의 밝은 플래시가 이 지속 골드로 정착.
 	# 프레임도 9-slice 이음새를 탄다. 회색조 마스터를 코드가 틴트하므로 위의 골드 신호가 그대로 살아남는다
 	#   — 그림이 색을 가지면 "지금 기록 갱신 중"이 안 켜진다.
+	# ⚠8/8 납품본은 **청색으로 왔고**, 그대로 쓰면 금색을 얹어도 탁한 연두가 된다(실측). modulate는
+	#   덧칠이 아니라 곱셈이라 위에 한 겹 더 그리는 걸로도 못 덮는다. 그래서 임포트에서 회색조로
+	#   되돌리고(tools/import_art_delivery.py), 평상시 청색은 여기 C_FRAME이 쥔다.
 	if ui_9s.has("board_frame"):
 		var fr: Rect2 = Rect2(BOARD_X, board_y, COLS * CELL, ROWS * CELL).grow(BOARD_FRAME_PAD)
 		if endless_beat_best:
@@ -8625,7 +8686,7 @@ func _draw_board(fnt: Font) -> void:
 			var gc2: Color = Color(0.92, 0.70, 0.20).lerp(Color(1.0, 0.90, 0.5), gp2)
 			_blit_9s("board_frame", fr, Color(gc2.r, gc2.g, gc2.b, 0.92))
 		else:
-			_blit_9s("board_frame", fr, C_BORD)
+			_blit_9s("board_frame", fr, C_FRAME)
 	elif endless_beat_best:
 		var gp: float = 0.5 + 0.5 * sin(anim_t * 2.2)   # 은은한 맥동(살아있게, 느림)
 		var gcol: Color = Color(0.92, 0.70, 0.20).lerp(Color(1.0, 0.90, 0.5), gp)
@@ -9281,8 +9342,10 @@ func _draw_core(fnt: Font) -> void:
 		if bar_tex:
 			# 밝은 테두리는 바를 조금 키워 **뒤에** 까는 것으로 대신한다 — 각진 스트로크를 둥근 바 위에
 			#   두르면 네 귀퉁이가 튀어나온다([[sprite-swap-keeps-signal-channel]]의 rim과 같은 해법).
-			_blit_9s("hp_track", track_r.grow(3.0), Color(1.0, 0.9, 0.85, 0.85 * cf))
-			_blit_9s("hp_track", track_r, Color(1.0, 0.3, 0.25, 0.55 * cf))
+			# ⚠**채움(회색조)으로 그린다.** 트랙은 어두운 색을 그림이 갖고 있어서 밝은 색을 곱해도
+			#   어두운 채로 남는다 = 붉은 펄스가 아예 안 보인다. 두 장은 같은 알약이라 모양은 같다.
+			_blit_9s("hp_fill", track_r.grow(3.0), Color(1.0, 0.9, 0.85, 0.85 * cf))
+			_blit_9s("hp_fill", track_r, Color(1.0, 0.3, 0.25, 0.55 * cf))
 		else:
 			draw_rect(track_r, Color(1.0, 0.3, 0.25, 0.55 * cf))
 			draw_rect(track_r, Color(1.0, 0.9, 0.85, 0.85 * cf), false, 3.5)
@@ -9433,7 +9496,7 @@ func _draw_bottom(fnt: Font) -> void:
 			var hp2: float = 0.5 + 0.5 * sin(anim_t * (6.0 if plane_armed else 3.2))
 			if plane_armed:
 				var glow: Color = Color(C_PLANE_GLOW.r, C_PLANE_GLOW.g, C_PLANE_GLOW.b, 0.16 + 0.14 * hp2)
-				if not (ui_9s.has("slot") and _blit_9s("slot", pr.grow(6.0), glow)):
+				if not (ui_9s.has("slot") and _blit_9s("slot", pr.grow(6.0 + SLOT_ART_MARGIN), glow)):
 					draw_rect(pr.grow(6.0), glow)
 				_draw_slot_box(pr, Color(0.22, 0.38, 0.46), Color(1.0, 1.0, 1.0, 0.75 + 0.25 * hp2), 4.0)
 			else:
