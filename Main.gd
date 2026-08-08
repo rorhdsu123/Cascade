@@ -7363,8 +7363,45 @@ const MENU_TAG_SIZE: int = 26         # 스플래시 그림과 같은 치수(논
 const MENU_TAG_TRACK: float = 7.0     # 자간
 # 두 갈래 버튼 = 홈에서 **가장 무거워야 하는 물건**(위 MENU_WM_MAXW_HOME 주석). 500×116에서 키웠다.
 #   ⚠버튼 속 조판은 높이를 세로 중앙 기준으로 잡는다(_draw_menu_button) — 여기 높이를 바꿔도 따라온다.
-const MENU_ADV_BTN: Rect2 = Rect2(130.0, 596.0, 540.0, 140.0)     # 오렌지 = 스테이지(모험) — 이어하기
-const MENU_CLASSIC_BTN: Rect2 = Rect2(130.0, 760.0, 540.0, 140.0) # 블루 = 무한(∞)
+# 메뉴 버튼 제목 글자 크기. **레퍼런스 실측에서 나온 값이다**(Block Blast 홈, 2026-08-08 원본 프레임).
+#   같은 자로 두 버튼을 재보니 갈리는 축은 하나뿐이었다 — 크기다:
+#     · 레퍼런스: 글자 높이 = 버튼 높이의 **31%** · 획 두께 = 글자 높이의 20% · 글자↔판 대비 2.06:1 · **외곽선 없음**
+#     · 우리(옛 40px): **19%** · 획 19% · 대비 3.09:1
+#   ⚠**대비는 우리가 1.5배 높았다.** 굵기·외곽선·대비를 만지는 건 전부 헛다리였고(실제로 세 번 헛돌았다),
+#     안 읽히는 원인은 글자가 작다는 것 하나였다. 획 비율은 이미 레퍼런스와 같았다.
+#   ⚠**글꼴을 갈면 이 숫자가 바뀐다** — 잉크 높이는 글꼴마다 다르다(Noto 0.769em vs Baloo2 0.69em).
+#     52px(Noto) = 58px(Baloo2) = 잉크 40px로 같다. 크기를 옮길 땐 px이 아니라 **잉크 높이**를 맞출 것.
+const MENU_BTN_TITLE: int = 52
+# 버튼 세로 중앙 → 제목 **기준선(baseline)** 까지의 거리 ÷ 글자 크기. 세로 중앙정렬이 이 값 하나에 걸려 있다.
+#   ⚠**잉크 높이의 절반이 아니다.** 글자의 잉크 아랫변은 기준선과 정확히 겹치지 않아서(안티에일리어싱·
+#     힌팅), 잉크 높이로 계산하면 2px쯤 위로 뜬다 — 실제로 그렇게 짰다가 여백이 34/38로 어긋났다.
+#     그래서 이 상수는 **렌더를 재서 위아래 여백이 같아지는 값**으로 직접 잡는다.
+#   ⚠글꼴이나 라벨을 바꾸면 다시 재야 한다(글꼴마다 잉크 비율이 다르다: Noto 0.769em vs Baloo2 0.69em).
+#     디센더(g·y·p) 있는 라벨이 들어와도 틀린다 — 지금 두 라벨엔 없다.
+#     검증 = docs/design/current/01_hub.png에서 판 위/아래 여백을 재면 된다(눈으로는 안 보인다).
+const BTN_TITLE_BASE: float = 0.4135
+# 제목 기준선 → 소제목 기준선 간격. 소제목이 있으면 두 줄을 **한 덩어리로** 중앙에 앉힌다.
+const BTN_SUB_GAP: float = 34.0
+# 홈 버튼 치수 — **레퍼런스 실측을 화면 폭으로 정규화해 옮긴 값**(Block Blast 홈, 2026-08-08).
+#   해상도가 달라(레퍼런스 1206폭 / 우리 800폭) 픽셀을 그대로 비교하면 안 된다. 폭으로 나눠 재면:
+#     · 글자 높이/화면폭 = 레퍼런스 4.89% vs 우리 5.00% → **글자는 이미 같았다**(줄이지 말 것)
+#     · 버튼 높이/화면폭 = 레퍼런스 14.0% vs 옛 우리 17.5% → 우리가 25% 컸다
+#     · 버튼 폭/화면폭   = 59.7% vs 67.2%
+#     · 버튼 사이 간격/버튼높이 = 37% vs 11% → **거의 붙어 있었다**
+#   "다 크다"의 정체는 글자가 아니라 **큰 판 두 개가 여백 없이 쌓인 것**이었다.
+#   → 레퍼런스 비율을 폭 800에 적용: 478×112, 간격 41. 글자는 그대로 두면 글자/버튼높이가
+#     자동으로 35%가 되어 레퍼런스(34.9%)와 맞는다.
+#   ⚠[[home-buttons-outweigh-logo]] — 버튼 잉크는 로고보다 많아야 한다. 이 축소로 2.60배 → 1.84배가
+#     된다(실측). 아직 버튼이 이기지만 여유가 3할 줄었으니 **로고를 다시 키우지 말 것.**
+#   ⚠판정 rect도 이 상수를 그대로 쓴다(_hot_menu·눌림 판정) → 그린 자리와 눌리는 자리가 같이 움직인다.
+const MENU_BTN_W: float = 478.0
+const MENU_BTN_H: float = 112.0
+const MENU_BTN_LIP: float = 8.0    # _draw_btn_box에 넘기는 drop과 같아야 한다(간격 계산이 이걸 뺀다)
+const MENU_BTN_GAP: float = 41.0   # 립 아래끝 → 다음 버튼 위끝
+const MENU_BTN_X: float = (800.0 - MENU_BTN_W) * 0.5
+const MENU_BTN_Y: float = 612.0    # 두 버튼 덩어리의 세로 중앙을 옛 배치(752)와 같게 유지
+const MENU_ADV_BTN: Rect2 = Rect2(MENU_BTN_X, MENU_BTN_Y, MENU_BTN_W, MENU_BTN_H)                                      # 오렌지 = 스테이지(모험)
+const MENU_CLASSIC_BTN: Rect2 = Rect2(MENU_BTN_X, MENU_BTN_Y + MENU_BTN_H + MENU_BTN_LIP + MENU_BTN_GAP, MENU_BTN_W, MENU_BTN_H)  # 블루 = 무한(∞)
 const MENU_LB_BTN: Rect2 = Rect2(560.0, 40.0, 216.0, 60.0)       # 우상단 트로피 = 리더보드(opt-in 천장, 모드 아님)
 const BACK_BTN: Rect2 = Rect2(24.0, 24.0, 132.0, 54.0)           # select/리더보드 → 메뉴 복귀
 # ⚠플테 전용: 진행도 초기화 버튼(우상단, BACK_BTN과 대칭). 디버그 빌드에서만 그려지고 눌린다.
@@ -7523,11 +7560,13 @@ func _draw_menu(fnt: Font) -> void:
 #   미끄러지는 앞부분엔 이것들만 통째로 빠져야 해서, 로고와 별개로 껐다 켤 수 있어야 한다.
 func _draw_menu_slots(fnt: Font) -> void:
 	# Adventure 슬롯 = '어디까지 왔나'(진행 중 목적지 / 완주 프런티어). 소제목은 유저 요청으로 제거(C82).
+	# ⚠"Stage N" 진행 칩은 뺐다(유저 결정, 2026-08-08). 버튼은 **어디로 가는가**만 말하고
+	#   진행 위치는 그 다음 화면(지어지는 성)이 그림으로 말한다 — 숫자를 두 곳에서 세지 않는다
+	#   ([[stage-select-is-progress-readout]]에서 진행 숫자를 지운 것과 같은 결).
+	#   완주 상태의 "All caught up!"도 같이 뺐다 — 제목이 58px이 되면서 자리가 없어져 글자에 달라붙었고
+	#   (렌더 확인), 그 한마디는 이미 **다음 화면**이 한다(모두 클리어 화면 = 버튼 없는 순수 안내).
+	#   같은 말을 두 화면이 하면서 한쪽이 찌그러지는 것보다, 하는 쪽 하나만 두는 게 낫다.
 	var adv_slot: String = ""
-	if _all_cleared():
-		adv_slot = _t("caught_up")
-	elif _current_stage() > 0 or bool(cleared.get(0, false)):
-		adv_slot = _t("stage_n") % (_current_stage() + 1)
 	_draw_menu_button(fnt, MENU_ADV_BTN, _adv_hover,
 			Color(0.98, 0.62, 0.16), Color(0.86, 0.48, 0.10), Color(0.55, 0.30, 0.05),
 			_t("adv_big"), "", "adv", adv_slot, false)
@@ -7576,24 +7615,54 @@ func _draw_menu_button(fnt: Font, r: Rect2, hot: bool, base: Color, base_dim: Co
 
 	# 좌측 아이콘 원판 + 심볼
 	var ink: Color = Color(0.52, 0.54, 0.64) if locked else Color.WHITE
-	var ic: Vector2 = Vector2(r.position.x + 70.0, r.position.y + r.size.y * 0.5)
-	draw_circle(ic, 34.0, Color(1.0, 1.0, 1.0, 0.08 if locked else 0.20))
+	# 아이콘·라벨 자리는 버튼 치수에서 **비율로** 파생시킨다 — 치수를 바꿀 때 따라오게(옛 고정 픽셀 70/34/30/128은
+	#   버튼을 줄이면 아이콘만 혼자 커진다). 비율은 옛 540×140 배치에서 그대로 뽑았다.
+	# ⚠아이콘 크기는 **글자가 오른쪽으로 치우쳐 보이는 문제의 진짜 원인**이었다(유저 지적 → 실측).
+	#   글자 중심은 레퍼런스와 이미 같았다(판 중앙에서 +12%). 어긋난 건 아이콘 쪽이다 —
+	#   레퍼런스는 흰 심볼이 버튼 높이의 70%를 채우는데 우리는 배지 48% + 심볼 잉크 12%뿐이라
+	#   왼쪽이 비고, 아이콘↔글자 틈이 두 배로 벌어져(20~26% vs 10~13%) 글자만 밀려 보였다.
+	#   → 배지와 심볼을 같이 키웠다. 판 중앙 정렬로 당기는 안(글자를 왼쪽으로)은 기각 —
+	#     그러면 레퍼런스 구성이 깨지고 왼쪽 빈 곳은 그대로다.
+	var ic: Vector2 = Vector2(r.position.x + r.size.x * 0.1296, r.position.y + r.size.y * 0.5)
+	draw_circle(ic, r.size.y * 0.32, Color(1.0, 1.0, 1.0, 0.08 if locked else 0.20))
 	if kind == "classic":
-		_draw_infinity(ic, 30.0, ink)
+		_draw_infinity(ic, r.size.y * 0.40, ink)
 	else:
-		_draw_flag(ic, 30.0, ink)
+		_draw_flag(ic, r.size.y * 0.40, ink)
 
 	# 라벨: 큰 제목(+ 소제목). 소제목이 없으면 제목을 버튼 세로 중앙에 홀로 앉힌다 —
 	#   위쪽 고정이면 아래가 휑해 '잘린 카드'로 보인다.
 	# ⚠기준선은 **버튼 세로 중앙**에서 잰다(예전엔 위에서 잰 고정값 54/67/88이었다). 높이를 키웠을 때
 	#   글자만 위에 남아 '잘린 카드'가 되지 않게 — 버튼 크기는 앞으로도 조정될 값이다.
-	var lx: float = r.position.x + 128.0
+	var lx: float = r.position.x + r.size.x * 0.2370   # 아이콘 칸 = 판 폭의 24%(레퍼런스와 같은 비율)
 	var has_sub: bool = sub != ""
 	var mid: float = r.position.y + r.size.y * 0.5
-	var title_y: float = mid + (-4.0 if has_sub else 9.0)
-	_draw_text_outlined(fnt, Vector2(lx, title_y), big, 40, ink, Color(edge.r, edge.g, edge.b, 0.95))
+	# ⚠**글꼴은 본문 글꼴(Noto Sans)이 정답이었다.** 로고와 같은 통통한 글꼴(Baloo2)로 맞춰 봤지만
+	#   — 로고 바로 아래라 두 글꼴이 한 화면에 서는 게 걸렸다 — 실제로 띄워 보니 **본문 글꼴이 더 읽혔다**
+	#   (유저 판정, 굵기 4단 × 외곽선 3방식 × 크기 4단을 렌더로 다 돌려본 뒤의 결론). 되돌렸다.
+	#   남은 것은 글꼴이 아니라 **치수**다 — 아래 세 가지가 이 버튼을 캐주얼하게 만든 실제 레버였다:
+	#     ① 크기(레퍼런스 실측: 글자 높이 = 화면 폭의 4.9%) ② 세로·가로 중앙정렬 ③ 버튼을 낮추고 사이를 벌리기
+	#   ⚠**로고 글꼴 통일을 다시 시도하지 말 것** — 이미 해봤고 가독성에서 졌다.
+	#   ⚠소제목·잠금 안내는 원래부터 본문 글꼴이라 이제 제목과 한 식구다.
+	var tfnt: Font = fnt
+	var _ts: int = MENU_BTN_TITLE
+	# ⚠**기준선을 get_string_size()로 잡지 말 것.** 그건 줄 높이(≈1.67em)라 글자 위아래의 빈 공간을
+	#   같이 센다 — 그 값으로 중앙을 맞추면 글자가 아래로 밀린다(실측: 판 중앙보다 +9px, 위 여백 58 /
+	#   아래 40). 눈에 보이는 건 줄 상자가 아니라 **잉크**이므로 잉크로 잰다.
+	var _ty: float = mid + float(_ts) * BTN_TITLE_BASE - (BTN_SUB_GAP * 0.5 if has_sub else 0.0)
+	# 가로는 **아이콘 칸을 뺀 나머지 폭의 중앙**이다. 판 전체 중앙이 아니다 —
+	#   레퍼런스 실측(Block Blast 홈 3버튼, 원본 프레임): 라벨 길이도 아이콘 폭도 다른데
+	#   글자 중심이 688·688·690으로 **같은 자리**에 떨어진다. 판 중앙(602)에서 +86px이고,
+	#   그 값은 "고정 아이콘 칸(판 폭의 24%) 오른쪽 나머지의 중앙"과 일치한다.
+	#   우리 lx도 128/540 = 24%라 같은 규칙이 그대로 옮겨진다.
+	var _tw: float = r.position.x + r.size.x - lx
+	var _bw: float = tfnt.get_string_size(big, HORIZONTAL_ALIGNMENT_LEFT, -1, _ts).x
+	_draw_text_outlined(tfnt, Vector2(lx + (_tw - _bw) * 0.5, _ty), big, _ts, ink,
+			Color(edge.r, edge.g, edge.b, 0.95))
 	if has_sub:
-		_draw_text_outlined(fnt, Vector2(lx, mid + 30.0), sub, 18,
+		# 소제목도 같은 칸에서 중앙 — 제목과 축이 어긋나면 두 줄이 한 덩어리로 안 읽힌다.
+		var _sw2: float = fnt.get_string_size(sub, HORIZONTAL_ALIGNMENT_LEFT, -1, 18).x
+		_draw_text_outlined(fnt, Vector2(lx + (_tw - _sw2) * 0.5, _ty + BTN_SUB_GAP), sub, 18,
 				Color(0.62, 0.64, 0.76) if locked else Color(0.96, 0.98, 1.0, 0.9),
 				Color(edge.r, edge.g, edge.b, 0.95))
 
@@ -7605,7 +7674,7 @@ func _draw_menu_button(fnt: Font, r: Rect2, hot: bool, base: Color, base_dim: Co
 		# 슬롯은 제목과 **같은 줄**에 앉는다 → 긴 문구("All caught up!")가 제목에 닿을 수 있다.
 		#   닿으면 글자를 줄여 피한다(잘라내거나 겹치게 두지 않는다 — 둘 다 고장으로 읽힌다).
 		var sfs: int = 22
-		var title_end: float = lx + fnt.get_string_size(big, HORIZONTAL_ALIGNMENT_LEFT, -1, 40).x
+		var title_end: float = lx + fnt.get_string_size(big, HORIZONTAL_ALIGNMENT_LEFT, -1, _ts).x
 		var sw: float = fnt.get_string_size(slot, HORIZONTAL_ALIGNMENT_LEFT, -1, sfs).x
 		while sfs > 16 and r.position.x + r.size.x - sw - 28.0 < title_end + 20.0:
 			sfs -= 2
