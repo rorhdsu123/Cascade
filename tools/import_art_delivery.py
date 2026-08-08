@@ -8,10 +8,13 @@
 두 장은 **그대로 못 쓴다** — 코드가 색을 입히는 자리인데 채색본으로 왔다. 사양(§4)이
 회색조를 요구한 이유가 그거다. 여기서 기계적으로 되돌린다(원본은 납품 폴더에 그대로 있다):
 
-  hp_fill : 초록 채움 → 회색조. 코드가 빨강↔초록으로 잔량을 말하는 채널이라
-            그림이 초록을 쥐면 저HP에서 빨강×초록 = 진흙이 된다.
   board_frame: 청색 테 → 회색조. 무한 모드에서 **기록 갱신 중**이면 이 테가 금색으로 물든다.
             청색을 그림이 쥐면 금색×청색 = 탁한 연두가 된다(실제로 그렇게 나왔다).
+
+⚠**HP바 두 장(`ui_base_hpbar_*`)은 일부러 안 옮긴다**(C163, 유저 판정). 붙여 봤더니 가독성이
+  떨어졌다 — 알약에 두꺼운 남색 테가 둘려 있어 **띠가 실제보다 얇아 보이고**, 초록도 어두워져
+  흰 라벨과의 대비가 같이 내려갔다. 코드 렌더는 사각형 전체가 색이고 상단 하이라이트가 있다.
+  파일을 여기 되살리면 그 순간 다시 갈아탄다(이음새는 살아 있다) — 되살릴 땐 라벨 대비부터 볼 것.
   card_edge: 납품 카드에 **구워져 있는** 금색 테를 떼어내 별도 레이어로. 목표 카드의
             테 색은 동사 신호다(처치=금 / 수집=젬 / 방어=보라). 한 장으로 받으면
             모든 판이 처치판처럼 보인다.
@@ -41,7 +44,6 @@ COPY = {
     "BTN_SM_PRESSED.png": "art/ui/btn_sm_press.png",
     "BTN_LG_GHOST.png": "art/ui/btn_ghost.png",
     "bg_tray_slot_240x200.png": "art/ui/slot.png",
-    "ui_base_hpbar_bg.png": "art/ui/hp_track.png",
     "ui_goal_card_bg_310x104.png": "art/ui/card.png",
     "ui_tutorial_instruction_yellow_9slice.png": "art/ui/tut_bubble.png",
     "ui_tutorial_warning_red_9slice.png": "art/ui/tut_bubble_warn.png",
@@ -120,7 +122,6 @@ def main() -> int:
         print(f"copy   {name:46s} → {rel}")
 
     for name, rel in (
-        ("ui_base_hpbar_fill_green.png", "art/ui/hp_fill.png"),
         ("ui_board_outer_frame_9slice.png", "art/ui/board_frame.png"),
     ):
         s = src_dir / name
