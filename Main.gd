@@ -806,6 +806,22 @@ var ui_9s: Dictionary = {}             # 이름 → {tex, m} (파일 있는 것�
 # 보드 프레임을 보드 사각형 **바깥으로** 얼마나 키워 그리는가. 프레임의 안쪽 구멍이 이 여백 안에서
 #   어디에 오는지는 그림이 정한다(적·블록과 같은 "여백은 그림 몫" 규약).
 const BOARD_FRAME_PAD: float = 12.0
+# 프레임 그림이 자기 사각형 안쪽 어디서부터 잉크를 시작하는가(납품본 실측: 180 캔버스에 3px = 화면 1.5px,
+#   링 바깥날까지 4px = 화면 2px). 그림이 바뀌면 이 값도 다시 잰다.
+const BOARD_FRAME_INK: float = 3.0
+
+# 보드의 **보이는 바깥 테**. 프레임 그림이 붙으면 보드 사각형보다 이만큼 넓어진다.
+# 거점 HP 바가 이 폭을 그대로 쓴다 — 바로 아래 붙는 띠라서, 보드보다 좁으면 양 끝이 안쪽으로
+#   말려 들어간 **어긋난 계단**으로 읽힌다(유저 지적, C165). 프레임이 없던 시절엔 둘 다 720이라
+#   문제가 없었다: 폭이 어긋난 게 아니라 **보드가 프레임만큼 넓어졌는데 띠가 안 따라간 것**이다.
+# ⚠띠의 테두리(2px)는 사각형 경계에 **중심 정렬**돼 절반이 바깥으로 나간다 — 그만큼 미리 접어야
+#   두 잉크의 바깥날이 같은 x에 떨어진다. 이걸 빼먹으면 좌우로 1px씩 삐져나온다(실측).
+const CORE_BAR_STROKE: float = 2.0
+func _board_edge_rect() -> Rect2:
+	var r: Rect2 = Rect2(float(BOARD_X), float(board_y), float(COLS * CELL), float(ROWS * CELL))
+	if not ui_9s.has("board_frame"):
+		return r
+	return r.grow(BOARD_FRAME_PAD - BOARD_FRAME_INK - CORE_BAR_STROKE * 0.5)
 
 # ── 적 스프라이트(UI_ART_PLAN §4 — basic=P0 · swarm·fast=P1) ──
 # 정적 도형인 3종만 이음새를 탄다. bomb·split은 효과가 파라메트릭이고(도화선·맥동·벌어짐),
@@ -9303,13 +9319,14 @@ func _draw_core(fnt: Font) -> void:
 	if bool(st.get("boss", false)):
 		return   # 보스 스테이지: 방어선 없음(적 없음) → 거점 HP 바 숨김. 보스 HP는 상단 카드가 표시.
 	var strip_h: float = 32.0
-	var sx: float = BOARD_X
+	var edge: Rect2 = _board_edge_rect()   # 보드의 보이는 바깥 테 — 띠는 그 폭에 정확히 맞춘다
+	var sx: float = edge.position.x
 	# 거점 파괴: 띠가 보드보다 먼저 떨어져 나간다. 떨어지는 동안은 _draw_collapse가 그린다
 	# (여기서 그리면 하단 패널에 덮여 '무너짐'이 안 보인다). 그 자리는 빈 채로 남는다.
 	if _core_strip_offset() > 0.0:
 		return
 	var sy: float = board_y + ROWS * CELL + 4.0
-	var sw: float = COLS * CELL
+	var sw: float = edge.size.x
 	var core_max: int = director.core_hp_max()
 	# 표시용 HP(core_hp_vis)로 그린다 — 폭탄 피해는 토큰이 착지할 때만 여기 반영돼 바가 그 순간 줄어든다.
 	var vis: float = clampf(core_hp_vis, 0.0, float(core_max))
@@ -9468,14 +9485,17 @@ func _draw_aim_overlay() -> void:
 func _draw_collapse() -> void:
 	if core_t < 0.0:
 		return
-	var sw: float = float(COLS * CELL)
+	# ⚠떨어지는 띠는 _draw_core와 **같은 사각형**이어야 한다 — 폭이 다르면 떨어져 나가는 순간
+	#   띠가 툭 넓어졌다 좁아진다(같은 물건이 아닌 것처럼 보인다).
+	var edge: Rect2 = _board_edge_rect()
+	var sw: float = edge.size.x
 
 	# ① 거점 띠 — 보드보다 먼저 떨어져 나간다 (무너지는 순서가 곧 인과다)
 	var sf: float = _core_strip_offset()
 	if sf > 0.0 and sf <= 400.0:
 		var sy: float = float(board_y + ROWS * CELL) + 4.0 + sf
-		draw_rect(Rect2(float(BOARD_X), sy, sw, 32.0), Color(0.20, 0.05, 0.06))
-		draw_rect(Rect2(float(BOARD_X), sy, sw, 32.0), Color(1.0, 0.35, 0.30, 0.7), false, 2.0)
+		draw_rect(Rect2(edge.position.x, sy, sw, 32.0), Color(0.20, 0.05, 0.06))
+		draw_rect(Rect2(edge.position.x, sy, sw, 32.0), Color(1.0, 0.35, 0.30, 0.7), false, 2.0)
 
 	# ② 받칠 게 사라진 블록이 열마다 시차를 두고 쏟아진다
 	var bpad: float = BLOCK_PAD
