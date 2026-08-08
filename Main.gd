@@ -7283,8 +7283,14 @@ func _draw_result(fnt: Font) -> void:
 	# 광고 대기 중엔 부차 버튼(재도전·홈)을 덮어 '지금은 못 누름'을 색으로 알린다. 입력은 이미
 	#   막혀 있으므로(_input), 밝게 남겨두면 눌리는 줄 알고 누르는 죽은 버튼이 된다(C78이 고친 결함 유형).
 	if _ad_pending:
-		draw_rect(r, Color(0.10, 0.10, 0.14, 0.62))
-		draw_rect(h, Color(0.10, 0.10, 0.14, 0.62))
+		# ⚠막은 **버튼 모양**이어야 한다. 각진 사각형을 라운드 버튼 위에 덮으면 귀퉁이가 삐져나온다
+		#   (강조바·슬롯 테와 같은 계열). 작은 버튼 마스터가 곧 그 실루엣이라 그걸 막으로 쓴다 —
+		#   고스트는 속이 비어 있어 자기 그림으로는 라벨을 못 덮으므로 여기서도 btn_sm을 쓴다.
+		var scrim: Color = Color(0.10, 0.10, 0.14, 0.62)
+		if not _blit_9s("btn_sm", r, scrim):
+			draw_rect(r, scrim)
+		if not _blit_9s("btn_sm", h, scrim):
+			draw_rect(h, scrim)
 
 	_xf(Vector2.ZERO, 0.0, Vector2.ONE)
 	_ink_light = false
