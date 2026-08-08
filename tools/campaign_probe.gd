@@ -56,8 +56,25 @@ func _init() -> void:
 		_probe_stage(g, si, TRIALS)
 	quit()
 
+# CARE=n이면 **실패 케어를 n패 상태로 켜고** 잰다(0 = 꺼짐 = 현행·기본값).
+#   왜 필요한가: 이 프로브는 dda_enabled=false로 돌아서 지금껏 낸 값이 전부 **안전망이 꺼진 순수 난이도**다.
+#   그런데 실제 플레이어는 2패부터 케어를 받는다(3패가 천장) → 재도전 경험은 이 표보다 무조건 낫다.
+#   HANDICAP과 짝지으면 '못 두는 사람이 그물까지 받았을 때'를 잴 수 있다 = 실제 재도전에 제일 가까운 값.
+#   ⚠**CARE와 DDA는 다른 스위치다.** 실제 게임은 dda_enabled=true가 기본이고, 케어는 그 위에
+#     연패 수로 얹히는 별개 층이다. 이 프로브는 예전부터 dda_enabled=false로 돌아서
+#     **여기서 나온 모든 수치가 "DDA까지 끈 순수 난이도"** 였다 — 실제 플레이어가 겪는 값이 아니다.
+#     둘을 섞으면(CARE=1을 켜면서 DDA도 같이 켜지면) 케어 한 단의 효과와 DDA의 효과가 붙어 나온다.
+#     그래서 **CARE 환경변수가 설정되면 값이 0이어도 DDA를 켠다** = CARE=0이 '실게임 1번째 시도'다.
+#     CARE 미설정 = 옛 동작(DDA·케어 다 꺼짐) = 기존 결과와 byte-identical.
+func _care_env_set() -> bool:
+	return OS.get_environment("CARE") != ""
+
+func _care_level_env() -> int:
+	var c: String = OS.get_environment("CARE")
+	return maxi(0, int(c)) if c != "" else 0
+
 func _probe_stage(g: Node, si: int, TRIALS: int) -> void:
-	g.dda_enabled = false
+	g.dda_enabled = _care_env_set()
 	var wins: int = 0
 	var dead_core: int = 0
 	var dead_stuck: int = 0
@@ -103,6 +120,9 @@ func _probe_stage(g: Node, si: int, TRIALS: int) -> void:
 
 func _play(g: Node, si: int) -> Dictionary:
 	g._start_stage(si)
+	# 케어 레벨은 그 판의 연패 수에서 나온다 → 시행마다 다시 박는다(_start_stage가 초기화할 수 있다).
+	if _care_env_set():
+		g.fail_streak[si] = _care_level_env()
 	var guard: int = 0
 	var deton: int = 0
 	var defuse: int = 0
