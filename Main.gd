@@ -989,8 +989,12 @@ func _ready() -> void:
 	# 부팅 첫 화면 = 게임 로고(스튜디오 스플래시 다음). 자세한 근거는 아래 LOGO_HOLD 주석.
 	#   ⚠`--script` 도구 실행에선 건너뛴다 — 프로브 69개가 전부 "menu에서 시작"을 전제로 짜여 있고,
 	#     여기서 화면을 하나 끼우면 그게 전부 첫 클릭부터 어긋난다(analytics.gd가 쓰는 것과 같은 게이트).
-	mode = "menu" if OS.get_cmdline_args().has("--script") else "logo"
+	var tool_run: bool = OS.get_cmdline_args().has("--script")
+	mode = "menu" if tool_run else "logo"
 	logo_t = 0.0
+	# 1스테이지를 아직 못 깬 사람은 로고 다음이 **홈이 아니라 그 판**이다(아래 boot_stage1 주석).
+	#   ⚠도구 실행에선 절대 켜지 않는다 — logo_slide_shot 등은 _logo_done()을 직접 불러 홈을 검증한다.
+	boot_stage1 = not tool_run and not bool(cleared.get(0, false))
 
 # 세로 레이아웃을 현재 뷰포트 높이에서 파생한다. portrait+expand라 폭은 800 고정, 높이만 실기기 비율로 늘어난다.
 # 앵커: HUD=상단 고정 · 트레이=하단 고정(엄지 그라운드) · 보드=그 사이 중앙. 폭 90%(CELL 90)로 키운 뒤
@@ -7992,6 +7996,15 @@ const LOGO_HOLD: float = 0.60          # 레퍼런스 스튜디오 카드가 0.5
 const LOGO_CENTER_RATIO: float = 0.47  # 워드마크 광학 중심 — 기하 중심 50%는 처져 보인다
 var logo_t: float = 0.0                # 경과(초). -1 = 이 화면 지났음
 
+# 설치 직후엔 로고 다음이 홈이 아니라 **1스테이지 그 자체**다(유저 지시).
+#   왜: 홈의 두 버튼은 아직 아무 의미가 없다 — 무한은 1스테이지를 깨야 열리고(_endless_unlocked),
+#   Adventure 슬롯도 진행이 0이라 빈 문자열이다. 즉 첫 화면이 '고를 게 하나뿐인 선택지'였고,
+#   그 하나가 튜토리얼이 붙은 판이다(_tut_active). 고를 게 없으면 고르게 하지 않는다.
+#   조건은 클리어 여부 하나 — '최초 설치'를 따로 저장하지 않는다. 1스테이지를 못 깬 사람은
+#   깰 때까지 매 부팅이 그 판으로 들어간다(유저 지시). 깨는 순간 이 경로는 영원히 안 켜진다.
+#   ⚠홈이 사라지는 게 아니다: 판을 포기하거나(ESC·뒤로) 클리어하면 평소대로 허브로 나간다.
+var boot_stage1: bool = false          # 이번 부팅에서 로고 다음이 1스테이지인가(1회 소비)
+
 # 로고 화면 → 홈은 **하드컷이 아니라 미끄러짐**이다(유저 실플레이 지적: "뚝 끊긴다").
 #   위 주석대로 이 컷의 전제는 "로고가 사라지지 않고 같은 크기 그대로 위로 평행이동만 한다"인데,
 #   컷으로 붙이면 그 평행이동이 **한 프레임에 180px 순간이동**으로 일어난다 — 눈은 그걸 이동이 아니라
@@ -8022,6 +8035,12 @@ func _logo_done() -> void:
 	if mode != "logo":
 		return
 	logo_t = -1.0
+	# 1스테이지 미클리어 = 홈을 건너뛴다(boot_stage1 주석). 미끄러짐도 없다 — 미끄러지는 건
+	#   '로고가 홈 자리로 가는' 연출이라, 홈에 안 갈 땐 그릴 자리 자체가 없다.
+	if boot_stage1:
+		boot_stage1 = false   # 이번 부팅에서 한 번만. 이후 홈→판→홈은 평소 경로다
+		_start_stage(0)
+		return
 	mode = "menu"
 	menu_intro = 0.0   # 컷이 아니라 여기서부터 로고가 홈 자리로 미끄러진다
 	queue_redraw()
