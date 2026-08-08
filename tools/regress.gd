@@ -5,6 +5,9 @@ extends SceneTree
 #   실행: PROBE_SEED=20260718 REGRESS_N=20 godot --headless --path . --script tools/regress.gd
 #   비교: 리팩터 전 출력을 골든으로 저장 → 매 단계 후 diff. 첫 diff = randi 순서 깨짐 or 동작 변화.
 #   골든: tools/regress.golden.txt (seed=20260718 N=20). 재베이스 이력:
+#     · S37 2판(total 30→24·core_hp 5→6) + 7판(bomb_fuse 8→11) — 802줄 불변.
+#       앞 **21줄 바이트 동일**(s0 = 안 건드린 온보딩)이고 첫 불일치가 s1 #00 = 손댄 첫 판이다
+#       (sp30 → sp24 = total 30→24가 그 줄에 보인다).
 #     · S36 온보딩 조각 풀에 밸브(1칸·도미노) 추가 — 802줄 불변. **앞 1줄(헤더)만 동일**하고
 #       첫 불일치가 s0 #00이다 = 1판 배급이 바뀌었으니 당연하다(pl33 → pl29 = 그 판이 4배치 짧아졌다).
 #       ⚠1판 배급이 바뀌면 campaign_probe의 뒤 판 표본도 재표집으로 흔들린다(밸런스 변화가 아니다).
