@@ -69,7 +69,7 @@ const STR: Dictionary = {
 		"score_headline": "%s",
 		"stage_clear": "Stage Clear!",
 		"cause_stuck": "No room left",
-		"cause_core": "Core destroyed",
+		"cause_core": "Castle destroyed",
 		"shutout": "Shutout — not one got through",
 		"kills_leaks": "Killed %d · Leaked %d",
 		"first_record": "🏆 First record!",
@@ -153,10 +153,10 @@ const STR: Dictionary = {
 		#   ⚠단 그 배움이 실제로 되는지는 사람 플테로 확인할 것 — 코드가 보장하는 건 링이 뜬다는 것뿐이다.
 		"callout_plane": "PLANE — power-up! Clear its line to grab it",
 		# ── 거점(보드 하단 방어선) ──
-		"core_hp": "Core  %d / %d",
+		"core_hp": "Castle HP  %d / %d",
 		# ── 게임플레이 콜아웃/tell(원래 영어로 authored — 값 동일, 로케일 확장용으로만 키화) ──
 		"tut_kill": "Enemy incoming! Clear a line to take it down",
-		"tut_leak": "Enemy slipped through — Core took damage!",
+		"tut_leak": "Enemy slipped through — the Castle took damage!",
 		"combo_flash": "COMBO x%d",
 		"tell_block": "BLOCK",
 		# 콜아웃 = 그 적을 처음 만난 3.4초. 답해야 하는 건 "지금 이걸 어떻게 상대하나" 하나뿐이라
@@ -239,7 +239,7 @@ const STR: Dictionary = {
 		"score_headline": "%s점",
 		"stage_clear": "스테이지 클리어!",
 		"cause_stuck": "놓을 곳이 없다",
-		"cause_core": "거점 파괴",
+		"cause_core": "성 파괴",
 		"shutout": "완봉 — 한 마리도 놓치지 않았다",
 		"kills_leaks": "처치 %d · 누수 %d",
 		"first_record": "🏆 첫 기록!",
@@ -300,10 +300,10 @@ const STR: Dictionary = {
 		"result_vault": "지킨 금고",
 		"callout_gem": "보석 — 그 줄을 지워라, 놓치면 빠져나간다",
 		"callout_plane": "비행기 — 특수 아이템! 그 줄을 지우면 획득",
-		"core_hp": "거점  %d / %d",
+		"core_hp": "성 HP  %d / %d",
 		# ⚠아래 콜아웃/tell·온보딩의 한국어는 초안(원문이 영어라 대응 한글이 없었음). 검수/조정 여지.
 		"tut_kill": "적이 내려와요! 줄을 채워 잡으세요",
-		"tut_leak": "적이 통과했어요 — 거점이 깎였어요!",
+		"tut_leak": "적이 통과했어요 — 성이 깎였어요!",
 		"combo_flash": "콤보 x%d",
 		"tell_block": "버팀",
 		"callout_fast": "속공 — 먼저 도착한다, 먼저 잡아라",
