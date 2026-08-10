@@ -129,11 +129,22 @@ $ADB shell am start -n com.yujin.blockcastle/com.godot.game.GodotAppLauncher
 # Play 업로드용 서명된 AAB
 source ~/.android/blockcastle-upload.env
 godot --headless --path . --export-release "Android Release" build/android/blockcastle.aab
+
+# 사이드로드용 서명된 APK (심사자·체험용 배포 — Play는 이걸 안 받는다)
+godot --headless --path . --export-release "Android Submission" build/android/blockcastle.apk
+
+# 웹(itch.io) — 업로드는 build/web/ 통째로 zip
+godot --headless --path . --export-release "Web" build/web/index.html
+(cd build/web && zip -q -r -X ../blockcastle-web.zip .)
 ```
 
 ⚠**export가 실패해도 종료코드가 0이고 오류가 한 줄로만 스쳐 간다.** 산출물 존재만으로 성공을 판정하지 말고
 아래 §5 검증을 매번 통과시킬 것. (`No project icon specified`가 이렇게 조용히 지나가서 기본 Godot 아이콘으로
 출고될 뻔했다.)
+
+⚠**아트를 바꿨으면 `godot --headless --import`를 먼저 1회 돌린다.** export는 `.godot/imported/`의 캐시를
+그대로 담기 때문에, 다른 워크트리에서 갈아 끼운 그림은 트렁크 캐시가 낡은 채로 조용히 옛 판이 출고된다
+(2026-08-10에 basic 스프라이트가 이 경로로 하마터면 나갈 뻔했다). 확인은 §5 ④.
 
 ---
 
@@ -145,13 +156,37 @@ LC_ALL=C jarsigner -verify -verbose:summary -certs build/android/blockcastle.aab
 #   기대: "jar verified." + CN=BlockCastle, OU=Games, O=yujin ...
 #   "This jar contains entries whose signer certificate is self-signed" 경고는 정상(업로드 키는 자체 서명).
 
+# ①-b ⚠APK는 이 명령으로 판정하면 안 된다 — Godot은 APK를 v2 스킴으로만 서명하는데
+#   jarsigner는 v1(JAR 서명)만 본다. 멀쩡한 릴리스가 "jar is unsigned."로 나온다.
+APKSIGNER=/opt/homebrew/share/android-commandlinetools/build-tools/36.0.0/apksigner
+$APKSIGNER verify --print-certs build/android/blockcastle.apk | grep -iE "certificate DN|SHA-256 digest"
+#   기대: DN=CN=BlockCastle,... + SHA-256이 키스토어 지문과 일치
+keytool -list -v -keystore "$GODOT_ANDROID_KEYSTORE_RELEASE_PATH" \
+  -storepass "$GODOT_ANDROID_KEYSTORE_RELEASE_PASSWORD" | grep "SHA256:"
+
 # ② 패키지·버전·권한 — AAB 매니페스트는 protobuf라 strings로 읽는다(aapt2는 AAB를 못 읽음)
 unzip -o -q build/android/blockcastle.aab 'base/manifest/*' -d /tmp/aab
 strings /tmp/aab/base/manifest/AndroidManifest.xml | grep -iE "com.yujin|0\.9|permission|ca-app-pub"
+#   APK는 aapt2가 읽는다: aapt2 dump badging build/android/blockcastle.apk | grep -E "^package|native-code"
 ```
 
 **③ 실기기 1회 실행** — 빌드 성공은 정상 실행을 뜻하지 않는다. `handheld` 전용 설정은 기기에서만 드러난다
 (가로 고정 버그가 이렇게 일주일 방치됐다). AAB는 그대로 못 깔므로 같은 커밋의 디버그 APK로 확인한다.
+
+**④ 바꾼 에셋이 실제로 들어갔나 — 눈이 아니라 바이트로.** 산출물 안의 임포트 결과물이 디스크의 것과
+같은지 본다. 스프라이트를 갈아도 파일명·치수가 같으면 화면만 봐선 옛 판과 구별이 안 된다.
+
+```python
+# 웹: build/web/index.pck 안에 그대로 들어 있다 / APK·AAB: assets/ 밑에 낱개로 들어 있다
+import zipfile, glob
+ctex = glob.glob('.godot/imported/basic.png-*.ctex')[0]
+z = zipfile.ZipFile('build/android/blockcastle.aab')
+assert z.read('assetPackInstallTime/assets/' + ctex) == open(ctex, 'rb').read()
+```
+
+⚠**`build/`는 프로젝트 리소스가 아니다.** 네 preset의 `exclude_filter`에 `build/*`가 들어 있다 —
+빠뜨리면 지난 빌드 산출물과 오디오 A/B 비교용 wav가 다음 빌드에 통째로 실린다(웹 pck 기준 586KB,
+2026-08-10에 실측·제거).
 
 ---
 
@@ -168,7 +203,7 @@ strings /tmp/aab/base/manifest/AndroidManifest.xml | grep -iE "com.yujin|0\.9|pe
 
 | # | 항목 | 상태 |
 |---|---|---|
-| 1 | AAB 산출 + 업로드 키 서명 | ✅ 2026-07-30 (33MB, 검증 통과) |
+| 1 | AAB 산출 + 업로드 키 서명 | ✅ 2026-07-30 (33MB, 검증 통과) · 2026-08-10 재산출 33.8MB(새 적 스프라이트 반영, §5 ①②④ 통과) |
 | 2 | 앱 아이콘 | ✅ 2026-07-30 — `icons/` + `config/icon` + 두 preset 배선(§8) |
 | 3 | 실 AdMob 유닛 ID | 🔀 **의도적으로 테스트 유닛 유지** — 클로즈드 테스트는 테스트 유닛이 맞다(자기 광고 클릭 = 계정 정지 사유). 전환 스위치·절차는 §9. 계정은 유저 몫 |
 | 4 | UMP 동의 흐름 | ✅ 2026-07-30 — 동의-먼저 순서 · 개인정보 옵션 입구 · 타임아웃 · 계측(§9) |
