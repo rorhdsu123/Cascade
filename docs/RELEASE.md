@@ -69,19 +69,23 @@ PATH="/opt/homebrew/opt/openjdk@17/bin:$PATH" LC_ALL=C \
 
 ---
 
-## 2. 두 개의 export preset (왜 둘인가)
+## 2. 안드로이드 preset이 셋인 이유
 
 | preset | 형식 | 서명 | 쓰임 |
 |---|---|---|---|
 | `Android` | **APK** (`export_format=0`) | 디버그 키 | 개발 반복 — `adb install`로 기기/에뮬에 바로 꽂는다 |
 | `Android Release` | **AAB** (`export_format=1`) | **업로드 키**(환경변수) | Play 업로드. Play는 APK를 안 받는다 |
+| `Android Submission` | **APK** (`export_format=0`) | **업로드 키**(환경변수) | 사이드로드 배포(GitHub 릴리스·심사자). AAB는 그대로 못 깐다 |
 
-Godot은 preset 옵션을 CLI로 덮어쓸 수 없어서(형식·서명이 preset에 박혀 있다) 프리셋을 둘로 나눈 것이다.
+(네 번째 `Web` preset은 안드로이드와 공유하는 값이 `exclude_filter`뿐이라 이 표 밖에 있다.)
+
+Godot은 preset 옵션을 CLI로 덮어쓸 수 없어서(형식·서명이 preset에 박혀 있다) 프리셋을 쪼갠 것이다.
 그 대가는 **드리프트**다:
 
-> ⚠**두 preset은 아래 값이 반드시 같아야 한다** — `version/code` · `version/name` · `package/unique_name` ·
+> ⚠**세 preset은 아래 값이 반드시 같아야 한다** — `version/code` · `version/name` · `package/unique_name` ·
 > `exclude_filter` · `architectures/*` · `permissions/*` · `launcher_icons/*`.
 > 다른 건 `export_format`과 서명 경로 **둘뿐**이다. 한쪽만 고치면 "디버그에선 되는데 릴리스에선 안 되는" 버그가 난다.
+> (`exclude_filter`는 `Web`까지 **넷 전부** 같아야 한다 — C174에서 `build/*`를 넷에 함께 넣었다.)
 >
 > ⚠에디터가 `export_presets.cfg`를 재작성하면 주석이 사라지므로 이 규칙은 여기 산다(`project.godot` ETC2 주석이
 > 3번 유실된 것과 같은 함정).
@@ -311,3 +315,32 @@ godot --headless --import                              # 새 PNG를 Godot에 imp
 거기서 동의를 요구하면 UMP 싱글턴이 없어 절차가 영영 안 끝나 광고가 통째로 죽는다(실제로 밟았다 —
 `ad_mock_probe`가 5건 FAIL로 잡아냈다). 반대로 **실기기에서 UMP 싱글턴이 없으면 광고를 끈다** —
 동의 없는 노출은 정책 위반이고, 페이크로 때우면 사고가 안 드러난다(GMA 플러그인 부재와 같은 처방).
+
+---
+
+## 10. 배포 현황 — 지금 사람들이 실제로 받는 것
+
+**로컬에서 다시 뽑아도 배포된 물건은 안 바뀐다.** `build/` 안의 산출물과 itch·GitHub에 올라간 물건은
+별개다. 아트나 밸런스를 고쳤으면 **다시 올려야** 플레이어에게 닿는다 — 여기가 그걸 놓치기 가장 쉬운 곳이다.
+
+| 채널 | 무엇 | 올린 물건 | 갱신 방법 |
+|---|---|---|---|
+| itch.io | 웹 플레이 (`eggtart-studio.itch.io/blockcastle`) | `build/blockcastle-web.zip` | 대시보드 → Edit game → Uploads에서 **기존 zip 교체** |
+| GitHub 릴리스 | 사이드로드 APK (`releases/latest`) | `build/android/blockcastle.apk` | `gh release upload v0.9.0 build/android/blockcastle.apk --clobber` |
+| Play Console | (미개설) | `build/android/blockcastle.aab` | §7 ⑨ 개발자 계정이 선행 |
+
+⚠**itch 웹은 zip을 통째로 바꾸는 것 말고 부분 갱신이 없다.** 교체 시 기존 항목의 *Replace*를 쓸 것 —
+새 항목으로 추가하면 임베드가 옛 zip을 계속 가리킨다. 임베드 설정(**전체화면 실행** · 치수 비우지 말 것)은
+파일을 갈아도 유지되지만, 새 항목으로 올리면 다시 잡아야 한다.
+
+⚠**GitHub는 같은 이름의 에셋을 자동으로 안 덮는다.** `--clobber` 없이 올리면 실패하거나 이름이 바뀐다.
+
+### 마지막 대조 (2026-08-10)
+
+| | 로컬 빌드 | 배포된 것 |
+|---|---|---|
+| APK | 80,869,659 B (8/10) | 81,337,048 B (8/8 업로드) — **옛 적 스프라이트** |
+| 웹 | `blockcastle-web.zip` 13.98 MB (8/10) | itch "Updated 1 day ago"(8/9) — **옛 적 스프라이트** |
+
+크기가 81MB에서 80.9MB로 줄어든 건 C174의 `build/*` 제외 때문이다. **README·게임 소개 문서의 "81MB"는
+그대로 맞다**(반올림 동일) — 버전도 `0.9.0`으로 안 바뀌었으므로 재업로드 외에 고칠 문구는 없다.
