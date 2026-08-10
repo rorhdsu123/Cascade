@@ -7,12 +7,11 @@
 
 > 📌 **저장소 이름과 코드 곳곳의 `Cascade`는 개발 코드명입니다.** 게임 이름은 BlockCastle입니다.
 
-<!-- TODO(8/10 제출 전): 웹·영상 두 링크 확정 후 교체 · 각각 실제로 한 번씩 열어볼 것 (APK는 8/9 채움) -->
 | | |
 |---|---|
 | 🎮 **웹에서 바로 플레이** | **[itch.io에서 플레이](https://eggtart-studio.itch.io/blockcastle)** · 설치 없이 브라우저에서 (첫 로딩 10~20초) |
 | 📱 **APK 내려받기** | **[v0.9.0 다운로드](https://github.com/rorhdsu123/Cascade/releases/latest)** · 81MB · Android 7.0+ |
-| 🎬 **플레이 영상 (60초)** | _(준비 중)_ |
+| 🎬 **플레이 영상 (39초)** | **[YouTube에서 보기](https://www.youtube.com/watch?v=XrVPTsCWGrU)** · 자막 없는 실제 플레이 녹화 |
 
 ---
 
