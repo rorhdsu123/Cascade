@@ -6,7 +6,7 @@ extends RefCounted
 # 게임 코드는 안 건드린다(gamemode-director-seam과 동형).
 #
 # 백엔드는 둘이다. **로컬 JSONL**(`user://analytics.jsonl`)이 늘 남고(내 기기에서 뽑아 읽는 용),
-#   `REMOTE_URL`을 채우면 **원격 싱크**가 같은 이벤트를 우리 엔드포인트로 중계한다.
+#   `analytics_endpoint.txt`에 주소를 두면 **원격 싱크**가 같은 이벤트를 우리 엔드포인트로 중계한다.
 #   원격이 필요한 이유: 남의 기기(웹 플레이테스터·클로즈드 테스터)에 쌓인 JSONL은 뽑아올 방법이 없다.
 #   Firebase가 아니라 순수 HTTP인 이유: 네이티브 플러그인이 필요 없어서 웹·안드로이드가 같은 코드로 돈다
 #   (AdMob 플러그인에서 밟은 compileSdk·플러그인 부재 위장 같은 지뢰를 통째로 피한다).
@@ -22,8 +22,18 @@ const META_PATH: String = "user://analytics.meta"     # {install_id, session_cou
 # --- 원격 싱크 설정 ---
 # ⚠비어 있으면 원격은 통째로 꺼진다(로컬 JSONL만). 이게 기본값이고, 안전한 기본값이다 —
 #   URL을 안 채운 채로 조용히 "보내는 줄 알았는데 아무 데도 안 가는" 상태가 안 생긴다.
-#   엔드포인트 요구사항: POST를 받고 CORS를 허용할 것(웹 빌드는 브라우저가 막는다).
-const REMOTE_URL: String = ""
+#   엔드포인트 요구사항: POST를 받을 것. 웹은 sendBeacon을 text/plain으로 던져 단순 요청이 되므로
+#   preflight(OPTIONS)가 안 붙고, 응답을 안 읽으니 CORS 응답 헤더도 사실상 필요 없다.
+#
+# 🔴**주소를 소스에 박지 않는다 — 저장소가 공개다**(`rorhdsu123/Cascade`, 대회 때문에 공개로 돌렸고
+#   9/7 이후 닫는다). 웹 빌드를 뜯으면 어차피 보이므로 비밀로 만들 수는 없지만, 공개 저장소에 있으면
+#   **검색으로 주워진다**는 게 다르다. 털리면 시트에 쓰레기가 쌓이고, 심하면 앱스 스크립트 하루 한도를
+#   태워 **그날 진짜 플레이테스트 데이터가 안 들어온다** — 루프 한복판에서 그러면 그날치를 잃는다.
+#
+# 그래서 `res://analytics_endpoint.txt`(gitignore 대상)에서 읽는다. **export에는 실린다** —
+#   Godot은 프로젝트 폴더를 굽지 git을 굽지 않으므로, 저장소엔 없고 빌드엔 있는 상태가 성립한다.
+# ⚠파일이 없으면 빈 문자열 = 원격 꺼짐이다. 새로 클론한 사람은 원격이 그냥 안 도는 게 맞다.
+const REMOTE_URL_PATH: String = "res://analytics_endpoint.txt"
 const REMOTE_BATCH: int = 12          # 이만큼 쌓이면 보낸다(요청 수를 줄인다)
 const REMOTE_BATCH_WEB: int = 4       # 웹은 탭이 언제든 닫히므로 더 자주 보낸다
 const REMOTE_MAX_BUFFER: int = 200    # 전송 실패가 쌓여도 여기까지. 넘으면 오래된 것부터 버린다
@@ -70,6 +80,7 @@ var _remote_on: bool = false
 var _remote_buf: Array = []             # 아직 안 보낸 이벤트
 var _remote_sent: Array = []            # 지금 날아가는 중인 배치 — 실패하면 되돌린다
 var _remote_http: HTTPRequest = null    # 웹이 아닐 때만 만든다(웹은 sendBeacon)
+var _remote_url: String = ""       # 파일에서 읽는다. 없으면 빈 문자열 = 원격 꺼짐
 # 웹 세션 경계 훅. 콜백은 멤버로 붙들어야 GC를 안 당한다.
 var _web_hooked: bool = false
 var _web_cb_vis: Variant = null
@@ -95,8 +106,27 @@ func _init() -> void:
 	# 원격은 `enabled`보다 한 겹 더 조인다 — **어떤 하네스에서도 절대 안 나간다.**
 	#   프로브는 계측이 켜진 채 도니까, 이 조건이 없으면 봇 판이 실제 수집기로 흘러들어
 	#   사람 데이터에 섞인다(로컬 JSONL은 프로브가 스스로 지우므로 문제없다).
-	_remote_on = enabled and REMOTE_URL != "" and not args.has("--script")
+	_remote_url = _load_remote_url()
+	_remote_on = enabled and _remote_url != "" and not args.has("--script")
 	_load_meta()
+
+# 주소를 파일에서 읽는다(저장소 밖 보관 — 위 상수 주석 참조).
+#   ⚠공백·개행을 반드시 턴다. 편집기가 끝에 개행을 붙이는데, 그게 붙은 채로 요청하면
+#     주소가 미묘하게 틀려 조용히 실패한다(응답을 안 읽는 경로라 더 안 드러난다).
+func _load_remote_url() -> String:
+	if not FileAccess.file_exists(REMOTE_URL_PATH):
+		return ""
+	var f: FileAccess = FileAccess.open(REMOTE_URL_PATH, FileAccess.READ)
+	if f == null:
+		return ""
+	var s: String = f.get_as_text().strip_edges()
+	f.close()
+	# 주석 줄과 빈 줄은 건너뛴다 — 파일에 설명을 같이 두고 싶을 때가 온다
+	for line in s.split("\n", false):
+		var t: String = line.strip_edges()
+		if t != "" and not t.begins_with("#"):
+			return t
+	return ""
 
 func _is_analytics_probe(args: PackedStringArray) -> bool:
 	for a in args:
@@ -342,7 +372,7 @@ func _remote_flush() -> void:
 		return          # 트리가 아직 없다. 버퍼에 남으니 다음 이벤트에서 다시 시도한다.
 	_remote_sent = _remote_buf
 	_remote_buf = []
-	var err: int = http.request(REMOTE_URL, PackedStringArray(["Content-Type: application/json"]),
+	var err: int = http.request(_remote_url, PackedStringArray(["Content-Type: application/json"]),
 			HTTPClient.METHOD_POST, payload)
 	if err != OK:
 		_remote_requeue()
@@ -358,7 +388,7 @@ func _remote_beacon(payload: String) -> void:
 		return
 	# JSON.stringify로 감싸 자바스크립트 문자열 리터럴을 만든다(따옴표·개행 이스케이프를 직접 안 짠다).
 	js.call("eval", "navigator.sendBeacon(%s, new Blob([%s], {type:'text/plain'}))" % [
-		JSON.stringify(REMOTE_URL), JSON.stringify(payload)], true)
+		JSON.stringify(_remote_url), JSON.stringify(payload)], true)
 
 func _remote_node() -> HTTPRequest:
 	if _remote_http != null and is_instance_valid(_remote_http):

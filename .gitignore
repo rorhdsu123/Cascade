@@ -16,3 +16,6 @@ android/
 # 팀 내부 스프린트 보드(심사 계정 초대 시 노출 방지)
 docs/local/
 __pycache__/
+
+# 계측 수집 주소 — 저장소가 공개라 소스에 안 박는다. export에는 실린다(analytics.gd 상단 주석 참조).
+analytics_endpoint.txt
