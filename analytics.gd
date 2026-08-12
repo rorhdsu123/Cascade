@@ -70,6 +70,10 @@ var _remote_on: bool = false
 var _remote_buf: Array = []             # 아직 안 보낸 이벤트
 var _remote_sent: Array = []            # 지금 날아가는 중인 배치 — 실패하면 되돌린다
 var _remote_http: HTTPRequest = null    # 웹이 아닐 때만 만든다(웹은 sendBeacon)
+# 웹 세션 경계 훅. 콜백은 멤버로 붙들어야 GC를 안 당한다.
+var _web_hooked: bool = false
+var _web_cb_vis: Variant = null
+var _web_cb_hide: Variant = null
 
 func _init() -> void:
 	_rng.randomize()
@@ -106,6 +110,7 @@ func _is_analytics_probe(args: PackedStringArray) -> bool:
 func session_begin() -> void:
 	if not enabled:
 		return
+	_install_web_lifecycle()
 	_session_id = _new_id()
 	_session_started_ms = Time.get_ticks_msec()
 	_runs_played = 0
@@ -247,6 +252,50 @@ func _platform() -> String:
 		return "web"
 	return "desktop_" + n
 
+# --- 웹 세션 경계 (브라우저 신호) ---
+#
+# 🔴**웹에선 `NOTIFICATION_WM_CLOSE_REQUEST`가 오지 않는다 — 2026-08-12 실측으로 확인했다.**
+#   Main._notification이 그 통지로 session_end()를 부르는데, 브라우저에서 탭을 닫거나 다른 데로
+#   이동해도 그 통지가 안 떠서 **`session_ended`가 아예 발화하지 않았다**(로컬 JSONL에도 없었다 =
+#   전송이 잘린 게 아니라 호출 자체가 없었다). 그대로 뒀으면 이탈한 사람의 마지막 이벤트가 통째로
+#   비어 "어디서 나가나"를 못 잰다 — 웹 플레이테스트의 질문 절반이 죽는다.
+#
+# ⚠**그리고 그 손실은 세션 하나가 아니라 전부다.** 웹 배치는 4라, 30초 만에 나간 사람은 이벤트가
+#   4개를 못 채워서 **버퍼째 사라진다.** `session_ended`가 그 버퍼를 비우는 유일한 자리다.
+#
+# 브라우저의 진짜 신호는 둘이고, 둘 다 건다:
+#   · `visibilitychange`(hidden) — 탭 전환·최소화·모바일 홈으로 나가기. 안드로이드의
+#     APPLICATION_PAUSED와 **같은 의미**라 세션 경계 해석이 플랫폼 간에 일관된다.
+#   · `pagehide` — 탭 닫기·이동. bfcache까지 잡는 마지막 그물.
+# ⚠콜백 객체는 **멤버로 붙들어야 한다** — 지역 변수로 두면 GC돼서 조용히 안 불린다.
+
+func _install_web_lifecycle() -> void:
+	if _web_hooked or not OS.has_feature("web"):
+		return
+	var js: Object = _js()
+	if js == null:
+		return
+	_web_hooked = true
+	_web_cb_vis = js.call("create_callback", Callable(self, "_on_web_visibility"))
+	_web_cb_hide = js.call("create_callback", Callable(self, "_on_web_pagehide"))
+	var win: Variant = js.call("get_interface", "window")
+	if win == null:
+		return
+	win.addEventListener("visibilitychange", _web_cb_vis)
+	win.addEventListener("pagehide", _web_cb_hide)
+
+func _on_web_visibility(_args: Array) -> void:
+	var js: Object = _js()
+	if js == null:
+		return
+	if String(js.call("eval", "document.visibilityState", true)) == "hidden":
+		session_end()
+	elif _session_id == "":
+		session_begin()      # 돌아왔다 = 새 세션. session_begin은 중복 호출을 막지 않으므로 여기서 건다
+
+func _on_web_pagehide(_args: Array) -> void:
+	session_end()            # 이미 닫혔으면 session_end가 스스로 되돌아간다(_session_id == "")
+
 # --- 원격 백엔드 (우리 엔드포인트로 HTTP POST) ---
 #
 # 전송 경로가 플랫폼마다 다르다:
@@ -298,10 +347,13 @@ func _remote_flush() -> void:
 	if err != OK:
 		_remote_requeue()
 
-func _remote_beacon(payload: String) -> void:
+func _js() -> Object:
 	# 실제 플랫폼 게이트는 호출부의 OS.has_feature("web")이고, 여기 있는 건 널 안전장치다.
 	#   (JavaScriptBridge 싱글턴 자체는 데스크톱에도 등록돼 있어서 has_singleton으로는 못 가른다 — 실측 확인.)
-	var js: Object = Engine.get_singleton("JavaScriptBridge") if Engine.has_singleton("JavaScriptBridge") else null
+	return Engine.get_singleton("JavaScriptBridge") if Engine.has_singleton("JavaScriptBridge") else null
+
+func _remote_beacon(payload: String) -> void:
+	var js: Object = _js()
 	if js == null:
 		return
 	# JSON.stringify로 감싸 자바스크립트 문자열 리터럴을 만든다(따옴표·개행 이스케이프를 직접 안 짠다).
