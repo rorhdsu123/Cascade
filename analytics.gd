@@ -5,9 +5,11 @@ extends RefCounted
 # leaderboard.gd와 같은 발상: 나중에 Firebase Analytics를 붙일 때 _platform_* stub만 채우면
 # 게임 코드는 안 건드린다(gamemode-director-seam과 동형).
 #
-# ⚠지금 백엔드는 로컬 JSONL(`user://analytics.jsonl`)뿐이다 — 이게 W1 사람 플테의 실제 수집 경로다.
-#   실기기서 판이 끝나면 파일을 뽑아 `tools/analytics_report.gd`로 읽는다. Firebase(W2)가 붙으면
-#   _platform_log_event가 같은 이벤트를 그대로 중계하고 JSONL은 로컬 백업으로 남는다.
+# 백엔드는 둘이다. **로컬 JSONL**(`user://analytics.jsonl`)이 늘 남고(내 기기에서 뽑아 읽는 용),
+#   `REMOTE_URL`을 채우면 **원격 싱크**가 같은 이벤트를 우리 엔드포인트로 중계한다.
+#   원격이 필요한 이유: 남의 기기(웹 플레이테스터·클로즈드 테스터)에 쌓인 JSONL은 뽑아올 방법이 없다.
+#   Firebase가 아니라 순수 HTTP인 이유: 네이티브 플러그인이 필요 없어서 웹·안드로이드가 같은 코드로 돈다
+#   (AdMob 플러그인에서 밟은 compileSdk·플러그인 부재 위장 같은 지뢰를 통째로 피한다).
 #
 # 불변식 3개(깨면 회귀·결정성이 무너진다):
 #   ① 게임 RNG를 절대 안 쓴다 — id는 전용 RandomNumberGenerator(_rng)로만 뽑는다. randi()/game_rng 금지.
@@ -16,6 +18,19 @@ extends RefCounted
 
 const LOG_PATH: String = "user://analytics.jsonl"     # 이벤트 1줄 = JSON 1개(append-only)
 const META_PATH: String = "user://analytics.meta"     # {install_id, session_count} — is_first_session 판정용
+
+# --- 원격 싱크 설정 ---
+# ⚠비어 있으면 원격은 통째로 꺼진다(로컬 JSONL만). 이게 기본값이고, 안전한 기본값이다 —
+#   URL을 안 채운 채로 조용히 "보내는 줄 알았는데 아무 데도 안 가는" 상태가 안 생긴다.
+#   엔드포인트 요구사항: POST를 받고 CORS를 허용할 것(웹 빌드는 브라우저가 막는다).
+const REMOTE_URL: String = ""
+const REMOTE_BATCH: int = 12          # 이만큼 쌓이면 보낸다(요청 수를 줄인다)
+const REMOTE_BATCH_WEB: int = 4       # 웹은 탭이 언제든 닫히므로 더 자주 보낸다
+const REMOTE_MAX_BUFFER: int = 200    # 전송 실패가 쌓여도 여기까지. 넘으면 오래된 것부터 버린다
+const REMOTE_TIMEOUT_S: float = 20.0
+# 배치가 안 차도 즉시 보내는 이벤트 — 세션이 여기서 끝나버릴 수 있는 자리들.
+#   이걸 안 하면 "한 판 하고 나간 사람"의 데이터가 영영 안 온다 = 이탈 분석이 통째로 빈다.
+const REMOTE_FLUSH_ON: Array = ["session_ended", "run_failed", "stage_cleared", "endless_run_ended"]
 const LOG_MAX_BYTES: int = 512 * 1024                 # 상한. 넘으면 새로 시작(플테 1인 세션엔 차고 넘침)
 const SCHEMA_VERSION: int = 1                         # 택소노미 v1
 
@@ -50,6 +65,11 @@ var _run_id: String = ""
 var _seed: int = 0
 var _run_started_ms: int = 0
 var _session_first_line: bool = false   # first_line_cleared는 세션 1회만(TTF쾌감)
+# 원격 싱크 상태. _remote_on이 false면 아래 셋은 영영 안 쓰인다.
+var _remote_on: bool = false
+var _remote_buf: Array = []             # 아직 안 보낸 이벤트
+var _remote_sent: Array = []            # 지금 날아가는 중인 배치 — 실패하면 되돌린다
+var _remote_http: HTTPRequest = null    # 웹이 아닐 때만 만든다(웹은 sendBeacon)
 
 func _init() -> void:
 	_rng.randomize()
@@ -61,9 +81,24 @@ func _init() -> void:
 	#   `--script`로 뜬 프로세스는 tools/ 하네스뿐이다(출고 빌드엔 이 인자가 없다).
 	#   ⚠_init에서 걸러야 한다 — 아래 _load_meta()가 session_count를 올리므로, 노드를 받은 쪽에서
 	#     enabled=false를 나중에 꽂아봐야 카운터는 이미 올라가 있다(실제로 그랬다).
-	if OS.get_cmdline_args().has("--script"):
+	#   ⚠단 하나의 예외 = 계측 프로브 자신. 얘는 계측을 **켜서** 검증하는 게 존재 이유고,
+	#     로그·메타·캠페인 세이브를 스스로 치우고 되돌린다(tools/analytics_probe.gd `_run()`).
+	#     C118이 이 예외를 빠뜨려서 프로브가 0개 이벤트로 조용히 죽어 있었다 — 게이트를 넣은 커밋이
+	#     그 게이트의 검증 장치를 같이 껐고, 통과/실패를 안 보면 안 드러나는 종류의 사고다.
+	var args: PackedStringArray = OS.get_cmdline_args()
+	if args.has("--script") and not _is_analytics_probe(args):
 		enabled = false
+	# 원격은 `enabled`보다 한 겹 더 조인다 — **어떤 하네스에서도 절대 안 나간다.**
+	#   프로브는 계측이 켜진 채 도니까, 이 조건이 없으면 봇 판이 실제 수집기로 흘러들어
+	#   사람 데이터에 섞인다(로컬 JSONL은 프로브가 스스로 지우므로 문제없다).
+	_remote_on = enabled and REMOTE_URL != "" and not args.has("--script")
 	_load_meta()
+
+func _is_analytics_probe(args: PackedStringArray) -> bool:
+	for a in args:
+		if a.ends_with("analytics_probe.gd"):
+			return true
+	return false
 
 # --- 세션 ---
 
@@ -212,11 +247,95 @@ func _platform() -> String:
 		return "web"
 	return "desktop_" + n
 
-# --- 플랫폼 백엔드 (stub — W2 광고·Firebase 배선 단계에서 채움) ---
-# TODO(W2): Firebase Analytics 중계. 안드로이드 플러그인 붙이면 여기서 log_event 호출만 하면 된다.
-#   파라미터 상한(이벤트당 25개)·custom dimension 등록(mode/cause/stage_id/band)은 §6 참조.
-func _platform_available() -> bool:
-	return false
+# --- 원격 백엔드 (우리 엔드포인트로 HTTP POST) ---
+#
+# 전송 경로가 플랫폼마다 다르다:
+#   웹    → navigator.sendBeacon. **탭을 닫는 중에도 브라우저가 대신 보내준다**는 게 핵심이다.
+#           HTTPRequest로 보내면 언로드 시점에 요청이 끊겨서, 하필 제일 중요한 `session_ended`가
+#           가장 자주 유실된다(이탈한 사람의 마지막 이벤트 = 이탈 분석의 본체).
+#   그 외  → HTTPRequest. 노드라서 트리에 붙여야 하는데, 트리 루트에 직접 매달아
+#           Main.gd를 안 건드린다(게임 코드는 수집 경로를 모른다 — leaderboard·ad_service와 동형).
+#
+# ⚠앱이 죽는 순간의 마지막 배치는 어느 경로로도 100% 보장되지 않는다. 그래서 배치를 작게 잡고
+#   위 REMOTE_FLUSH_ON 자리에서 즉시 비운다. 완전 무손실이 아니라 '이탈 직전까지'가 목표다.
 
-func _platform_log_event(_name: String, _params: Dictionary) -> void:
-	pass
+func _platform_available() -> bool:
+	return _remote_on
+
+func _platform_log_event(name: String, params: Dictionary) -> void:
+	if not _remote_on:
+		return
+	_remote_buf.append(params)
+	# 상한 초과분은 **오래된 것부터** 버린다 — 최근 이벤트가 이탈 지점에 더 가깝다.
+	if _remote_buf.size() > REMOTE_MAX_BUFFER:
+		_remote_buf = _remote_buf.slice(_remote_buf.size() - REMOTE_MAX_BUFFER)
+	var batch: int = REMOTE_BATCH_WEB if OS.has_feature("web") else REMOTE_BATCH
+	if _remote_buf.size() >= batch or REMOTE_FLUSH_ON.has(name):
+		_remote_flush()
+
+# 버퍼를 한 배치 비운다. 이미 날아가는 게 있으면 그게 끝난 뒤에 다시 불린다(중복 전송 방지).
+func _remote_flush() -> void:
+	if not _remote_on or _remote_buf.is_empty() or not _remote_sent.is_empty():
+		return
+	var payload: String = JSON.stringify({
+		"schema": SCHEMA_VERSION,
+		"install_id": _install_id,
+		"events": _remote_buf,
+	})
+	if OS.has_feature("web"):
+		# sendBeacon은 fire-and-forget이라 성패를 알 수 없다 → 되돌릴 게 없으니 버퍼를 바로 비운다.
+		#   text/plain으로 보내면 CORS preflight(OPTIONS)가 안 붙는다 — 엔드포인트가 단순해진다.
+		_remote_buf = []
+		_remote_beacon(payload)
+		return
+	var http: HTTPRequest = _remote_node()
+	if http == null:
+		return          # 트리가 아직 없다. 버퍼에 남으니 다음 이벤트에서 다시 시도한다.
+	_remote_sent = _remote_buf
+	_remote_buf = []
+	var err: int = http.request(REMOTE_URL, PackedStringArray(["Content-Type: application/json"]),
+			HTTPClient.METHOD_POST, payload)
+	if err != OK:
+		_remote_requeue()
+
+func _remote_beacon(payload: String) -> void:
+	# 실제 플랫폼 게이트는 호출부의 OS.has_feature("web")이고, 여기 있는 건 널 안전장치다.
+	#   (JavaScriptBridge 싱글턴 자체는 데스크톱에도 등록돼 있어서 has_singleton으로는 못 가른다 — 실측 확인.)
+	var js: Object = Engine.get_singleton("JavaScriptBridge") if Engine.has_singleton("JavaScriptBridge") else null
+	if js == null:
+		return
+	# JSON.stringify로 감싸 자바스크립트 문자열 리터럴을 만든다(따옴표·개행 이스케이프를 직접 안 짠다).
+	js.call("eval", "navigator.sendBeacon(%s, new Blob([%s], {type:'text/plain'}))" % [
+		JSON.stringify(REMOTE_URL), JSON.stringify(payload)], true)
+
+func _remote_node() -> HTTPRequest:
+	if _remote_http != null and is_instance_valid(_remote_http):
+		return _remote_http
+	var loop: MainLoop = Engine.get_main_loop()
+	if not (loop is SceneTree):
+		return null
+	var root: Window = (loop as SceneTree).root
+	if root == null:
+		return null
+	_remote_http = HTTPRequest.new()
+	_remote_http.name = "AnalyticsSink"
+	_remote_http.timeout = REMOTE_TIMEOUT_S
+	_remote_http.request_completed.connect(_on_remote_done)
+	root.add_child(_remote_http)
+	return _remote_http
+
+func _on_remote_done(result: int, code: int, _headers: PackedStringArray, _body: PackedByteArray) -> void:
+	if result == HTTPRequest.RESULT_SUCCESS and code >= 200 and code < 300:
+		_remote_sent = []
+	else:
+		_remote_requeue()      # 네트워크가 끊겼거나 서버가 5xx — 다음 기회에 다시 보낸다
+	_remote_flush()            # 그 사이 쌓인 게 있으면 이어서
+
+# 실패한 배치를 버퍼 **앞**에 되돌린다(시간 순서 유지). 상한은 여기서도 지킨다.
+func _remote_requeue() -> void:
+	if _remote_sent.is_empty():
+		return
+	_remote_buf = _remote_sent + _remote_buf
+	_remote_sent = []
+	if _remote_buf.size() > REMOTE_MAX_BUFFER:
+		_remote_buf = _remote_buf.slice(_remote_buf.size() - REMOTE_MAX_BUFFER)
