@@ -138,9 +138,21 @@ godot --headless --path . --export-release "Android Release" build/android/block
 godot --headless --path . --export-release "Android Submission" build/android/blockcastle.apk
 
 # 웹(itch.io) — 업로드는 build/web/ 통째로 zip
+# ⚠굽기 전에 project.godot의 application/config/version 끝자리를 올릴 것(바로 아래 ⚠)
 godot --headless --path . --export-release "Web" build/web/index.html
 (cd build/web && zip -q -r -X ../blockcastle-web.zip .)
 ```
+
+⚠**웹을 다시 굽기 전에 `application/config/version`을 올린다.** 이 값이 계측의 `build_version`으로
+그대로 나가고(`analytics.gd:273`), **비어 있으면 `0.0.0-dev`로 나간다** — 2026-08-12까지 실제로 그랬다.
+형식은 `0.9.0-L<루프>.<그 루프의 몇 번째 배포>`(예: `0.9.0-L1.1`). 안 올리고 재배포하면 처방 전후가
+한 덩어리로 섞여 **"고친 게 먹었나"를 못 읽는다** — 그게 루프 2·3의 유일한 질문이다.
+⚠**이미 쌓인 데이터는 나중에 못 고친다.** 굽기 전에 올리는 것 말고 만회할 방법이 없다.
+정본은 `ANALYTICS_TAXONOMY.md` §2.
+
+⚠**계측을 켜서 내보내려면 `analytics_endpoint.txt`가 프로젝트 폴더에 있어야 한다.** git에 없으므로
+새로 클론한 곳에서는 파일이 없고, 그러면 **원격이 조용히 꺼진 판**이 나간다(에러는 안 난다).
+없으면 만들어 넣을 것 — 주소는 `rorhdsu123` 계정 앱스 스크립트 배포 화면에서 다시 볼 수 있다.
 
 ⚠**export가 실패해도 종료코드가 0이고 오류가 한 줄로만 스쳐 간다.** 산출물 존재만으로 성공을 판정하지 말고
 아래 §5 검증을 매번 통과시킬 것. (`No project icon specified`가 이렇게 조용히 지나가서 기본 Godot 아이콘으로
