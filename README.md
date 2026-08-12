@@ -10,6 +10,7 @@
 | | |
 |---|---|
 | 🎮 **웹에서 바로 플레이** | **[itch.io에서 플레이](https://eggtart-studio.itch.io/blockcastle)** · 설치 없이 브라우저에서 (첫 로딩 10~20초) |
+| 🧪 **플레이테스트판** | **[최신 빌드로 플레이](https://eggtart-studio.itch.io/blockcastle-playtest)** · 계측 포함 · PC 브라우저 (위 링크는 대회 제출본이라 8/9 시점에 고정돼 있습니다) |
 | 📱 **APK 내려받기** | **[v0.9.0 다운로드](https://github.com/rorhdsu123/Cascade/releases/latest)** · 81MB · Android 7.0+ |
 | 🎬 **플레이 영상 (39초)** | **[YouTube에서 보기](https://www.youtube.com/watch?v=XrVPTsCWGrU)** · 자막 없는 실제 플레이 녹화 |
 

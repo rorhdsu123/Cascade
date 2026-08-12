@@ -338,7 +338,7 @@ godot --headless --import                              # 새 PNG를 Godot에 imp
 | 채널 | 무엇 | 올린 물건 | 갱신 방법 |
 |---|---|---|---|
 | itch.io — **제출용** | 웹 플레이 (`eggtart-studio.itch.io/blockcastle`) | `build/blockcastle-web.zip` (8/9판) | 🔒**심사 종료까지 갱신 금지** — 아래 참조 |
-| itch.io — **플레이테스트용** | 웹 플레이 (미개설) | `build/blockcastle-web.zip` (계측 포함) | 대시보드 → Edit game → Uploads에서 **기존 zip 교체** |
+| itch.io — **플레이테스트용** | 웹 플레이 (`eggtart-studio.itch.io/blockcastle-playtest`) | `build/blockcastle-web.zip` (계측 포함) | 대시보드 → Edit game → Uploads에서 **기존 zip 교체** |
 | GitHub 릴리스 | 사이드로드 APK (`releases/latest`) | `build/android/blockcastle.apk` | `gh release upload v0.9.0 build/android/blockcastle.apk --clobber` |
 | Play Console | (미개설) | `build/android/blockcastle.aab` | §7 ⑨ 개발자 계정이 선행 |
 
@@ -367,7 +367,7 @@ zip을 갈면 URL은 그대로여도 **심사자가 보는 게임이 바뀐다**
 |---|---|---|
 | APK | 80,872,559 B (8/12) | **80,872,559 B (8/12 업로드) — 일치** ✅ |
 | 웹 (제출용) | `blockcastle-web.zip` 13.98 MB (8/10) | itch 8/9 업로드 — **어긋나 있고, 그대로 둔다** 🔒 |
-| 웹 (플테용) | — | 미개설 |
+| 웹 (플테용) | `blockcastle-web.zip` 13.33 MB (8/12) | **8/12 업로드 — 일치** ✅ `0.9.0-L1.1` |
 
 **APK는 8/12에 맞췄다.** 8/8 배포본(81,337,048 B)이 옛 적 스프라이트였다. 검증은 §5 ①②④ 통과
 (서명 지문이 키스토어와 일치 · `com.yujin.blockcastle` 0.9.0 arm64 · `basic.png` ctex 바이트 일치).
@@ -389,11 +389,27 @@ zip을 갈면 URL은 그대로여도 **심사자가 보는 게임이 바뀐다**
 **"JSONL에 없다"만으로 미발화를 단정하면 안 된다** — 판정은 수신기 쪽을 기준선으로 삼고,
 둘이 **같이** 비었을 때만 발화 자체가 없었다고 읽는다.
 
-**그래서 남은 차단 항목은 하나다 — 수집 엔드포인트 확정.** POST를 받고 CORS를 허용하는 무료 티어면
-된다. 정해서 `REMOTE_URL`에 박으면 플레이테스트용 웹을 올릴 수 있다.
+**차단 항목은 2026-08-12에 전부 닫혔다.** 수집기는 앱스 스크립트 웹 앱(구글 시트)이고, 주소는
+`analytics_endpoint.txt`(gitignore·export 포함), 수집기 코드 사본은 `tools/analytics_sheet.gs`다.
+**끝에서 끝까지 실측했다** — itch 페이지 → `Run game` → 게임 구동 → 탭 닫기 → 시트에 줄 도착
+(`platform=web` · `build_version=0.9.0-L1.1`). 로컬 수신기가 아니라 실제 배포본 기준이다.
 
-⚠**엔드포인트 요구사항**: POST를 받고 CORS를 허용할 것. 웹은 `sendBeacon`을 `text/plain`으로
-보내므로(`analytics.gd:308`) preflight(OPTIONS)는 안 붙는다.
+⚠**엔드포인트 요구사항**: POST를 받을 것. 웹은 `sendBeacon`을 `text/plain`으로 보내 단순 요청이
+되므로 preflight(OPTIONS)가 안 붙고, 응답을 안 읽으니 CORS 응답 헤더는 사실상 필요 없다.
+⚠**itch 내부 프레임 안의 전송은 브라우저 개발자도구로 안 잡힌다**(게임이 다른 출처에서 돈다).
+**판정은 시트로 한다** — 안 보인다고 안 나간 게 아니다.
+
+### 플레이테스트 itch 페이지 설정 (2026-08-12 개설)
+
+| 항목 | 값 | 왜 |
+|---|---|---|
+| Kind of project | HTML | 이게 아니면 "브라우저에서 실행" 체크박스가 안 나타난다 |
+| 업로드 파일 | `blockcastle-web.zip` + **"played in the browser" 체크** | 안 켜면 `No file provided to embed`로 페이지가 죽는다(실제로 밟았다) |
+| Embed | **Click to launch in fullscreen** | 원본 800×1280이라 페이지에 끼우면 노트북 화면에 안 들어간다. 이 모드에선 치수 입력칸이 아예 안 나온다 |
+| Frame options | **셋 다 끔** | ⚠`SharedArrayBuffer`는 nothreads 빌드에 불필요하고 켜면 헤더가 붙어 깨진다. `Mobile friendly`는 **웹 터치가 미검증**이라 루프 1은 PC로 좁힌다 |
+| Pricing | **No payments** | 수급에서 실제로 문제되는 건 공개 여부가 아니라 수익 행위다. 여기가 방어선 |
+| Visibility | **Public** | ⚠`Draft`는 공유용 secret 링크가 안 나와서 **남에게 404**였다(실측). `Restricted`는 HTML 게임에서 문제 보고가 있어 피했다 |
+| Cover image | 630×500 · 로고+적 | 없으면 `og:image`가 비어 링크 미리보기에 그림이 안 뜬다 — 모집이 병목인 지금 손해가 크다 |
 
 크기 81MB → 80.9MB는 C174의 `build/*` 제외 때문이다. **README·게임 소개 문서의 "81MB"는
 그대로 맞다**(반올림 동일) — 버전도 `0.9.0`으로 안 바뀌었으므로 고칠 문구는 없다.
