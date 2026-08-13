@@ -413,3 +413,48 @@ zip을 갈면 URL은 그대로여도 **심사자가 보는 게임이 바뀐다**
 
 크기 81MB → 80.9MB는 C174의 `build/*` 제외 때문이다. **README·게임 소개 문서의 "81MB"는
 그대로 맞다**(반올림 동일) — 버전도 `0.9.0`으로 안 바뀌었으므로 고칠 문구는 없다.
+
+### 웹 저장소는 어디에 사는가 — 브라우저 실측 (2026-08-13, C192)
+
+루프 3("다음 날 오나")이 성립하려면 `install_id`가 방문 사이에 살아남아야 한다. 배포된 페이지를
+직접 열어 IndexedDB를 들여다봤다. **재방문 판정은 작동한다** — 같은 브라우저에서 세 번 열었을 때
+`install_id`가 그대로였고 `session_count`가 1→2→3으로 올랐으며 `is_first_session`은 첫 번째만
+`true`였다.
+
+| 무엇 | 실측값 |
+|---|---|
+| 저장 위치 | IndexedDB `/userfs` (오브젝트 스토어 `FILE_DATA`) |
+| 오리진 | `https://html-classic.itch.zone` — itch의 **모든** HTML 게임이 공유 |
+| 키 | `/userfs/godot/app_userdata/BlockCastle/analytics.{meta,jsonl}` |
+
+읽는 법(게임 오리진에서 실행 — itch 페이지에선 iframe이 교차 오리진이라 안 된다):
+
+```js
+const db = await new Promise(r=>{const q=indexedDB.open('/userfs');q.onsuccess=()=>r(q.result)});
+const get = k => new Promise(r=>{const q=db.transaction('FILE_DATA','readonly').objectStore('FILE_DATA').get(k);q.onsuccess=()=>r(q.result)});
+new TextDecoder().decode((await get('/userfs/godot/app_userdata/BlockCastle/analytics.meta')).contents)
+```
+
+**저장소는 오리진 단위라 업로드 ID와 무관하다.** 그래서 처방을 적용하고 재배포해도 `install_id`가
+살아남는다 = **루프 1→2→3에 걸친 리텐션이 이어진다.** 루프 3이 성립하는 전제가 이것이다.
+
+🔴**그런데 같은 이유로 제출용 빌드와 플레이테스트 빌드가 저장소를 공유한다.** 둘 다 `BlockCastle`
+이라는 이름의 Godot 앱이고 오리진이 같아서 경로가 한 글자도 안 다르다. 결과:
+
+- 제출 페이지(`/blockcastle`)를 먼저 해본 사람은 플레이테스트에서 **`is_first_session=false`**로 잡힌다.
+  루프 1은 첫인상을 재는 판인데 그 사람은 첫인상이 아니다.
+- 다만 **시트가 오염되지는 않는다** — 제출 빌드(업로드 18745783)의 pck에는 수집 주소가 없다(실측).
+  오염되는 건 `install_id`·`session_count`뿐이다.
+- ⚠**모집 문구에 "제출 페이지 말고 이 링크"를 넣고, 이미 해본 사람은 표본에서 뺀다.**
+  섞였는지는 시트에서 `is_first_session=false`인 첫 방문자로 드러난다.
+
+⚠**빌드 버전 한 줄이 `0.0.0-dev`로 찍힌 것을 봤다(2026-08-13, 원인 미상).** 콜드 캐시 첫 로드
+한 번뿐이었고 그 뒤 네 번은 전부 `0.9.0-L1.1`이었다. 저장소를 비우고 다시 첫 세션을 만들어도
+재현되지 않았다. 배포본 자체는 깨끗하다 — 업로드 18773835의 pck를 받아 훑으니 `0.9.0-L1.1`이
+들어 있고 `0.0.0-dev` 문자열은 **없다**. 8/12에 배포를 여러 번 한 날이라(C185→C187→C188)
+CDN 엣지의 옛 사본을 한 번 집었을 가능성이 가장 크다. **재현이 안 되므로 고칠 것은 없지만,
+시트에 `0.0.0-dev` 줄이 섞여 있을 수 있으니 판독 때 거른다**(`tools/funnel.py`가 경고한다).
+
+⚠**이 검증으로 시트에 시험 줄이 들어갔다.** `install_id` = `33e3c0a067d592d4`(4세션) ·
+`0a2eaef2069e70a1`(1세션). 시트 메뉴의 '시험 줄 지우기'는 `probe-`로 시작하는 것만 지우므로
+**이 둘은 손으로 지워야 한다** — 안 지우면 루프 1의 5세션이 내 브라우저다.
