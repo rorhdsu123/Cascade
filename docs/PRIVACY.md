@@ -22,12 +22,35 @@
 | 저장 파일 | `campaign.save` · `endless.save` · `endless_clean.save` · `settings.save` · `analytics.jsonl` · `analytics.meta` — 전부 기기 내부 |
 | **기기를 나가는 유일한 데이터** | **Google Mobile Ads(AdMob) SDK**가 광고를 가져오며 수집하는 것 |
 
-**결론: 우리가 서버로 가져가는 데이터는 없다.** 신고 대상은 전부 광고 SDK 몫이다.
-Play 기준으로 **기기를 떠나지 않는 데이터는 "수집"이 아니다** — 그래서 게임 진행도·설정·로컬 통계는
-데이터 안전성에 신고하지 않는다.
+~~**결론: 우리가 서버로 가져가는 데이터는 없다.**~~
 
-⚠**Firebase를 붙이는 날 이 문서를 반드시 고친다.** 그 순간 §0의 "송신 0건"이 거짓이 되고 데이터 안전성
-신고(§2)도 틀린 신고가 된다. `analytics.gd`의 `_platform_log_event`가 no-op을 벗는 시점이 그 트리거다.
+### 🔴 위 표는 2026-08-12부로 낡았다 — 재실측 (2026-08-13)
+
+**우리도 이제 수집한다.** C178에서 원격 싱크를 붙이고 C185에서 주소를 채웠다. 위 문단이 걸어둔
+경보("Firebase를 붙이는 날 이 문서를 반드시 고친다")가 **이미 울렸는데 아무도 안 들었다** —
+트리거를 Firebase로만 적어둔 탓이다. 실제로 온 건 우리 엔드포인트였고, `_platform_log_event`는
+지금도 no-op이다. **경보는 '어떤 SDK를 붙였나'가 아니라 '기기 밖으로 뭐가 나가나'에 걸었어야 했다.**
+
+| 확인 항목 | 재실측 결과 |
+|---|---|
+| 우리 코드의 네트워크 송신 | **있다** — `analytics.gd _remote_flush()`. 웹은 `sendBeacon`, 그 외는 `HTTPRequest` |
+| 받는 곳 | **우리 소유** 구글 앱스 스크립트 웹 앱 → 구글 스프레드시트. 주소는 저장소 밖(`analytics_endpoint.txt`) |
+| 나가는 값 | `install_id` · `session_id` · `run_id` · 이벤트 이름 · `t_ms`/`duration_ms` · `runs_played` · `stage_id` · `cause` · `beat` · `max_combo` · `build_version` · `platform` · `mode` · `seed` · `is_first_session` |
+| 안 나가는 값 | 이름·이메일·계정·연락처·정확한 위치·기기 광고 ID. **우리가 IP를 기록하지 않는다**(수집기가 안 적는다) — 다만 구글 인프라가 요청을 받는 이상 전송 계층엔 남는다 |
+| 언제 나가나 | 4건이 모이거나 `session_ended`·`run_failed`·`stage_cleared`·`endless_run_ended`에서 |
+| 유저가 끌 수 있나 | **아니요** — 게임 안에 계측 옵트아웃 토글이 없다 |
+| 하네스는? | 안 나간다. `--script`로 뜬 프로세스는 `_remote_on=false`(프로브 포함) |
+
+`install_id`는 앱이 만든 난수이고 사람과 이어붙일 값이 아무것도 없다 = **가명 데이터**다.
+그래도 **Play 기준으로는 "기기 또는 기타 ID" 수집이 맞다** — 기기 밖으로 나갔기 때문이다.
+게임 진행도·설정 파일은 여전히 기기에만 있어 신고 대상이 아니다.
+
+⚠**지금 이 순간 고지 없이 수집하고 있다.** 플레이테스트 웹 빌드(8/12 배포)가 낯선 사람의
+플레이를 우리 시트로 보내는데 방침이 어디에도 게시돼 있지 않다. **8/23 모집 전에 itch 페이지
+설명에 한 줄을 넣을 것** — 아래 §1-B가 그 문구다.
+
+⚠**다음 경보는 '기기 밖으로 나가는 값이 바뀌는 날'에 울린다.** Firebase든 우리 엔드포인트든
+필드를 하나 더 얹는 순간 위 표와 §1·§2가 같이 낡는다.
 
 ---
 
@@ -43,14 +66,25 @@ Play 기준으로 **기기를 떠나지 않는 데이터는 "수집"이 아니�
 
 Last updated: [DATE] · Developer: [DEVELOPER NAME AS REGISTERED ON GOOGLE PLAY]
 
-**Summary.** BlockCastle does not require an account, and we do not run any server that stores
-your data. Your game progress and settings stay on your device. The only data that leaves your
-device is what Google's advertising service needs in order to show ads.
+**Summary.** BlockCastle does not require an account and never asks for your name, email address,
+or any other information that identifies you. Your game progress and settings stay on your device.
+Two kinds of data do leave your device: anonymous gameplay statistics that we use to improve the
+game, and whatever Google's advertising service needs in order to show ads.
 
-**Information we store on your device.** The game saves your stage progress, high scores, sound
-settings, and anonymous gameplay statistics locally on your device. It also generates a random
-installation identifier that is used only to distinguish game sessions in those local statistics.
-None of this is transmitted to us, and we have no way to access it. Uninstalling the app removes it.
+**Information we store on your device.** The game saves your stage progress, high scores, and sound
+settings locally on your device. Uninstalling the app (or clearing your browser's site data, if you
+are playing in a browser) removes all of it.
+
+**Gameplay statistics we collect.** The game generates a random installation identifier — a string
+of digits with no connection to you, your device, or any account — and sends it along with anonymous
+gameplay events: when a session starts and ends, how long it lasted, which stage was played, whether
+it was cleared or lost and why, tutorial progress, and score-related numbers such as the highest
+combo reached. We use this to answer questions like "where do players stop playing?" so we can fix
+those places. It is stored in a private spreadsheet that only we can read.
+
+We do **not** collect your name, email address, contacts, photos, files, precise location, or the
+advertising identifier of your device, and we do not record your IP address. Because the records
+carry only a random identifier, we cannot tell who you are or connect your play to any other service.
 
 **Information collected by advertising.** BlockCastle shows rewarded video ads (which you choose to
 watch in exchange for continuing a run) and may show interstitial ads. These are delivered by
@@ -70,9 +104,14 @@ personalization system-wide.
 **Children.** BlockCastle is not directed to children, and we do not knowingly collect personal
 information from children. The app is not enrolled in Google Play's Designed for Families program.
 
-**Data retention and deletion.** Because we do not collect or store your data on any server, there
-is nothing for us to retain or delete. Data stored locally is removed when you uninstall the app.
-For data processed by Google in connection with advertising, please refer to Google's policies above.
+**Data retention and deletion.** We keep the gameplay statistics described above for as long as they
+are useful for improving the game. They contain nothing that identifies you, so we cannot look up
+"your" records on request — the link between you and the random installation identifier exists only
+on your own device. Removing the app (or clearing your browser's site data) deletes that identifier,
+after which nothing we hold can be connected to you, and the game starts fresh as a new installation.
+If you want records removed and can tell us the installation identifier, write to the address below
+and we will delete them. For data processed by Google in connection with advertising, please refer
+to Google's policies above.
 
 **Changes.** If this policy changes, the updated version will be posted at this URL with a new
 "Last updated" date.
@@ -82,17 +121,35 @@ For data processed by Google in connection with advertising, please refer to Goo
 
 ---
 
+## 1-B. 웹 플레이테스트 고지 (8/23 모집 전에 필요)
+
+Play 앱이 아니라 itch 웹 빌드라 위 방침을 붙일 자리가 없다. 그런데 **낯선 사람의 플레이가
+우리 시트로 오고 있다.** 페이지 설명(`RELEASE.md` §10 플레이테스트 페이지 설정)과 모집 글
+양쪽에 아래 한 문단을 넣는다. 짧아야 읽힌다 — 방침 전문은 링크로 충분하다.
+
+> **What this playtest records.** This build sends anonymous gameplay statistics so I can see where
+> people get stuck: a random installation id, when a session starts and ends, how long you played,
+> which stage you were on, and whether you cleared or lost it. No name, no email, no account, no
+> location, no IP address — nothing that identifies you. Clearing your browser's site data for this
+> page erases the id. Questions: [CONTACT EMAIL]
+
+⚠**웹 빌드에는 광고가 없다**(AdMob은 네이티브) — 그래서 이 문구에 광고 얘기를 넣지 않는다.
+넣으면 있지도 않은 것을 고지하는 셈이고, 참가자에게 괜한 경계를 만든다.
+
+---
+
 ## 2. Play Console — 데이터 안전성(Data safety) 답안
 
-§0 실측에 근거한 답. **"우리는 수집 안 하고, AdMob이 수집한다"**가 전체 구조다.
+⚠**2026-08-13 개정.** 옛 답은 "우리는 수집 안 하고, AdMob이 수집한다"였다. C185 이후로
+**우리도 수집한다** — 그대로 제출하면 허위 신고가 된다(§0 재실측).
 
 ### 개요 질문
 
 | 질문 | 답 | 근거 |
 |---|---|---|
-| 앱이 사용자 데이터를 수집·공유하나? | **예** | 우리는 아니지만 **AdMob이 한다.** SDK가 하는 수집도 신고 대상이다 |
-| 전송 중 암호화되나? | **예** | GMA SDK는 HTTPS로 통신한다 |
-| 사용자가 데이터 삭제를 요청할 수 있나? | **아니요** | 계정·서버 데이터가 없어 삭제할 대상이 없다. 로컬 데이터는 삭제(제거)로 사라진다 |
+| 앱이 사용자 데이터를 수집·공유하나? | **예** | **우리(게임플레이 통계)와 AdMob 둘 다** |
+| 전송 중 암호화되나? | **예** | 우리 엔드포인트는 HTTPS(`script.google.com`), GMA SDK도 HTTPS |
+| 사용자가 데이터 삭제를 요청할 수 있나? | **예** | 방침 §1에 연락처와 절차를 뒀다. ⚠기록이 난수 id뿐이라 **본인 확인이 구조적으로 불가능**하다 — 유저가 id를 알려주면 지운다고 적었다. 이 답을 '아니요'로 하면 삭제 경로가 아예 없다고 신고하는 셈이라 '예'가 정직하다 |
 | 독립적 보안 검토를 받았나? | 아니요 | |
 | Play Families 정책 대상인가? | **아니요** | 아동 대상 앱이 아니다(§1 Children) |
 
@@ -101,20 +158,26 @@ For data processed by Google in connection with advertising, please refer to Goo
 | 데이터 유형 | 수집 | 공유 | 목적 | 필수/선택 | 비고 |
 |---|---|---|---|---|---|
 | **기기 또는 기타 ID** (광고 ID) | 예 | **예**(Google) | 광고 또는 마케팅 · 분석 | 필수 | 매니페스트에 `AD_ID` 권한이 실제로 들어 있다(RELEASE.md §7) |
-| **대략적 위치** | 예 | 예(Google) | 광고 또는 마케팅 | 필수 | IP에서 파생. AdMob이 자체적으로 하는 것 |
+| **기기 또는 기타 ID** (`install_id`) | **예** | **아니요** | 분석 · 앱 기능 | 필수 | 🆕앱이 만든 난수. 우리 시트로 나간다. 앱스 스크립트·스프레드시트는 **우리를 대신해 처리하는 서비스 제공자**라 Play 기준 '공유' 아님 |
+| **앱 활동**(게임플레이 이벤트) | **예** | **아니요** | 분석 | 필수 | 🆕판 시작·종료·클리어/실패와 사유·튜토리얼 박자·체류 시간·최고 콤보 |
+| **대략적 위치** | 예 | 예(Google) | 광고 또는 마케팅 | 필수 | IP에서 파생. AdMob이 자체적으로 하는 것. **우리는 IP를 안 적는다** |
 | 앱 활동(광고 상호작용) | 예 | 예(Google) | 광고 또는 마케팅 · 분석 | 필수 | 광고 노출·클릭 측정 |
 | 개인정보(이름·이메일 등) | **아니요** | — | — | — | 계정·로그인 없음 |
 | 재무 정보 | **아니요** | — | — | — | IAP 없음(소프트런치 미포함) |
 | 정확한 위치 · 연락처 · 사진 · 파일 · 메시지 · 통화 기록 · 건강 | **아니요** | — | — | — | 해당 권한 자체가 없다 |
 | 앱 내 검색 기록 · 설치된 앱 목록 | **아니요** | — | — | — | |
-| 게임 진행도 · 설정 · 로컬 통계 | **아니요** | — | — | — | **기기를 안 떠난다 = Play 기준 '수집' 아님**(§0) |
+| 게임 진행도 · 설정 (세이브 파일) | **아니요** | — | — | — | **기기를 안 떠난다 = Play 기준 '수집' 아님** |
 
-⚠**"필수"로 답하는 이유**: 광고를 보여주려면 이 처리가 필요하고, 유저가 앱 안에서 이걸 끄고도 앱을
+⚠**"필수"로 답하는 이유**: 광고 쪽은 광고를 보여주려면 필요한 처리이고, 유저가 앱 안에서 끄고도 앱을
 쓸 수 있게 만들어 두지 않았다(광고 제거 IAP는 소프트런치 미포함). EEA/UK 동의 거부는 *개인화*를 끄는
-것이고 광고 자체를 없애는 게 아니다.
+것이고 광고 자체를 없애는 게 아니다. **계측 쪽도 '필수'다 — 옵트아웃 토글이 없기 때문이다.**
 
-⚠**Firebase 연결 시 추가될 항목**: 우리 쪽 수집이 생기므로 "앱 활동"·"기기 ID"에 우리 목적(분석)이
-붙고, 삭제 요청 경로도 다시 판단해야 한다.
+⚠**옵트아웃을 만들면 이 답이 '선택'으로 바뀐다.** 지금 안 만드는 건 판단이지 누락이 아니다:
+설정에 스위치를 하나 더 얹으면 소프트런치 표본이 그만큼 깎이고, 수집하는 게 가명 플레이 기록뿐이라
+비용 대비 이득이 낮다고 봤다. **다만 EEA에 열 때 다시 볼 것** — 거기선 계산이 달라질 수 있다.
+
+⚠**Firebase를 붙이면**: 목적지가 하나 더 늘 뿐 위 답의 구조는 같다. 대신 구글이 **서비스 제공자가
+아니라 별도 관제자**로 처리하는 부분이 생기면 '공유'가 예로 바뀔 수 있다 — 붙이는 날 다시 판단.
 
 ---
 
@@ -154,15 +217,19 @@ For data processed by Google in connection with advertising, please refer to Goo
 | 광고 포함 | 예 |
 | 앱 내 구매 | 아니요 |
 | 타깃 연령 | 13세 이상(아동 대상 아님) |
-| 데이터 삭제 요청 URL | 해당 없음 — 서버 데이터가 없다 |
+| 데이터 삭제 요청 URL | URL은 없다. 방침 §1의 **연락처 이메일**로 답한다 — Play는 URL 대신 이메일을 허용한다. ⚠옛 답('해당 없음')은 서버 데이터가 없던 시절 것이다 |
 
 ---
 
 ## 5. 제출 전 체크리스트
 
+- [ ] **§0 재실측 표가 아직 맞는지 확인** — 기기 밖으로 나가는 값이 하나라도 바뀌었으면 §1·§2가 같이 낡는다
 - [ ] §1을 공개 URL에 올린다 → Play Console '개인정보처리방침' 칸 + 스토어 등록정보
-- [ ] `[DATE]` · `[DEVELOPER NAME]` · `[CONTACT EMAIL]` 채우기
-- [ ] 데이터 안전성 양식을 §2대로 입력
+- [ ] `[DATE]` · `[DEVELOPER NAME]` · `[CONTACT EMAIL]` 채우기 — **유저 몫**(실명·주소는 대신 못 정한다)
+- [ ] 데이터 안전성 양식을 §2대로 입력 — ⚠광고 항목만 넣고 **우리 계측 두 줄을 빠뜨리지 말 것**
 - [ ] 콘텐츠 등급 설문을 §3대로 응답
 - [ ] 광고 ID 신고 + '광고 포함' 체크(§4)
 - [ ] **게임 안 설정 → Ad privacy 행이 EEA 기기에서 실제로 보이는지 1회 확인**(`RELEASE.md` §9의 `--ad-consent-eea`)
+
+**웹 플레이테스트(11월 이전)에는 위 체크리스트가 아니라 §1-B 한 문단만 필요하다.** 8/23 모집 전에
+itch 페이지 설명과 모집 글에 넣는다.
