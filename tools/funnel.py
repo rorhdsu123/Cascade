@@ -1,0 +1,364 @@
+#!/usr/bin/env python3
+"""웹 플레이테스트 이탈 퍼널 판독기 (C190).
+
+    python3 tools/funnel.py 이벤트.csv
+    python3 tools/funnel.py 이벤트.csv --build 0.9.0-L1.1      # 한 루프만
+    python3 tools/funnel.py ~/…/analytics.jsonl                # 로컬 로그도 읽는다
+
+`tools/analytics_report.gd`와 **읽는 데이터가 다르다.** 그쪽은 기기에 쌓인 `analytics.jsonl`을
+보고, 이쪽은 **구글 시트에 모인 남의 기기 데이터**를 본다. 웹 루프의 자료는 전부 시트로 오므로
+(비콘 경로, C182) 루프 1~3 판독은 이 도구가 맡는다.
+시트에서 꺼내는 법: 이벤트 시트 → 파일 → 다운로드 → CSV.
+
+왜 따로 만들었나 — **시트 수식으로는 세션 단위를 셀 수 없다.** `COUNTIF(D:D,"run_started")`는
+'판을 몇 번 시작했나'지 '몇 세션이 판을 시작했나'가 아니다. 한 사람이 다섯 판을 하면 다섯으로
+세어져서, 퍼널의 아래 칸이 위 칸보다 커지는 일이 생긴다. 퍼널은 **각 단계에 도달한 세션 수**로만
+말이 되고, 그건 세션별로 접어야 나온다.
+
+⚠이 도구는 판정하지 않는다. 통과선은 `docs/ROADMAP.md` §3-C에 있고, 그걸 들이대는 건 사람이다.
+"""
+
+import argparse
+import csv
+import json
+import os
+import sys
+from collections import Counter, defaultdict
+from datetime import datetime, timedelta
+
+# 시트 열 이름 → 이벤트 필드 이름. 시트는 사람이 읽는 표라 한글이고, 로컬 JSONL은 원본 필드명이다.
+# 어느 쪽으로 들어오든 아래 필드 이름 하나로 통일해서 다룬다.
+SHEET_COLUMNS = {
+    "받은시각": "received_at",
+    "install_id": "install_id",
+    "session_id": "session_id",
+    "이벤트": "event",
+    "빌드": "build_version",
+    "플랫폼": "platform",
+    "모드": "mode",
+    "t_ms": "t_ms",
+    "duration_ms": "duration_ms",
+    "runs_played": "runs_played",
+    "stage_id": "stage_id",
+    "cause": "cause",
+    "beat": "beat",
+    "max_combo": "max_combo",
+}
+
+SURVIVE_MS = 60_000  # 루프 1이 묻는 것 — "낯선 사람이 60초를 넘기나"
+
+
+# ── 읽기 ───────────────────────────────────────────────────────────────────
+
+def _num(v):
+    if v is None or v == "":
+        return None
+    try:
+        return float(v)
+    except (TypeError, ValueError):
+        return None
+
+
+def read_csv(path):
+    """시트에서 내려받은 CSV. 마지막 '원본' 열에 이벤트 전체가 JSON으로 들어 있어서,
+    시트가 열로 안 뽑아 둔 필드(is_first_session 등)도 여기서 되살릴 수 있다."""
+    out = []
+    with open(path, newline="", encoding="utf-8-sig") as f:
+        for row in csv.DictReader(f):
+            ev = {}
+            raw = row.get("원본")
+            if raw:
+                try:
+                    ev.update(json.loads(raw))
+                except json.JSONDecodeError:
+                    pass  # 원본이 깨졌어도 아래 열들로 대부분 복구된다
+            for col, field in SHEET_COLUMNS.items():
+                if row.get(col) not in (None, ""):
+                    ev[field] = row[col]
+            out.append(ev)
+    return out
+
+
+def read_jsonl(path):
+    out = []
+    with open(path, encoding="utf-8") as f:
+        for line in f:
+            line = line.strip()
+            if line:
+                try:
+                    out.append(json.loads(line))
+                except json.JSONDecodeError:
+                    pass
+    return out
+
+
+def parse_time(v):
+    if not v:
+        return None
+    s = str(v).strip().replace("T", " ")
+    for fmt in ("%Y-%m-%d %H:%M:%S.%f", "%Y-%m-%d %H:%M:%S", "%Y. %m. %d %H:%M:%S",
+                "%Y-%m-%d %H:%M", "%m/%d/%Y %H:%M:%S"):
+        try:
+            return datetime.strptime(s.split("+")[0].strip(), fmt)
+        except ValueError:
+            continue
+    return None
+
+
+# ── 세션으로 접기 ──────────────────────────────────────────────────────────
+
+class Session:
+    __slots__ = ("sid", "install", "build", "platform", "events", "duration_ms",
+                 "runs_played", "max_t_ms", "ended", "first_seen", "modes")
+
+    def __init__(self, sid):
+        self.sid = sid
+        self.install = ""
+        self.build = ""
+        self.platform = ""
+        self.events = Counter()
+        self.duration_ms = None
+        self.runs_played = None
+        self.max_t_ms = 0.0
+        self.ended = False
+        self.first_seen = None
+        self.modes = set()
+
+    @property
+    def lived_ms(self):
+        """머문 시간. `session_ended`가 있으면 그 값이 정답이다.
+
+        ⚠없으면 그 세션에서 본 마지막 `t_ms`로 대신하는데, 이건 **하한**이다 — 마지막 이벤트
+        이후에 더 놀다 나갔을 수 있다. 그래서 아래 표가 대체한 세션 수를 따로 찍는다.
+        웹에서 `session_ended`가 통째로 빠지는 건 실제로 겪은 사고다(C182)."""
+        if self.duration_ms is not None:
+            return self.duration_ms
+        return self.max_t_ms
+
+    @property
+    def runs(self):
+        """판 수. `session_ended.runs_played`가 정답이고, 없으면 `run_started`를 센다."""
+        if self.runs_played is not None:
+            return int(self.runs_played)
+        return self.events["run_started"]
+
+
+def fold(events):
+    sessions = {}
+    for ev in events:
+        sid = str(ev.get("session_id") or "")
+        if not sid:
+            continue
+        s = sessions.get(sid)
+        if s is None:
+            s = sessions[sid] = Session(sid)
+        name = str(ev.get("event") or "")
+        s.events[name] += 1
+        s.install = s.install or str(ev.get("install_id") or "")
+        s.build = s.build or str(ev.get("build_version") or "")
+        s.platform = s.platform or str(ev.get("platform") or "")
+        if ev.get("mode"):
+            s.modes.add(str(ev["mode"]))
+        t = _num(ev.get("t_ms"))
+        if t is not None:
+            s.max_t_ms = max(s.max_t_ms, t)
+        when = parse_time(ev.get("received_at"))
+        if when and (s.first_seen is None or when < s.first_seen):
+            s.first_seen = when
+        if name == "session_ended":
+            s.ended = True
+            d = _num(ev.get("duration_ms"))
+            if d is not None:
+                s.duration_ms = d
+            r = _num(ev.get("runs_played"))
+            if r is not None:
+                s.runs_played = r
+    return list(sessions.values())
+
+
+# ── 출력 ───────────────────────────────────────────────────────────────────
+
+def bar(frac, width=24):
+    n = int(round(frac * width))
+    return "█" * n + "·" * (width - n)
+
+
+def funnel(sessions):
+    total = len(sessions)
+    # ⚠**순서가 인과 순서여야 한다.** 처음엔 "세션 → 60초 → 첫 판"으로 짰는데, 첫 실측에서
+    #   60초 0세션인데 첫 판 1세션이 나왔다 — 봇이 60초 안에 여러 판을 굴렸기 때문이다.
+    #   아래 칸이 위 칸보다 큰 표는 퍼널이 아니다. 판을 먼저 시작하고 그다음 1분을 넘기는 게
+    #   실제 순서라 그렇게 고쳤다.
+    # ⚠그리고 **누적으로 센다** — 각 칸은 '앞 칸을 전부 통과한 세션'이다. 독립 술어로 세면
+    #   중간을 건너뛴 세션이 아래 칸에 되살아나서, 이 도구를 만든 이유가 사라진다.
+    steps = [
+        ("세션 시작",       lambda s: True),
+        ("첫 판 시작",      lambda s: s.runs >= 1),
+        ("60초 넘김",       lambda s: s.lived_ms >= SURVIVE_MS),
+        ("첫 클리어",       lambda s: s.events["stage_cleared"] >= 1),
+        ("두 번째 판",      lambda s: s.runs >= 2),
+    ]
+    print("\n── 이탈 퍼널 (세션 단위·누적) ──")
+    print("  %-12s %6s %8s %8s   %-24s %s" % ("단계", "세션", "직전대비", "전체대비", "", "단독"))
+    prev = None
+    rows = []
+    alive = list(sessions)
+    for label, hit in steps:
+        alive = [s for s in alive if hit(s)]
+        n = len(alive)
+        solo = sum(1 for s in sessions if hit(s))   # 앞 칸을 무시하고 이 조건만 만족한 세션
+        rows.append((label, n))
+        of_prev = "—" if prev in (None, 0) else "%5.0f%%" % (100.0 * n / prev)
+        of_top = "—" if total == 0 else "%5.0f%%" % (100.0 * n / total)
+        frac = 0.0 if total == 0 else n / total
+        # '단독'은 누적이 감춘 것을 드러낸다 — 앞 칸에서 떨어졌지만 이 조건 자체는 만족한 세션.
+        mark = "" if solo == n else "  %d" % solo
+        print("  %-12s %6d %8s %8s   %-24s%s" % (label, n, of_prev, of_top, bar(frac), mark))
+        prev = n
+
+    # 가장 크게 꺾이는 칸 = 고칠 자리. 눈으로 표를 훑는 대신 도구가 지목한다.
+    worst, worst_drop = None, -1
+    for (a_label, a), (b_label, b) in zip(rows, rows[1:]):
+        if a > 0:
+            drop = (a - b) / a
+            if drop > worst_drop:
+                worst, worst_drop = (a_label, b_label, a - b, drop), drop
+    if worst and worst[2] > 0:
+        print("\n  ⇒ 가장 크게 꺾이는 곳: %s → %s 에서 %d세션(%.0f%%)이 빠진다."
+              % (worst[0], worst[1], worst[2], 100.0 * worst[3]))
+
+    est = sum(1 for s in sessions if not s.ended)
+    if est:
+        print("  ⚠%d세션은 `session_ended`가 없어 마지막 t_ms로 대신했다(체류는 하한값)."
+              % est)
+        if total and est / total > 0.2:
+            print("    비율이 20%를 넘는다 — 비콘 경로부터 의심할 것(C182와 같은 사고).")
+
+
+def exits(sessions, top=8):
+    """세션의 마지막 이벤트 분포. 어디서 손을 떼는지에 대한 가장 직접적인 신호다.
+    ⚠`session_ended`로 끝난 건 '정상 종료'라 제외한다 — 그건 이탈 지점이 아니라 종료 그 자체다."""
+    last = Counter()
+    for s in sessions:
+        names = [n for n in s.events if n != "session_ended"]
+        if not names:
+            continue
+        # 이벤트 순서를 세션 안에서 다시 세울 만큼의 정보(t_ms)는 접는 과정에서 버렸다.
+        # 여기서는 '그 세션이 도달한 가장 깊은 사건'을 근사로 쓴다.
+        for depth_name in ("endless_run_ended", "stage_cleared", "stage_failed",
+                           "run_failed", "first_line_cleared", "run_started",
+                           "tutorial_beat_completed", "app_opened"):
+            if s.events[depth_name]:
+                last[depth_name] += 1
+                break
+    if not last:
+        return
+    print("\n── 가장 깊이 도달한 사건 (세션 수) ──")
+    for name, n in last.most_common(top):
+        print("  %-24s %4d" % (name, n))
+
+
+def onboarding(sessions):
+    beats = [sum(1 for s in sessions if s.events.get("tutorial_beat_completed"))]
+    print("\n── 온보딩 ──")
+    print("  튜토리얼 박자를 하나라도 끝낸 세션  %4d" % beats[0])
+    print("  첫 줄을 지운 세션                   %4d"
+          % sum(1 for s in sessions if s.events["first_line_cleared"]))
+
+
+def revisits(sessions):
+    """루프 3이 묻는 것 — 다음 날 오나.
+    ⚠`받은시각`이 있어야 계산된다 = **시트 CSV로만 나온다.** 로컬 JSONL엔 절대 시각이 없다."""
+    by_install = defaultdict(list)
+    for s in sessions:
+        if s.install and s.first_seen:
+            by_install[s.install].append(s.first_seen)
+    if not by_install:
+        print("\n── 재방문 ──\n  절대 시각이 없어 계산 불가(시트 CSV로 다시 읽을 것).")
+        return
+    multi = d1 = 0
+    for times in by_install.values():
+        times.sort()
+        if len(times) >= 2:
+            multi += 1
+        first = times[0]
+        # D1 = 첫 방문 **다음 날 이후**에 다시 온 사람. 같은 날 두 번은 재방문이지 복귀가 아니다.
+        if any(t.date() >= (first + timedelta(days=1)).date() for t in times[1:]):
+            d1 += 1
+    n = len(by_install)
+    print("\n── 재방문 (사람 단위, n=%d) ──" % n)
+    print("  세션 2회 이상   %4d  (%.0f%%)" % (multi, 100.0 * multi / n))
+    print("  다음 날 이후 복귀 %2d  (%.0f%%)  ← 웹 D1" % (d1, 100.0 * d1 / n))
+    if n < 30:
+        print("  ⚠표본 %d명은 비율로 읽기엔 작다 — 한 명이 %.0f%%p를 흔든다." % (n, 100.0 / n))
+
+
+def by_build(sessions):
+    """빌드별 비교 = 처방 전후 비교. 빌드를 안 올리고 재배포하면 여기서 한 줄로 합쳐진다."""
+    groups = defaultdict(list)
+    for s in sessions:
+        groups[s.build or "(없음)"].append(s)
+    if len(groups) < 2:
+        return
+    print("\n── 빌드별 ──")
+    print("  %-18s %6s %9s %9s %10s" % ("빌드", "세션", "60초넘김", "판/세션", "두번째판"))
+    for build in sorted(groups):
+        g = groups[build]
+        n = len(g)
+        surv = sum(1 for s in g if s.lived_ms >= SURVIVE_MS)
+        second = sum(1 for s in g if s.runs >= 2)
+        avg = sum(s.runs for s in g) / n
+        print("  %-18s %6d %8.0f%% %9.2f %9.0f%%"
+              % (build, n, 100.0 * surv / n, avg, 100.0 * second / n))
+    if "0.0.0-dev" in groups:
+        print("  ⚠`0.0.0-dev`가 섞여 있다 — 루프 구분이 안 되는 줄이다(C186 이전 빌드).")
+
+
+# ── 진입점 ─────────────────────────────────────────────────────────────────
+
+def main():
+    ap = argparse.ArgumentParser(description="웹 플레이테스트 이탈 퍼널 판독기")
+    ap.add_argument("path", help="시트에서 내려받은 CSV, 또는 analytics.jsonl")
+    ap.add_argument("--build", help="이 빌드만 본다(루프 하나만 떼어 읽을 때)")
+    ap.add_argument("--platform", help="이 플랫폼만 본다 (web / android / …)")
+    ap.add_argument("--keep-probe", action="store_true",
+                    help="install_id가 probe-로 시작하는 시험 줄도 포함한다")
+    args = ap.parse_args()
+
+    if not os.path.exists(args.path):
+        sys.exit("파일이 없다: %s" % args.path)
+
+    events = read_jsonl(args.path) if args.path.endswith(".jsonl") else read_csv(args.path)
+    if not events:
+        sys.exit("이벤트가 없다: %s" % args.path)
+
+    sessions = fold(events)
+    total_before = len(sessions)
+    if not args.keep_probe:
+        # 우리가 배관을 시험하며 넣은 줄이 첫 측정에 섞이면 표본이 조용히 오염된다.
+        sessions = [s for s in sessions if not s.install.startswith("probe-")]
+    if args.build:
+        sessions = [s for s in sessions if s.build == args.build]
+    if args.platform:
+        sessions = [s for s in sessions if s.platform == args.platform]
+
+    if not sessions:
+        sys.exit("걸러내고 나니 세션이 없다(원본 %d세션). 조건을 확인할 것." % total_before)
+
+    installs = {s.install for s in sessions if s.install}
+    dropped = total_before - len(sessions)
+    print("── %s ──" % args.path)
+    print("  이벤트 %d · 세션 %d · 사람 %d%s"
+          % (len(events), len(sessions), len(installs),
+             ("  (제외 %d세션)" % dropped) if dropped else ""))
+
+    funnel(sessions)
+    exits(sessions)
+    onboarding(sessions)
+    revisits(sessions)
+    by_build(sessions)
+    print("\n통과선은 docs/ROADMAP.md §3-C. 판정은 사람이 한다.")
+
+
+if __name__ == "__main__":
+    main()

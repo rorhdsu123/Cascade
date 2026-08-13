@@ -268,13 +268,37 @@ function _buildDashboard() {
   put(11, 4, '켜고 시작조차 안 한 비율 — 첫 화면 문제의 신호');
 
   // ── 이탈 지점 ──
+  // ⚠**COUNTIF가 아니라 COUNTUNIQUEIFS다.** COUNTIF는 이벤트를 센다 — 한 사람이 튜토리얼을
+  //   다시 하면 박자1이 두 번 찍히고, 그러면 아래 칸이 위 칸보다 커져서 '퍼널'이 아니게 된다.
+  //   퍼널은 **각 단계에 도달한 세션 수**로만 말이 된다(C190).
   put(13, 1, '온보딩에서 어디까지 갔나', { bold: true, size: 13 });
-  put(14, 1, '박자', head); put(14, 2, '완료한 세션 수', head);
-  put(15, 1, '1'); put(15, 2, '=COUNTIFS(' + D + '!D:D,"tutorial_beat_completed",' + D + '!M:M,1)');
-  put(16, 1, '2'); put(16, 2, '=COUNTIFS(' + D + '!D:D,"tutorial_beat_completed",' + D + '!M:M,2)');
-  put(17, 1, '3'); put(17, 2, '=COUNTIFS(' + D + '!D:D,"tutorial_beat_completed",' + D + '!M:M,3)');
-  put(18, 1, '첫 줄 지움'); put(18, 2, '=COUNTIF(' + D + '!D:D,"first_line_cleared")');
+  put(14, 1, '박자', head); put(14, 2, '도달한 세션 수', head);
+  put(15, 1, '1'); put(15, 2, '=COUNTUNIQUEIFS(' + D + '!C:C,' + D + '!D:D,"tutorial_beat_completed",' + D + '!M:M,1)');
+  put(16, 1, '2'); put(16, 2, '=COUNTUNIQUEIFS(' + D + '!C:C,' + D + '!D:D,"tutorial_beat_completed",' + D + '!M:M,2)');
+  put(17, 1, '3'); put(17, 2, '=COUNTUNIQUEIFS(' + D + '!C:C,' + D + '!D:D,"tutorial_beat_completed",' + D + '!M:M,3)');
+  put(18, 1, '첫 줄 지움'); put(18, 2, '=COUNTUNIQUEIFS(' + D + '!C:C,' + D + '!D:D,"first_line_cleared")');
   put(19, 1, '숫자가 아래로 갈수록 줄어드는 폭이 곧 이탈이다. 가장 크게 꺾이는 칸이 고칠 자리.', { color: '#5B6274' });
+
+  // ── 이탈 퍼널 ──
+  // 여기 숫자는 **눈으로 훑는 용도**다. 판독은 `tools/funnel.py`가 한다 — 시트 수식으로는
+  // '앞 단계를 전부 통과한 세션'을 누적으로 셀 수 없어서, 아래는 단계별 독립 집계다.
+  // 그래서 중간을 건너뛴 세션이 아래 칸에 되살아날 수 있다(그 차이를 보는 게 funnel.py 몫).
+  put(25, 1, '이탈 퍼널 (세션 단위)', { bold: true, size: 13 });
+  put(26, 1, '⚠누적이 아니다. 정식 판독은 시트를 CSV로 내려받아 `python3 tools/funnel.py 파일.csv`.',
+      { color: '#5B6274' });
+  put(27, 1, '단계', head); put(27, 2, '세션', head); put(27, 3, '비율', head);
+  const steps = [
+    ['세션 시작',  '=COUNTUNIQUEIFS(' + D + '!C:C,' + D + '!C:C,"<>")'],
+    ['첫 판 시작', '=COUNTUNIQUEIFS(' + D + '!C:C,' + D + '!D:D,"run_started")'],
+    ['60초 넘김',  '=COUNTUNIQUEIFS(' + D + '!C:C,' + D + '!D:D,"session_ended",' + D + '!I:I,">60000")'],
+    ['첫 클리어',  '=COUNTUNIQUEIFS(' + D + '!C:C,' + D + '!D:D,"stage_cleared")'],
+    ['두 번째 판', '=COUNTUNIQUEIFS(' + D + '!C:C,' + D + '!D:D,"session_ended",' + D + '!J:J,">=2")'],
+  ];
+  for (let i = 0; i < steps.length; i++) {
+    put(28 + i, 1, steps[i][0]);
+    put(28 + i, 2, steps[i][1]);
+    put(28 + i, 3, '=IFERROR(B' + (28 + i) + '/$B$28,0)', { fmt: '0.0%' });
+  }
 
   // ── 빌드별 = 루프별 비교 ──
   put(21, 1, '빌드별 비교 — 처방이 먹었나', { bold: true, size: 13 });
