@@ -1,7 +1,9 @@
 extends SceneTree
 # 허브 개편(C80) 렌더 확인 — 신규/진행중/전부깸 + 허브 설정 모달.
 #   godot --path . --script tools/hub_shot.gd
-const DIR: String = "/private/tmp/claude-501/-Users-im-yujin-Desktop-Cascade/f6002e9b-75fa-490d-83f5-3867bf2d9dec/scratchpad/shots/"
+const ShotDir = preload("res://tools/shot_dir.gd")
+# 출력 경로 = SHOT_DIR 환경변수, 없으면 build/shots/ (tools/shot_dir.gd 참조).
+var DIR: String = ShotDir.resolve("shots/")
 var g: Node = null
 
 func _initialize() -> void:

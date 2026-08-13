@@ -1,8 +1,9 @@
 extends SceneTree
 # 영어 로케일 UI 창 검증(i18n + 번들 폰트). [[godot-pixel-verify-needs-window]] 창 필수.
 #   godot --path . --script tools/i18n_shot.gd
-const DIR: String = "/private/tmp/claude-501/-Users-im-yujin-Desktop-Cascade-worktrees-stage/536fcd8a-d763-40a9-b405-1ce3c94b544e/scratchpad/"
-
+const ShotDir = preload("res://tools/shot_dir.gd")
+# 출력 경로 = SHOT_DIR 환경변수, 없으면 build/shots/ (tools/shot_dir.gd 참조).
+var DIR: String = ShotDir.resolve("")
 func _initialize() -> void:
 	_run.call_deferred()
 

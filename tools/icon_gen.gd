@@ -14,7 +14,9 @@ extends SceneTree
 # form 근거: 블록 = Main._draw_piece_cells의 실제 문법(pad 8% + 흰 내부선 + 드롭섀도),
 #   해골 = Main._draw_enemy_icon의 '타입 중립 처치 대상' 기호. 성 실루엣·브릭 스터드는 기각된 언어라 안 쓴다.
 
-const DIR: String = "/private/tmp/claude-501/-Users-im-yujin-Desktop-Cascade-worktrees-stage/4b17b509-e199-47ac-b935-323c71fffd62/scratchpad/icon/"
+const ShotDir = preload("res://tools/shot_dir.gd")
+# 출력 경로 = SHOT_DIR 환경변수, 없으면 build/shots/ (tools/shot_dir.gd 참조).
+var DIR: String = ShotDir.resolve("icon/")
 const OUT: String = "res://icons/"
 const SIDE: int = 1024
 

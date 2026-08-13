@@ -1,8 +1,9 @@
 extends SceneTree
 # UI/UX 감사용 전체 화면 캡처. 창 모드 필수([[godot-pixel-verify-needs-window]]).
 #   godot --path . --script tools/ux_audit_shot.gd
-const DIR: String = "/private/tmp/claude-501/-Users-im-yujin-Desktop-Cascade/f6002e9b-75fa-490d-83f5-3867bf2d9dec/scratchpad/shots/"
-
+const ShotDir = preload("res://tools/shot_dir.gd")
+# 출력 경로 = SHOT_DIR 환경변수, 없으면 build/shots/ (tools/shot_dir.gd 참조).
+var DIR: String = ShotDir.resolve("shots/")
 var g: Node = null
 
 func _initialize() -> void:

@@ -3,8 +3,9 @@ extends SceneTree
 #   godot --path . --script tools/intro_shot.gd
 # intro_t를 직접 세팅해 위상(appear/hold/dock)을 결정적으로 잡는다(±1틱 미세 드리프트 무시 가능).
 
-const DIR: String = "/private/tmp/claude-501/-Users-im-yujin-Desktop-Cascade-worktrees-stage/044773c2-357e-40d6-bf33-6bd037c3a086/scratchpad/intro_"
-
+const ShotDir = preload("res://tools/shot_dir.gd")
+# 출력 경로 = SHOT_DIR 환경변수, 없으면 build/shots/ (tools/shot_dir.gd 참조).
+var DIR: String = ShotDir.resolve("intro_")
 var g: Node
 
 func _initialize() -> void:

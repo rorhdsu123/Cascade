@@ -2,7 +2,9 @@ extends SceneTree
 # 유도 로켓(동시 N줄 → N발) 영상용 프레임 덤프. 창 모드 필수.
 # 더블(가로 2줄) 클리어 + 줄 밖 흩어진 적 → 로켓 2발이 거점 가까운 순으로 날아가 처치.
 
-const DIR: String = "/private/tmp/claude-501/-Users-im-yujin-Desktop-Cascade/efe67560-638a-4d54-b126-9957c48f7dbb/scratchpad/frames"
+const ShotDir = preload("res://tools/shot_dir.gd")
+# 출력 경로 = SHOT_DIR 환경변수, 없으면 build/shots/ (tools/shot_dir.gd 참조).
+var DIR: String = ShotDir.resolve("frames")
 const DT: float = 0.02
 const N: int = 110
 

@@ -1,8 +1,9 @@
 extends SceneTree
 # 메인 메뉴(허브) 창 스모크 + 픽셀검증. [[godot-pixel-verify-needs-window]] 창 필수.
 #   godot --path . --script tools/menu_shot.gd
-const DIR: String = "/private/tmp/claude-501/-Users-im-yujin-Desktop-Cascade-endless/95781170-3ca0-4173-b9e0-078aee5b8fe3/scratchpad/"
-
+const ShotDir = preload("res://tools/shot_dir.gd")
+# 출력 경로 = SHOT_DIR 환경변수, 없으면 build/shots/ (tools/shot_dir.gd 참조).
+var DIR: String = ShotDir.resolve("")
 func _initialize() -> void:
 	_run.call_deferred()
 

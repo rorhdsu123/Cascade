@@ -4,8 +4,9 @@ extends SceneTree
 #   ② 렌더(HUD·팝업) = 창 모드 + 상태 직접 세팅 후 스샷(전 판 구동은 창 OS 이벤트로 flaky): godot --script ...
 # [[godot-pixel-verify-needs-window]] 렌더는 창 필수. 로직은 헤드리스 OK.
 
-const DIR: String = "/private/tmp/claude-501/-Users-im-yujin-Desktop-Cascade-worktrees-endless/23fb7c58-31b3-4280-8678-c11fa1fcbecd/scratchpad/"
-
+const ShotDir = preload("res://tools/shot_dir.gd")
+# 출력 경로 = SHOT_DIR 환경변수, 없으면 build/shots/ (tools/shot_dir.gd 참조).
+var DIR: String = ShotDir.resolve("")
 func _initialize() -> void:
 	_run.call_deferred()
 

@@ -1,7 +1,9 @@
 extends SceneTree
 # 진행(select) 화면 폴리싱 확인.
 #   godot --path . --script tools/select_shot.gd   (창 모드 — 헤드리스는 렌더텍스처 null)
-const DIR: String = "/private/tmp/claude-501/-Users-im-yujin-Desktop-Cascade-worktrees-stage/c4f0ea00-30c5-4dfc-9c13-65e4483f2cae/scratchpad/shots/"
+const ShotDir = preload("res://tools/shot_dir.gd")
+# 출력 경로 = SHOT_DIR 환경변수, 없으면 build/shots/ (tools/shot_dir.gd 참조).
+var DIR: String = ShotDir.resolve("shots/")
 var g: Node = null
 
 func _initialize() -> void:

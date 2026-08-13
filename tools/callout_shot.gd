@@ -4,8 +4,9 @@ extends SceneTree
 # 눈으로 1.6초를 잡는 대신 상태를 직접 굴려 결정적으로 잡는다: _start_stage → 카드 시간만큼 _process →
 #   그 프레임 캡처. 배너가 안 보이면 '못 본 것'인지 '안 그려진 것'인지 여기서 갈린다.
 
-const DIR: String = "/private/tmp/claude-501/-Users-im-yujin-Desktop-Cascade-worktrees-stage/dc33be79-19cc-4ca2-893d-f1dd426c456d/scratchpad/callout_"
-
+const ShotDir = preload("res://tools/shot_dir.gd")
+# 출력 경로 = SHOT_DIR 환경변수, 없으면 build/shots/ (tools/shot_dir.gd 참조).
+var DIR: String = ShotDir.resolve("callout_")
 var g: Node
 
 func _initialize() -> void:

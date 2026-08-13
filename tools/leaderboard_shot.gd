@@ -1,8 +1,9 @@
 extends SceneTree
 # 리더보드 화면 창 스모크 + 픽셀검증. [[godot-pixel-verify-needs-window]] 창 필수.
 #   /Applications/Godot.app/Contents/MacOS/Godot --path . --script tools/leaderboard_shot.gd
-const DIR: String = "/private/tmp/claude-501/-Users-im-yujin-Desktop-Cascade-worktrees-endless/944e7ae5-23be-4d33-94fd-37e210ec3cec/scratchpad/"
-
+const ShotDir = preload("res://tools/shot_dir.gd")
+# 출력 경로 = SHOT_DIR 환경변수, 없으면 build/shots/ (tools/shot_dir.gd 참조).
+var DIR: String = ShotDir.resolve("")
 func _initialize() -> void:
 	_run.call_deferred()
 

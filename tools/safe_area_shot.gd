@@ -4,7 +4,9 @@ extends SceneTree
 # 실기기 없이 보기 위해 Main.safe_debug로 인셋을 주입한다.
 #   iPhone 15 Pro(1179×2556, 상단 59pt·하단 34pt) 환산: 배율 1179/800=1.474
 #   → 논리 인셋 ≈ 상 120 / 하 69, 논리 뷰포트 높이 ≈ 1734.
-const DIR: String = "/private/tmp/claude-501/-Users-im-yujin-Desktop-Cascade/f6002e9b-75fa-490d-83f5-3867bf2d9dec/scratchpad/shots/"
+const ShotDir = preload("res://tools/shot_dir.gd")
+# 출력 경로 = SHOT_DIR 환경변수, 없으면 build/shots/ (tools/shot_dir.gd 참조).
+var DIR: String = ShotDir.resolve("shots/")
 const INSET := Vector2(120.0, 69.0)
 const VH: int = 1734
 

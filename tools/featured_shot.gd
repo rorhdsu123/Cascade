@@ -2,8 +2,9 @@ extends SceneTree
 # featured 결정적 트랙 창 스모크 — 진입/렌더가 실제 창에서 파싱·런타임 에러 없이 도는가.
 #   렌더 경로는 무한 HUD/결과 재사용(C57·C58 픽셀검증 완료)이라 여기선 '깨지지 않고 뜨는가'만 본다.
 #   [[godot-pixel-verify-needs-window]] 창 필수: godot --path . --script tools/featured_shot.gd
-const DIR: String = "/private/tmp/claude-501/-Users-im-yujin-Desktop-Cascade-endless/d9711f36-7ab4-476a-9118-046b10970466/scratchpad/"
-
+const ShotDir = preload("res://tools/shot_dir.gd")
+# 출력 경로 = SHOT_DIR 환경변수, 없으면 build/shots/ (tools/shot_dir.gd 참조).
+var DIR: String = ShotDir.resolve("")
 func _initialize() -> void:
 	_run.call_deferred()
 

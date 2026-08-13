@@ -12,7 +12,9 @@ extends SceneTree
 #
 # 봇 수 선택은 tools/analytics_probe.gd의 것과 같은 로직이다(줄이 되는 수를 즉시 채택).
 
-const DIR: String = "/private/tmp/claude-501/-Users-im-yujin-Desktop-Cascade-worktrees-stage/4b17b509-e199-47ac-b935-323c71fffd62/scratchpad/store/"
+const ShotDir = preload("res://tools/shot_dir.gd")
+# 출력 경로 = SHOT_DIR 환경변수, 없으면 build/shots/ (tools/shot_dir.gd 참조).
+var DIR: String = ShotDir.resolve("store/")
 # 산출 규격 = 정확히 9:16(Play 폰 스크린샷 허용 종횡비의 끝값). 1080×1920.
 const SHOT_W: int = 1080
 const SHOT_H: int = 1920

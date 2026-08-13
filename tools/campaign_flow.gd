@@ -6,8 +6,9 @@ extends SceneTree
 # 목적: "스테이지 사이 연결 조직 + 새 위협 첫 등장 가독성"의 폴리싱 결함을 프레임으로 드러냄.
 # 플레이 진행이 배치(place_count) 기반이라 자동 플레이 대신 result_shot.gd처럼 대표 보드/적 상태를 주입한다.
 
-const DIR: String = "/private/tmp/claude-501/-Users-im-yujin-Desktop-Cascade-worktrees-stage/044773c2-357e-40d6-bf33-6bd037c3a086/scratchpad/cf_"
-
+const ShotDir = preload("res://tools/shot_dir.gd")
+# 출력 경로 = SHOT_DIR 환경변수, 없으면 build/shots/ (tools/shot_dir.gd 참조).
+var DIR: String = ShotDir.resolve("cf_")
 var g: Node
 
 func _initialize() -> void:

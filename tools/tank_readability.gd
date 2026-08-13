@@ -4,8 +4,9 @@ extends SceneTree
 #   godot --path . --script tools/tank_readability.gd
 # ⚠Main.gd는 안 건드림 — 색·판 레시피를 여기서 직접 그려 디자인 확정 전 비교만.
 
-const DIR: String = "/private/tmp/claude-501/-Users-im-yujin-Desktop-Cascade-worktrees-stage/044773c2-357e-40d6-bf33-6bd037c3a086/scratchpad/tank_"
-
+const ShotDir = preload("res://tools/shot_dir.gd")
+# 출력 경로 = SHOT_DIR 환경변수, 없으면 build/shots/ (tools/shot_dir.gd 참조).
+var DIR: String = ShotDir.resolve("tank_")
 # 게임 실제 색(Main.gd 상수 미러)
 const C_BASIC := Color("#a855f7")
 const C_TANK  := Color("#6d28d9")   # 현재

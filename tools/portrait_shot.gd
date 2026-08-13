@@ -2,8 +2,9 @@ extends SceneTree
 # 반응형 세로 프레임 창 검증. [[godot-pixel-verify-needs-window]] 창 필수(헤드리스 X).
 #   godot --path . --script tools/portrait_shot.gd
 # 폭 800 고정 · 창 높이를 폰 비율로 바꿔 viewport가 expand 되는지, 레이아웃이 파생되는지 확인.
-const DIR: String = "/private/tmp/claude-501/-Users-im-yujin-Desktop-Cascade-worktrees-stage/f16231b9-9641-40ea-80b9-aca7ddb43813/scratchpad/"
-
+const ShotDir = preload("res://tools/shot_dir.gd")
+# 출력 경로 = SHOT_DIR 환경변수, 없으면 build/shots/ (tools/shot_dir.gd 참조).
+var DIR: String = ShotDir.resolve("")
 func _initialize() -> void:
 	_run.call_deferred()
 

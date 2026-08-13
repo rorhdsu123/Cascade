@@ -4,8 +4,9 @@ extends SceneTree
 #   존1~4 + 프리스티지의 배경색이 뚜렷이 구분되는지 + 전이 비트(링+숫자)가 뜨는지 창 모드 캡처.
 # [[godot-pixel-verify-needs-window]] 렌더는 창 필수.  [[zoom-renders-to-judge-ui]] 확대 크롭으로 판단.
 
-const DIR: String = "/private/tmp/claude-501/-Users-im-yujin-Desktop-Cascade-worktrees-endless/0e8b8933-2b28-4c7a-b4cc-198df21b86e0/scratchpad/"
-
+const ShotDir = preload("res://tools/shot_dir.gd")
+# 출력 경로 = SHOT_DIR 환경변수, 없으면 build/shots/ (tools/shot_dir.gd 참조).
+var DIR: String = ShotDir.resolve("")
 func _initialize() -> void:
 	_run.call_deferred()
 
