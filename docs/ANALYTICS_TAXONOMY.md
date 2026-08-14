@@ -183,7 +183,7 @@ care_level=3인데도 진 판 = 완화 폭이 모자란 스테이지.
 ## 7. 우선순위 (첫 플테 빌드 = P0만)
 
 **P0 — 첫 사람 플테 빌드에 반드시:**
-`app_opened`, `session_ended`, `run_started`, `run_failed`(cause 필수), `revive_offered/taken/declined`, `stage_cleared/failed`, `tutorial_beat_completed`, `first_line_cleared`, `endless_run_ended`, `combo_peak`.
+`app_opened`, `session_ended`, `session_paused`, `run_started`, `run_failed`(cause 필수), `revive_offered/taken/declined`, `stage_cleared/failed`, `tutorial_beat_completed`, `first_line_cleared`, `endless_run_ended`, `combo_peak`.
 → 이 10여 개로 §5의 리스크 지표 대부분이 조립됨.
 
 **P1 — 실배선 여유 시:**

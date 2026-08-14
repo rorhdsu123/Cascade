@@ -114,7 +114,7 @@ def parse_time(v):
 class Session:
     __slots__ = ("sid", "install", "build", "platform", "events", "duration_ms",
                  "runs_played", "max_t_ms", "ended", "first_seen", "modes",
-                 "touch", "resumed", "first_session")
+                 "touch", "resumed", "first_session", "paused_ms", "paused_runs")
 
     def __init__(self, sid):
         self.sid = sid
@@ -131,16 +131,21 @@ class Session:
         self.touch = None        # True/False/None(옛 빌드 = 필드 없음)
         self.resumed = False     # 자리 비웠다 돌아와 열린 세션인가
         self.first_session = False
+        self.paused_ms = None      # 마지막 session_paused 스냅샷(탭을 안 닫고 떠난 사람용)
+        self.paused_runs = None
 
     @property
     def lived_ms(self):
         """머문 시간. `session_ended`가 있으면 그 값이 정답이다.
 
-        ⚠없으면 그 세션에서 본 마지막 `t_ms`로 대신하는데, 이건 **하한**이다 — 마지막 이벤트
-        이후에 더 놀다 나갔을 수 있다. 그래서 아래 표가 대체한 세션 수를 따로 찍는다.
-        웹에서 `session_ended`가 통째로 빠지는 건 실제로 겪은 사고다(C182)."""
+        없으면 **마지막 `session_paused` 스냅샷**을 쓴다 — 폰에서 탭을 안 닫고 홈으로 내린
+        사람이 그렇다(C205). 그것도 없으면 마지막 `t_ms`인데, 이건 **하한**이다(마지막 이벤트
+        이후에 더 놀다 나갔을 수 있다). 그래서 아래 표가 대체한 세션 수를 따로 찍는다.
+        웹에서 `session_ended`가 통째로 빠지는 건 실제로 겪은 사고다(C182·C205)."""
         if self.duration_ms is not None:
             return self.duration_ms
+        if self.paused_ms is not None:
+            return self.paused_ms
         return self.max_t_ms
 
     @property
@@ -148,6 +153,8 @@ class Session:
         """판 수. `session_ended.runs_played`가 정답이고, 없으면 `run_started`를 센다."""
         if self.runs_played is not None:
             return int(self.runs_played)
+        if self.paused_runs is not None:
+            return int(self.paused_runs)
         return self.events["run_started"]
 
 
@@ -181,6 +188,14 @@ def fold(events):
                 s.resumed = True
             if ev.get("is_first_session") in (True, "TRUE", "true", "1"):
                 s.first_session = True
+        if name == "session_paused":
+            # 여러 번 온다(가려질 때마다). **마지막 것**이 그 세션의 최신 상태다.
+            d = _num(ev.get("duration_ms"))
+            if d is not None and (s.paused_ms is None or d > s.paused_ms):
+                s.paused_ms = d
+            rp = _num(ev.get("runs_played"))
+            if rp is not None and (s.paused_runs is None or rp > s.paused_runs):
+                s.paused_runs = rp
         if name == "session_ended":
             s.ended = True
             d = _num(ev.get("duration_ms"))
@@ -359,7 +374,7 @@ def funnel(sessions, unit="세션"):
         print("\n  ⇒ 가장 크게 꺾이는 곳: %s → %s 에서 %d%s(%.0f%%)이 빠진다."
               % (worst[0], worst[1], worst[2], unit, 100.0 * worst[3]))
 
-    est = sum(1 for s in sessions if not s.ended)
+    est = sum(1 for s in sessions if not s.ended and getattr(s, "paused_ms", None) is None)
     if est:
         print("  ⚠%d%s은 `session_ended`가 없어 마지막 t_ms로 대신했다(체류는 하한값)."
               % (est, unit))

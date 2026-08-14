@@ -40,14 +40,14 @@ const REMOTE_MAX_BUFFER: int = 200    # 전송 실패가 쌓여도 여기까지.
 const REMOTE_TIMEOUT_S: float = 20.0
 # 배치가 안 차도 즉시 보내는 이벤트 — 세션이 여기서 끝나버릴 수 있는 자리들.
 #   이걸 안 하면 "한 판 하고 나간 사람"의 데이터가 영영 안 온다 = 이탈 분석이 통째로 빈다.
-const REMOTE_FLUSH_ON: Array = ["session_ended", "run_failed", "stage_cleared", "endless_run_ended"]
+const REMOTE_FLUSH_ON: Array = ["session_ended", "session_paused", "run_failed", "stage_cleared", "endless_run_ended"]
 const LOG_MAX_BYTES: int = 512 * 1024                 # 상한. 넘으면 새로 시작(플테 1인 세션엔 차고 넘침)
 const SCHEMA_VERSION: int = 1                         # 택소노미 v1
 
 # P0 이벤트 화이트리스트(ANALYTICS_TAXONOMY §7). 오타 이벤트가 조용히 쌓이는 걸 막는다 —
 #   목록에 없는 이름은 기록하되 `unknown_event` 플래그를 달아 리포트가 잡아낸다.
 const P0_EVENTS: Array = [
-	"app_opened", "session_ended",
+	"app_opened", "session_ended", "session_paused",
 	"run_started", "run_failed", "stage_cleared", "stage_failed",
 	"revive_offered", "revive_taken", "revive_declined",
 	"tutorial_beat_completed", "first_line_cleared",
@@ -177,6 +177,16 @@ func session_begin() -> void:
 		"resumed": _sessions_this_load > 0,   # 복귀로 생긴 세션인지 = 파편과 진짜 재방문을 가른다
 	})
 	_sessions_this_load += 1
+
+# 잠정 스냅샷 — 지금까지의 체류·판수를 남긴다. **세션은 안 닫는다.**
+#   이게 없으면 탭을 안 닫고 떠난 사람(= 폰 대부분)의 체류·판수가 통째로 빈다.
+func session_snapshot() -> void:
+	if not enabled or _session_id == "":
+		return
+	log_event("session_paused", {
+		"duration_ms": Time.get_ticks_msec() - _session_started_ms,
+		"runs_played": _runs_played,
+	})
 
 # 앱 종료(창 닫기·백그라운드 이탈). 세션 길이·판 수는 여기서만 확정된다.
 func session_end(end_ms: int = -1) -> void:
@@ -374,6 +384,14 @@ func _on_web_visibility(_args: Array) -> void:
 		return
 	if String(js.call("eval", "document.visibilityState", true)) == "hidden":
 		_hidden_at_ms = Time.get_ticks_msec()
+		# 🔴**여기서 스냅샷을 남겨야 한다.** 세션을 안 닫는 건 조각남을 막기 위한 것인데, 그 대가로
+		#   `session_ended`가 `pagehide`(탭 닫기)에만 걸리게 됐다. **폰에서 사람들은 탭을 안 닫는다** —
+		#   홈으로 내리고 그대로 잊는다. 그러면 체류·판수가 영영 안 오고, 판독기는 마지막 `t_ms`로
+		#   대신하는데 그건 **하한**이라 "60초를 넘겼나"를 낮게 깎는다(루프 1의 머리 지표다).
+		#   2026-08-14 드라이런에서 실제로 두 세션 다 `session_ended`가 없었다.
+		# ⚠종료가 아니라 **잠정 스냅샷**이다. 돌아오면 세션은 그대로 이어지고, 다음 스냅샷이
+		#   이걸 덮어쓴다. 판독은 `session_ended` > 마지막 `session_paused` > `t_ms` 순으로 고른다.
+		session_snapshot()
 		_remote_flush()      # 세션은 안 닫되 버퍼는 비운다(여기서 안 보내면 영영 못 보낸다)
 		return
 	# ── 복귀 ──

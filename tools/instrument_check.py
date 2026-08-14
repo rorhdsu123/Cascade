@@ -126,8 +126,10 @@ def main():
 
     # ④ 세션이 조각나지 않았나 — 이 수정의 본체
     print("\n[4] 세션 파편화")
+    # `session_ended`(탭 닫기)와 `session_paused`(홈으로 내림) 둘 다 본다 — 폰에선 후자가 대부분이다
     dur = [float(e["duration_ms"]) for e in evs
-           if e.get("event") == "session_ended" and e.get("duration_ms") not in (None, "")]
+           if e.get("event") in ("session_ended", "session_paused")
+           and e.get("duration_ms") not in (None, "")]
     per_install = defaultdict(set)
     for e in evs:
         per_install[e.get("install_id")].add(e.get("session_id"))
@@ -169,6 +171,21 @@ def main():
     for b in (1, 2):
         n = sum(1 for e in beats if str(e.get("beat")) == str(b))
         print("       박자%d: %d건" % (b, n))
+
+    # ⑤-b 체류가 실제로 잡히나 — 폰에서 탭을 안 닫으면 session_ended가 영영 안 온다(C205)
+    snaps = sum(1 for e in evs if e.get("event") == "session_paused")
+    ends = sum(1 for e in evs if e.get("event") == "session_ended")
+    sids = {e.get("session_id") for e in evs}
+    known = {e.get("session_id") for e in evs
+             if e.get("event") in ("session_ended", "session_paused")}
+    print("\n[5b] 체류 확보")
+    if not sids:
+        pass
+    elif len(known) < len(sids):
+        r.note("체류를 모르는 세션 %d개" % (len(sids) - len(known)),
+               "session_ended %d · session_paused %d — 폰이면 백그라운드로 내려봤나?" % (ends, snaps))
+    else:
+        r.ok("모든 세션의 체류를 안다", "session_ended %d · session_paused %d" % (ends, snaps))
 
     # ⑥ 회계 — 시작한 판이 끝났나
     print("\n[6] 판 회계")

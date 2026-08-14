@@ -66,6 +66,17 @@ func _run() -> void:
 	_ck(int(ev.get("duration_ms", -1)) == 45000,
 			"체류가 가려진 시각으로 잡힌다 (기대 45000, 실제 %s)" % str(ev.get("duration_ms")))
 
+	# ③-b 가려질 때 **잠정 스냅샷**이 남는다 — 탭을 안 닫고 떠난 사람의 체류를 이걸로만 안다
+	var g: Object = _new_service()
+	g.call("session_begin")
+	g.set("_session_started_ms", 0)
+	g.set("_runs_played", 2)
+	g.call("session_snapshot")
+	var sv: Dictionary = g.get("last_event")
+	_ck(String(sv.get("event", "")) == "session_paused", "가려질 때 session_paused가 남는다")
+	_ck(int(sv.get("runs_played", -1)) == 2, "스냅샷이 그때까지의 판 수를 담는다")
+	_ck(String(g.get("_session_id")) != "", "스냅샷은 세션을 닫지 않는다")
+
 	# ④ is_first_session은 한 로드의 **첫 세션에만** 참 — 여기가 8/13에 두 배로 새던 자리다
 	var d: Object = _new_service()
 	d.set("_is_first_session", true)
