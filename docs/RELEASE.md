@@ -406,7 +406,7 @@ zip을 갈면 URL은 그대로여도 **심사자가 보는 게임이 바뀐다**
 | Kind of project | HTML | 이게 아니면 "브라우저에서 실행" 체크박스가 안 나타난다 |
 | 업로드 파일 | `blockcastle-web.zip` + **"played in the browser" 체크** | 안 켜면 `No file provided to embed`로 페이지가 죽는다(실제로 밟았다) |
 | Embed | **Click to launch in fullscreen** | 원본 800×1280이라 페이지에 끼우면 노트북 화면에 안 들어간다. 이 모드에선 치수 입력칸이 아예 안 나온다 |
-| Frame options | **셋 다 끔** | ⚠`SharedArrayBuffer`는 nothreads 빌드에 불필요하고 켜면 헤더가 붙어 깨진다. `Mobile friendly`는 **웹 터치가 미검증**이라 루프 1은 PC로 좁힌다 |
+| Frame options | `SharedArrayBuffer` 끔 · **`Mobile friendly` 켬**(2026-08-14~) | ⚠`SharedArrayBuffer`는 nothreads 빌드에 불필요하고 켜면 헤더가 붙어 깨진다. `Mobile friendly`는 웹 터치가 미검증이라 꺼뒀는데 **8/14 아이폰 실측으로 열었다** — 다만 그 실측이 C196 결함을 먼저 드러냈다(아래) |
 | Pricing | **No payments** | 수급에서 실제로 문제되는 건 공개 여부가 아니라 수익 행위다. 여기가 방어선 |
 | Visibility | **Public** | ⚠`Draft`는 공유용 secret 링크가 안 나와서 **남에게 404**였다(실측). `Restricted`는 HTML 게임에서 문제 보고가 있어 피했다 |
 | Cover image | 630×500 · 로고+적 | 없으면 `og:image`가 비어 링크 미리보기에 그림이 안 뜬다 — 모집이 병목인 지금 손해가 크다 |
@@ -458,3 +458,26 @@ CDN 엣지의 옛 사본을 한 번 집었을 가능성이 가장 크다. **재�
 ⚠**이 검증으로 시트에 시험 줄이 들어갔다.** `install_id` = `33e3c0a067d592d4`(4세션) ·
 `0a2eaef2069e70a1`(1세션). 시트 메뉴의 '시험 줄 지우기'는 `probe-`로 시작하는 것만 지우므로
 **이 둘은 손으로 지워야 한다** — 안 지우면 루프 1의 5세션이 내 브라우저다.
+
+### 웹을 폰에서 미리 보는 법 — 로컬 HTTPS (2026-08-14)
+
+itch에 올리기 전에 실기기로 확인하려면 서버가 **HTTPS여야 한다.** Godot 웹은 부팅 시
+`isSecureContext`를 직접 검사하고, 아니면 게임 대신 이 화면을 띄운다:
+
+> The following features required to run Godot projects on the Web are missing:
+> Secure Context - Check web server configuration (use HTTPS)
+
+`python3 -m http.server`로는 **안 된다**(이 함정을 2026-08-14에 실제로 밟았다). 자체 서명으로 세운다:
+
+```bash
+openssl req -x509 -newkey rsa:2048 -nodes -keyout key.pem -out cert.pem -days 7 \
+  -subj "/CN=<LAN_IP>" -addext "subjectAltName=IP:<LAN_IP>"      # ⚠SAN 없으면 요즘 브라우저가 거부
+ipconfig getifaddr en0                                            # LAN IP
+```
+
+그다음 `ssl.SSLContext`로 감싼 `ThreadingHTTPServer`를 `build/web`에서 띄우고
+폰(같은 와이파이)에서 `https://<LAN_IP>:8443/`. Safari가 인증서 경고를 띄우면
+**자세히 보기 → 이 웹사이트 방문**으로 넘어간다 — 넘어가면 보안 컨텍스트로 잡힌다.
+⚠`.wasm`에 `Content-Type: application/wasm`을 붙일 것(스트리밍 컴파일).
+⚠평문 HTTP에선 `AudioWorklet`도 같이 죽는다(보안 컨텍스트 전용) — 즉 소리까지 못 본다.
+
