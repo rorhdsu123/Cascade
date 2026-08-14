@@ -151,6 +151,19 @@ func _run() -> void:
 	await process_frame
 	await process_frame
 
+	# ── 기본값부터 찍는다 ──────────────────────────────────────────────
+	# 아래 두 케이스는 `click_mode`를 **강제로** 세워놓고 각 경로를 밟는다 — 즉 "두 경로가 동작하나"만
+	# 본다. 정작 2026-08-14에 아이폰에서 터진 건 경로가 아니라 **어느 경로가 기본으로 잡히나**였다
+	# (웹 export는 `has_feature("mobile")`이 거짓이라 폰에서 PC 분기를 탔다). 그 값은 기기마다
+	# 다르므로 여기선 판정하지 않고 **찍기만 한다** — 이 줄이 없으면 다음에 또 안 보인다.
+	print("[기본값] is_touch_device=%s show_input_toggle=%s click_mode=%s (%s / touchscreen=%s)" % [
+			g.get("is_touch_device"), g.get("show_input_toggle"), g.get("click_mode"),
+			OS.get_name(), DisplayServer.is_touchscreen_available()])
+	_ck(bool(g.get("click_mode")) == bool(g.get("show_input_toggle")),
+			"기본 입력 방식이 기기 판정과 일치한다 (click_mode == show_input_toggle)")
+	_ck(not (bool(g.get("is_touch_device")) and bool(g.get("show_input_toggle"))),
+			"터치 기기엔 PC 전용 입력 토글을 안 그린다")
+
 	for case_name in ["drag", "click"]:
 		g.call("_start_stage", 0)
 		await process_frame

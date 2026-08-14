@@ -215,7 +215,18 @@ var mode_btn := Rect2(596.0, 900.0, 184.0, 46.0)
 #   ⚠**영상 촬영도 같은 부류다**(C172). 맥에서 녹화하면 이 버튼이 매 프레임 우하단에 찍혀,
 #   출고본에 없는 데스크톱 컨트롤이 홍보 영상에 남는다. `SHOOT=1`을 주면 어느 런처로 띄우든
 #   (play_stage · 무한 · 부팅 로고) 모바일과 같은 화면이 된다.
-var show_input_toggle: bool = not OS.has_feature("mobile") and OS.get_environment("SHOOT") != "1"
+# 🔴**`OS.has_feature("mobile")`은 네이티브 안드로이드·iOS 빌드에서만 참이다.** 웹 export를 폰
+#   브라우저로 열면 **거짓**이라 아래 판정이 통째로 PC 분기를 탄다. 2026-08-14 아이폰 실측에서
+#   드러났다: 조각을 끌어다 손을 떼도 안 놓이고 **한 번 더 탭해야** 놓였다(= 클릭 배치가 켜져 있었다.
+#   클릭 경로는 설계상 떼기를 무시한다). PC 전용 입력 토글 버튼까지 트레이에 그려진다.
+#   웹 루프 세 바퀴를 모바일로 받을 참이라 이건 폴리시가 아니라 **첫인상 그 자체**다.
+#   → 판정 기준을 '어느 플랫폼으로 빌드했나'에서 **'이 기기에 터치 화면이 있나'**로 옮긴다.
+#   ⚠`web_android`·`web_ios`는 Godot이 브라우저 OS를 보고 붙이는 태그다. 그걸로 못 잡는
+#     터치 노트북·태블릿은 `is_touchscreen_available()`이 받는다.
+var is_touch_device: bool = OS.has_feature("mobile") \
+		or OS.has_feature("web_android") or OS.has_feature("web_ios") \
+		or DisplayServer.is_touchscreen_available()
+var show_input_toggle: bool = not is_touch_device and OS.get_environment("SHOOT") != "1"
 
 # 설정 기어 — 플레이 중 우상단. 콤보 표시(우상단 y=26)와는 콤보를 왼쪽으로 밀어 비켜준다.
 var gear_rect := Rect2(748.0, 30.0, 44.0, 44.0)   # 우상단 설정 기어(_relayout이 세이프에어리어만큼 내림)
