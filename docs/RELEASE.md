@@ -141,7 +141,17 @@ godot --headless --path . --export-release "Android Submission" build/android/bl
 # ⚠굽기 전에 project.godot의 application/config/version 끝자리를 올릴 것(바로 아래 ⚠)
 godot --headless --path . --export-release "Web" build/web/index.html
 (cd build/web && zip -q -r -X ../blockcastle-web.zip .)
+
+# 🔴올리기 직전에 반드시 — 산출물이 지금 소스로 구워진 것인지 확인한다
+python3 tools/check_build_fresh.py build/web/index.pck
 ```
+
+🔴**"라이브 == 로컬"을 대조해도 낡은 빌드는 못 잡는다.** 2026-08-14에 실제로 밟았다:
+13:37에 구운 zip을 올리고, 14:00에 계측 두 칸을 더 넣고 다시 굽지 않았는데, 라이브 pck와
+로컬 pck를 바이트로 대조해 **통과 판정을 냈다**. 낡은 로컬 산출물과 비교하면 언제나 통과한다.
+게다가 버전을 안 올려서 **내용이 다른 두 빌드가 똑같이 `0.9.0-L1.3`을 달았다.**
+그 뒤 실기기 검사에서 새 필드 두 개가 안 나와서야 드러났다. 비교 대상은 로컬 산출물이 아니라
+**소스**여야 한다 — `check_build_fresh.py`가 그걸 본다.
 
 ⚠**웹을 다시 굽기 전에 `application/config/version`을 올린다.** 이 값이 계측의 `build_version`으로
 그대로 나가고(`analytics.gd:273`), **비어 있으면 `0.0.0-dev`로 나간다** — 2026-08-12까지 실제로 그랬다.
