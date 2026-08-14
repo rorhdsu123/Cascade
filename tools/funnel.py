@@ -96,8 +96,12 @@ def parse_time(v):
     if not v:
         return None
     s = str(v).strip().replace("T", " ")
-    for fmt in ("%Y-%m-%d %H:%M:%S.%f", "%Y-%m-%d %H:%M:%S", "%Y. %m. %d %H:%M:%S",
-                "%Y-%m-%d %H:%M", "%m/%d/%Y %H:%M:%S"):
+    # ⚠구글 시트 한국 로케일은 `2026. 8. 13 14:05:01`처럼 점과 공백을 섞어 내보낸다. 그리고
+    #   열 서식이 날짜만이면 **시각이 통째로 빠진 채** 떨어진다(2026-08-14에 실제로 막혔다) —
+    #   그때는 방문 병합이 '같은 날' 단위로 내려앉는다.
+    for fmt in ("%Y-%m-%d %H:%M:%S.%f", "%Y-%m-%d %H:%M:%S", "%Y-%m-%d %H:%M",
+                "%Y. %m. %d %H:%M:%S", "%Y. %m. %d %H:%M", "%Y. %m. %d",
+                "%m/%d/%Y %H:%M:%S"):
         try:
             return datetime.strptime(s.split("+")[0].strip(), fmt)
         except ValueError:
@@ -109,7 +113,8 @@ def parse_time(v):
 
 class Session:
     __slots__ = ("sid", "install", "build", "platform", "events", "duration_ms",
-                 "runs_played", "max_t_ms", "ended", "first_seen", "modes")
+                 "runs_played", "max_t_ms", "ended", "first_seen", "modes",
+                 "touch", "resumed", "first_session")
 
     def __init__(self, sid):
         self.sid = sid
@@ -123,6 +128,9 @@ class Session:
         self.ended = False
         self.first_seen = None
         self.modes = set()
+        self.touch = None        # True/False/None(옛 빌드 = 필드 없음)
+        self.resumed = False     # 자리 비웠다 돌아와 열린 세션인가
+        self.first_session = False
 
     @property
     def lived_ms(self):
@@ -165,6 +173,14 @@ def fold(events):
         when = parse_time(ev.get("received_at"))
         if when and (s.first_seen is None or when < s.first_seen):
             s.first_seen = when
+        if ev.get("touch") is not None:
+            s.touch = bool(ev["touch"]) if not isinstance(ev["touch"], str) \
+                else ev["touch"].strip().lower() in ("true", "1")
+        if name == "app_opened":
+            if ev.get("resumed") in (True, "TRUE", "true", "1"):
+                s.resumed = True
+            if ev.get("is_first_session") in (True, "TRUE", "true", "1"):
+                s.first_session = True
         if name == "session_ended":
             s.ended = True
             d = _num(ev.get("duration_ms"))
@@ -176,6 +192,122 @@ def fold(events):
     return list(sessions.values())
 
 
+
+# ── 방문으로 접기 ──────────────────────────────────────────────────────────
+
+VISIT_GAP_MIN = 5   # analytics.gd SESSION_GRACE_MS와 같은 값으로 둔다(둘이 다르면 해석이 어긋난다)
+
+
+class Visit:
+    """한 사람의 한 번 앉음. **세션이 아니라 이게 판정 단위다.**
+
+    왜 필요한가 — 폰은 화면 잠금·알림·앱 전환마다 세션이 끊긴다. 2026-08-13 첫 코호트에서
+    세션 33건 중 12건이 4초 미만이었고, 한 사람이 하루에 11개를 만들었다. 그 파편을 분모에
+    넣으면 "한 판도 안 한 세션 69.7%"처럼 **사람 행동과 무관한 숫자**가 나온다(방문으로 접으면
+    18%다). C198이 게임 쪽에서 유예를 넣었지만, **그 전에 쌓인 데이터는 여기서 되붙여야 한다.**
+
+    ⚠`received_at`에 시각이 없으면(시트 열 서식이 날짜만인 경우) 같은 날 = 한 방문으로
+      내려앉는다. 거친 근사이므로 그때는 그렇게 찍어 알린다."""
+
+    __slots__ = ("install", "sessions", "day", "coarse")
+
+    def __init__(self, install, day, coarse):
+        self.install = install
+        self.sessions = []
+        self.day = day
+        self.coarse = coarse
+
+    # funnel()이 세션과 같은 얼굴로 다룰 수 있게 맞춘다
+    @property
+    def lived_ms(self):
+        return sum(x.lived_ms for x in self.sessions)
+
+    @property
+    def runs(self):
+        return sum(x.runs for x in self.sessions)
+
+    @property
+    def events(self):
+        c = Counter()
+        for x in self.sessions:
+            c.update(x.events)
+        return c
+
+    @property
+    def ended(self):
+        return any(x.ended for x in self.sessions)
+
+    @property
+    def build(self):
+        b = sorted({x.build for x in self.sessions if x.build})
+        return b[-1] if b else ""
+
+    @property
+    def touch(self):
+        for x in self.sessions:
+            if x.touch is not None:
+                return x.touch
+        return None
+
+
+def fold_visits(sessions, gap_min=VISIT_GAP_MIN):
+    by_install = defaultdict(list)
+    for s in sessions:
+        by_install[s.install or "(없음)"].append(s)
+
+    visits = []
+    coarse_any = False
+    for install, group in by_install.items():
+        timed = [s for s in group if s.first_seen is not None]
+        untimed = [s for s in group if s.first_seen is None]
+        # 시각이 아예 없으면 묶을 근거가 없다 — 통째로 한 방문으로 본다(과소 계산 쪽으로 튄다)
+        if untimed:
+            v = Visit(install, None, True)
+            v.sessions = untimed
+            visits.append(v)
+            coarse_any = True
+        timed.sort(key=lambda s: s.first_seen)
+        cur = None
+        for s in timed:
+            # 시각이 00:00:00뿐이면 날짜만 있는 것이다 → 같은 날끼리 묶는 거친 모드
+            same_visit = (cur is not None
+                          and (s.first_seen - cur.sessions[-1].first_seen).total_seconds() <= gap_min * 60)
+            if cur is not None and s.first_seen.time() == cur.sessions[-1].first_seen.time() == \
+                    datetime.min.time():
+                same_visit = s.first_seen.date() == cur.sessions[-1].first_seen.date()
+                cur.coarse = True
+                coarse_any = True
+            if same_visit:
+                cur.sessions.append(s)
+            else:
+                cur = Visit(install, s.first_seen.date(), False)
+                cur.sessions.append(s)
+                visits.append(cur)
+    return visits, coarse_any
+
+
+def touch_split(units):
+    """폰인가 PC인가. 이 칸이 없으면 폰만 겪는 문제를 데이터로 못 가른다(C198에서 추가)."""
+    g = defaultdict(list)
+    for u in units:
+        g[{True: "폰(터치)", False: "PC", None: "모름(옛 빌드)"}[u.touch]].append(u)
+    if len(g) <= 1 and "모름(옛 빌드)" in g:
+        print("\n── 기기 ──\n  전부 `touch` 필드가 없는 옛 빌드다 — 폰/PC를 가를 수 없다(C198 이후 빌드부터 나온다).")
+        return
+    print("\n── 기기별 (방문 단위) ──")
+    print("  %-14s %5s %9s %9s %10s" % ("기기", "방문", "첫판시작", "60초넘김", "판2회+"))
+    for k in ("폰(터치)", "PC", "모름(옛 빌드)"):
+        if k not in g:
+            continue
+        u = g[k]
+        n = len(u)
+        print("  %-14s %5d %8.0f%% %8.0f%% %9.0f%%" % (
+            k, n,
+            100.0 * sum(1 for x in u if x.runs >= 1) / n,
+            100.0 * sum(1 for x in u if x.lived_ms >= SURVIVE_MS) / n,
+            100.0 * sum(1 for x in u if x.runs >= 2) / n))
+
+
 # ── 출력 ───────────────────────────────────────────────────────────────────
 
 def bar(frac, width=24):
@@ -183,7 +315,7 @@ def bar(frac, width=24):
     return "█" * n + "·" * (width - n)
 
 
-def funnel(sessions):
+def funnel(sessions, unit="세션"):
     total = len(sessions)
     # ⚠**순서가 인과 순서여야 한다.** 처음엔 "세션 → 60초 → 첫 판"으로 짰는데, 첫 실측에서
     #   60초 0세션인데 첫 판 1세션이 나왔다 — 봇이 60초 안에 여러 판을 굴렸기 때문이다.
@@ -192,14 +324,14 @@ def funnel(sessions):
     # ⚠그리고 **누적으로 센다** — 각 칸은 '앞 칸을 전부 통과한 세션'이다. 독립 술어로 세면
     #   중간을 건너뛴 세션이 아래 칸에 되살아나서, 이 도구를 만든 이유가 사라진다.
     steps = [
-        ("세션 시작",       lambda s: True),
+        ("시작",            lambda s: True),
         ("첫 판 시작",      lambda s: s.runs >= 1),
         ("60초 넘김",       lambda s: s.lived_ms >= SURVIVE_MS),
         ("첫 클리어",       lambda s: s.events["stage_cleared"] >= 1),
         ("두 번째 판",      lambda s: s.runs >= 2),
     ]
-    print("\n── 이탈 퍼널 (세션 단위·누적) ──")
-    print("  %-12s %6s %8s %8s   %-24s %s" % ("단계", "세션", "직전대비", "전체대비", "", "단독"))
+    print("\n── 이탈 퍼널 (%s 단위·누적) ──" % unit)
+    print("  %-12s %6s %8s %8s   %-24s %s" % ("단계", unit, "직전대비", "전체대비", "", "단독"))
     prev = None
     rows = []
     alive = list(sessions)
@@ -224,13 +356,13 @@ def funnel(sessions):
             if drop > worst_drop:
                 worst, worst_drop = (a_label, b_label, a - b, drop), drop
     if worst and worst[2] > 0:
-        print("\n  ⇒ 가장 크게 꺾이는 곳: %s → %s 에서 %d세션(%.0f%%)이 빠진다."
-              % (worst[0], worst[1], worst[2], 100.0 * worst[3]))
+        print("\n  ⇒ 가장 크게 꺾이는 곳: %s → %s 에서 %d%s(%.0f%%)이 빠진다."
+              % (worst[0], worst[1], worst[2], unit, 100.0 * worst[3]))
 
     est = sum(1 for s in sessions if not s.ended)
     if est:
-        print("  ⚠%d세션은 `session_ended`가 없어 마지막 t_ms로 대신했다(체류는 하한값)."
-              % est)
+        print("  ⚠%d%s은 `session_ended`가 없어 마지막 t_ms로 대신했다(체류는 하한값)."
+              % (est, unit))
         if total and est / total > 0.2:
             print("    비율이 20%를 넘는다 — 비콘 경로부터 의심할 것(C182와 같은 사고).")
 
@@ -352,12 +484,24 @@ def main():
           % (len(events), len(sessions), len(installs),
              ("  (제외 %d세션)" % dropped) if dropped else ""))
 
-    funnel(sessions)
+    visits, coarse = fold_visits(sessions)
+    print("  → 방문 %d건으로 접었다 (세션 %d → 방문 %d, 유예 %d분)"
+          % (len(visits), len(sessions), len(visits), VISIT_GAP_MIN))
+    if coarse:
+        print("  ⚠일부는 시각이 없어 **같은 날 = 한 방문**으로 접었다(거친 근사). "
+              "시트 '받은시각' 열 서식에 시각을 넣을 것.")
+
+    # 🔴판정 단위는 **방문**이다. 세션은 폰에서 한 앉음이 조각나므로 사람 행동을 못 나타낸다.
+    #   세션 퍼널도 같이 찍는 건 둘이 얼마나 벌어지는지가 곧 파편화의 크기이기 때문이다.
+    funnel(visits, unit="방문")
+    touch_split(visits)
+    print("\n(참고) 같은 자료를 세션 단위로 보면 —")
+    funnel(sessions, unit="세션")
     exits(sessions)
     onboarding(sessions)
     revisits(sessions)
     by_build(sessions)
-    print("\n통과선은 docs/ROADMAP.md §3-C. 판정은 사람이 한다.")
+    print("\n통과선은 docs/ROADMAP.md §3-C(방문 단위로 읽을 것). 판정은 사람이 한다.")
 
 
 if __name__ == "__main__":
