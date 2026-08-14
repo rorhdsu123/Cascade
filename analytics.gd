@@ -106,8 +106,17 @@ func _init() -> void:
 	# 원격은 `enabled`보다 한 겹 더 조인다 — **어떤 하네스에서도 절대 안 나간다.**
 	#   프로브는 계측이 켜진 채 도니까, 이 조건이 없으면 봇 판이 실제 수집기로 흘러들어
 	#   사람 데이터에 섞인다(로컬 JSONL은 프로브가 스스로 지우므로 문제없다).
+	# ⚠**하네스가 아닌 손 플레이도 막을 수단이 필요하다.** 위 `--script` 게이트는 자동화만 잡는다 —
+	#   개발자가 그냥 게임을 띄워 확인하는 순간(창 모드·인자 없음) 그 판이 실제 수집기로 나가서
+	#   플레이테스트 표본에 섞인다. 시트 대시보드는 플랫폼을 안 가리므로 `desktop_*` 한 줄이
+	#   "60초 넘긴 비율" 같은 값을 통째로 흔든다. 2026-08-13에 브라우저 검증만으로 5세션이
+	#   섞여 손으로 지워야 했다 — 그 일이 반복되지 않게 스위치를 둔다.
+	#     ANALYTICS_REMOTE=0 godot --path .      ← 로컬만 기록, 시트로 안 보냄
 	_remote_url = _load_remote_url()
-	_remote_on = enabled and _remote_url != "" and not args.has("--script")
+	var remote_off: bool = OS.get_environment("ANALYTICS_REMOTE") == "0"
+	_remote_on = enabled and _remote_url != "" and not args.has("--script") and not remote_off
+	if remote_off:
+		print("[analytics] ANALYTICS_REMOTE=0 — 원격 전송 끔(로컬 JSONL만 남는다)")
 	_load_meta()
 
 # 주소를 파일에서 읽는다(저장소 밖 보관 — 위 상수 주석 참조).
