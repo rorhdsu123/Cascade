@@ -66,6 +66,7 @@ var last_event: Dictionary = {}   # 마지막 발화(probe 검증용)
 var _rng := RandomNumberGenerator.new()   # 전용 RNG — 게임 스트림과 분리(불변식 ①)
 var _session_id: String = ""
 var _install_id: String = ""
+var is_touch: bool = detect_touch_device()
 var _is_first_session: bool = false
 var _session_started_ms: int = 0
 var _runs_played: int = 0
@@ -83,8 +84,19 @@ var _remote_http: HTTPRequest = null    # 웹이 아닐 때만 만든다(웹은 
 var _remote_url: String = ""       # 파일에서 읽는다. 없으면 빈 문자열 = 원격 꺼짐
 # 웹 세션 경계 훅. 콜백은 멤버로 붙들어야 GC를 안 당한다.
 var _web_hooked: bool = false
+var _hidden_at_ms: int = -1          # 가려진 시각(복귀 때 자리 비운 시간을 역산한다)
+var _sessions_this_load: int = 0     # 이 페이지 로드에서 연 세션 수(is_first_session 정정용)
 var _web_cb_vis: Variant = null
 var _web_cb_hide: Variant = null
+
+# 터치 기기인가 — **Main.gd와 여기가 같은 값을 써야 한다.** 조건을 두 군데 적으면 어긋나므로
+# 정의는 여기 하나뿐이고 Main.gd는 이 static을 부른다.
+# ⚠`OS.has_feature("mobile")`은 네이티브 안드로이드·iOS 빌드에서만 참이다 — 웹을 폰으로 열면
+#   거짓이라 그것만 보면 폰을 PC로 오판한다(C196에서 실제로 그랬다).
+static func detect_touch_device() -> bool:
+	return OS.has_feature("mobile") \
+			or OS.has_feature("web_android") or OS.has_feature("web_ios") \
+			or DisplayServer.is_touchscreen_available()
 
 func _init() -> void:
 	_rng.randomize()
@@ -154,14 +166,27 @@ func session_begin() -> void:
 	_session_started_ms = Time.get_ticks_msec()
 	_runs_played = 0
 	_session_first_line = false
-	log_event("app_opened", {"is_first_session": _is_first_session, "cold_start": true})
+	# ⚠`_is_first_session`은 `_load_meta()`가 `_init`에서 **한 번만** 계산한다. 그런데 이 함수는
+	#   한 페이지 로드 안에서 여러 번 불릴 수 있다(아래 가시성 복귀). 그대로 내보내면 **한 로드 안의
+	#   모든 세션이 같은 값을 달고 나가서**, 8/13 표본에선 11명 중 6명이 "첫 실행"을 2~3번 보고했다
+	#   — 그 필드로 '새 사람'을 세면 두 배로 샌다. 첫 세션에만 참으로 내보낸다.
+	var first: bool = _is_first_session and _sessions_this_load == 0
+	log_event("app_opened", {
+		"is_first_session": first,
+		"cold_start": _sessions_this_load == 0,
+		"resumed": _sessions_this_load > 0,   # 복귀로 생긴 세션인지 = 파편과 진짜 재방문을 가른다
+	})
+	_sessions_this_load += 1
 
 # 앱 종료(창 닫기·백그라운드 이탈). 세션 길이·판 수는 여기서만 확정된다.
-func session_end() -> void:
+func session_end(end_ms: int = -1) -> void:
 	if not enabled or _session_id == "":
 		return
+	# ⚠`end_ms`는 **가려진 순간**을 넣기 위한 것이다. 유예(아래)를 두면 세션이 "돌아온 시점"에
+	#   닫히는데, 그때 시각으로 길이를 재면 화면 꺼둔 시간까지 체류로 잡힌다.
+	var t_end: int = Time.get_ticks_msec() if end_ms < 0 else end_ms
 	log_event("session_ended", {
-		"duration_ms": Time.get_ticks_msec() - _session_started_ms,
+		"duration_ms": t_end - _session_started_ms,
 		"runs_played": _runs_played,
 	})
 	_session_id = ""
@@ -218,6 +243,10 @@ func log_event(name: String, params: Dictionary = {}) -> void:
 		"platform": _platform(),
 		"session_id": _session_id,
 		"install_id": _install_id,
+		# 🔴웹은 폰이든 PC든 platform이 "web" 하나다. 그래서 첫 코호트(2026-08-13)에서 **폰만 터진
+		#   입력 결함(C196)의 영향 범위를 데이터로 가릴 수가 없었다** — L1.1 자료를 살릴 수도 버릴
+		#   수도 없게 됐다. 한 칸이면 다시는 그 자리에 안 선다.
+		"touch": is_touch,
 	}
 	if _mode != "":
 		ev["mode"] = _mode
@@ -323,17 +352,41 @@ func _install_web_lifecycle() -> void:
 	win.addEventListener("visibilitychange", _web_cb_vis)
 	win.addEventListener("pagehide", _web_cb_hide)
 
+# 🔴**가려질 때마다 세션을 끊으면 폰에서 한 방문이 조각난다.** 첫 실측(2026-08-13, 10명)에서
+#   드러났다: 세션 33건 중 **12건이 4초 미만**이고 중앙값이 12초였다. 한 사람이 하루에 세션 11개를
+#   만들었는데 그중 8개가 1초대다. `visibilitychange→hidden`은 탭 전환뿐 아니라 **화면 잠금·알림·
+#   앱 전환**에서도 뜨기 때문이다. 그 파편들이 전부 "판 0회 세션"으로 분모에 들어가
+#   "한 판도 안 한 세션 69.7%"라는 **허깨비 지표**를 만들었다(방문 단위로 접으면 18%다).
+#
+# 그래서 **가려짐 = 세션 종료**를 끊었다. 대신:
+#   · 가려질 때 **즉시 전송**한다 — C182가 종료 이벤트로 얻던 안전망(짧게 놀다 나간 사람의 버퍼가
+#     통째로 사라지는 것)은 그대로 지켜야 한다. 끊는 건 세션이지 전송이 아니다.
+#   · 돌아왔을 때 **자리를 비운 시간**을 보고 판단한다. 유예보다 짧으면 같은 세션을 잇고,
+#     길면 그제야 닫고 새로 연다. **닫는 시각은 '돌아온 때'가 아니라 '가려진 때'** — 안 그러면
+#     화면 꺼둔 시간이 체류로 잡힌다.
+# ⚠타이머로는 못 한다. 가려진 동안 브라우저가 rAF를 멈춰 `_process`가 안 돌기 때문에,
+#   '가려진 시각'을 적어두고 **복귀 시점에 역산**하는 방식이어야 한다.
+const SESSION_GRACE_MS: int = 300000   # 5분. 알림·앱 전환은 흡수하고, 한참 뒤 복귀는 새 방문으로 본다
+
 func _on_web_visibility(_args: Array) -> void:
 	var js: Object = _js()
 	if js == null:
 		return
 	if String(js.call("eval", "document.visibilityState", true)) == "hidden":
-		session_end()
-	elif _session_id == "":
-		session_begin()      # 돌아왔다 = 새 세션. session_begin은 중복 호출을 막지 않으므로 여기서 건다
+		_hidden_at_ms = Time.get_ticks_msec()
+		_remote_flush()      # 세션은 안 닫되 버퍼는 비운다(여기서 안 보내면 영영 못 보낸다)
+		return
+	# ── 복귀 ──
+	if _session_id == "":
+		session_begin()      # pagehide 등으로 이미 닫혔으면 새로 연다
+	elif _hidden_at_ms >= 0 and Time.get_ticks_msec() - _hidden_at_ms >= SESSION_GRACE_MS:
+		session_end(_hidden_at_ms)
+		session_begin()
+	_hidden_at_ms = -1
 
 func _on_web_pagehide(_args: Array) -> void:
-	session_end()            # 이미 닫혔으면 session_end가 스스로 되돌아간다(_session_id == "")
+	# 진짜 이탈이다(탭 닫기·이동). 가려진 채로 떠났으면 그때를 끝으로 잡는다.
+	session_end(_hidden_at_ms)   # 이미 닫혔으면 session_end가 스스로 되돌아간다(_session_id == "")
 
 # --- 원격 백엔드 (우리 엔드포인트로 HTTP POST) ---
 #

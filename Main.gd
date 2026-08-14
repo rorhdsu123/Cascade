@@ -223,9 +223,9 @@ var mode_btn := Rect2(596.0, 900.0, 184.0, 46.0)
 #   → 판정 기준을 '어느 플랫폼으로 빌드했나'에서 **'이 기기에 터치 화면이 있나'**로 옮긴다.
 #   ⚠`web_android`·`web_ios`는 Godot이 브라우저 OS를 보고 붙이는 태그다. 그걸로 못 잡는
 #     터치 노트북·태블릿은 `is_touchscreen_available()`이 받는다.
-var is_touch_device: bool = OS.has_feature("mobile") \
-		or OS.has_feature("web_android") or OS.has_feature("web_ios") \
-		or DisplayServer.is_touchscreen_available()
+#   ⚠정의는 `analytics.gd`에 하나만 둔다 — 계측도 같은 값을 이벤트에 실어야 하는데, 조건을
+#     두 군데 적으면 화면과 데이터가 서로 다른 기기를 말하게 된다.
+var is_touch_device: bool = AnalyticsService.detect_touch_device()
 var show_input_toggle: bool = not is_touch_device and OS.get_environment("SHOOT") != "1"
 
 # 설정 기어 — 플레이 중 우상단. 콤보 표시(우상단 y=26)와는 콤보를 왼쪽으로 밀어 비켜준다.

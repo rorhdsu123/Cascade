@@ -68,6 +68,19 @@ function doGet() {
   return ContentService.createTextOutput('ok');
 }
 
+// ⚠'받은시각'은 **시각까지** 보여야 한다. 기본 서식이 날짜만이면 CSV로 내려받았을 때
+//   `2026. 8. 13`처럼 날짜뿐이라, **세션을 시간 간격으로 묶을 수가 없다** — 폰은 한 방문이
+//   여러 세션으로 쪼개지므로(가려짐), 그걸 되붙이는 유일한 단서가 시각이다.
+//   2026-08-14 첫 판독에서 실제로 막혔다. 값은 원래 datetime이고 표시만 날짜였다.
+function _fixTimeFormat(sheet) {
+  try {
+    sheet.getRange(2, 1, Math.max(sheet.getMaxRows() - 1, 1), 1)
+         .setNumberFormat('yyyy-mm-dd hh:mm:ss');
+  } catch (err) {
+    console.error('시각 서식 적용 실패: ' + err);
+  }
+}
+
 // 숫자 칸엔 숫자를 넣는다 — 문자열로 들어가면 AVERAGEIF 같은 게 조용히 0을 센다.
 function _num(v) {
   return (v === undefined || v === null || v === '') ? '' : Number(v);
@@ -87,6 +100,7 @@ function _dataSheet() {
     sheet.setFrozenRows(1);
     sheet.getRange(1, 1, 1, COLUMNS.length).setFontWeight('bold');
   }
+  _fixTimeFormat(sheet);
   return sheet;
 }
 
@@ -158,10 +172,11 @@ const DICT_ROWS = [
   ['플랫폼', 'web / android / desktop_*', '웹 플레이테스트인지 구분'],
   ['모드', 'campaign / endless / featured', '듀얼코어 어느 기둥인지 — 가장 중요한 축'],
   ['t_ms', '게임 켠 뒤 경과(ms)', '한 세션 안의 시간 흐름. 절대 시각이 아니다'],
+  ['touch', '터치 화면 기기인가(true/false)', '⭐웹은 폰이든 PC든 플랫폼이 web 하나다. 폰만 겪는 문제를 가리려면 이 칸이 있어야 한다(2026-08-14 추가)'],
   ['', '', ''],
   ['— 이벤트 —', '', ''],
-  ['app_opened', '앱을 켰다', '세션 시작. 첫 실행인지도 같이 온다'],
-  ['session_ended', '앱을 껐다(탭 닫기·전환 포함)', '⭐머문 시간(duration_ms)과 그 세션의 판 수(runs_played). 루프 1의 "60초를 넘기나"가 여기'],
+  ['app_opened', '앱을 켰다', '세션 시작. is_first_session=이 기기의 첫 실행인가 · resumed=자리를 비웠다 돌아와 다시 열린 세션인가'],
+  ['session_ended', '앱을 껐다(탭 닫기·5분 넘게 자리 비움)', '⭐머문 시간(duration_ms)과 그 세션의 판 수(runs_played). ⚠짧게 가려진 것으론 안 끊는다 — 폰에서 한 방문이 조각나던 걸 2026-08-14에 고쳤다(그 전 데이터는 세션이 잘게 쪼개져 있다)'],
   ['run_started', '한 판 시작', '모드·시드'],
   ['stage_cleared', '스테이지 클리어', '스테이지 번호·걸린 시간·최대 콤보·잡은 수·샌 수·부활 썼나·2줄3줄 동시 클리어'],
   ['stage_failed', '스테이지 실패', '⭐스테이지 번호·왜 졌나·이 스테이지 몇 번째 실패인가. 같은 곳에서 3번이면 막힌 것'],
@@ -173,7 +188,7 @@ const DICT_ROWS = [
   ['revive_offered', '부활 제안이 떴다', '광고가 준비돼 있었는지도 같이'],
   ['revive_taken', '부활을 봤다', '광고를 볼 사람인가 = 수익 축의 원재료'],
   ['revive_declined', '부활을 거절했다', '위와 짝'],
-  ['ad_*', '광고 관련 7종', '⚠웹에선 안 온다(AdMob이 네이티브). 클로즈드 테스트부터'],
+  ['ad_*', '광고 관련 7종', '⚠웹에도 온다 — AdMob은 네이티브지만 웹은 목(mock) 광고가 돌아 ad_requested·ad_filled가 찍힌다(2026-08-14 실측 정정). 진짜 수익 신호는 클로즈드 테스트부터'],
   ['', '', ''],
   ['— 안 남기는 것 —', '', ''],
   ['개인정보', '전부 안 받는다', '이름·이메일·위치·아이피 없음. install_id는 무작위 문자열이라 역추적이 안 된다'],
