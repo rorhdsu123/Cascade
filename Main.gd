@@ -2042,6 +2042,12 @@ func _track_run_start() -> void:
 	if not endless:
 		p["stage_id"] = stage_idx + 1
 		p["attempt_n"] = int(fail_streak.get(stage_idx, 0)) + 1   # 이 스테이지 몇 번째 시도인가(벽 탐지)
+		# 🔴튜토리얼 **분모**다. 완주율을 재려면 "튜토리얼에 들어온 사람"이 있어야 하는데
+		#   `ANALYTICS_TAXONOMY` §5는 그 자리에 `tutorial_beat_started`를 적어뒀고 그건
+		#   **구현된 적이 없다**(2026-08-14 확인). `stage_id==1`로 대신하면 최초 클리어 뒤의
+		#   재도전까지 섞인다 — 그땐 `_tut_active()`가 거짓이라 박자가 아예 안 뜨므로
+		#   분모만 부풀어 완주율이 가짜로 내려간다. 그래서 한 칸으로 못박는다.
+		p["is_tutorial"] = _tut_active()
 	_analytics.run_begin(_analytics_mode(), game_seed, p)
 
 # 판 실패 — cause가 핵심(core_death=밀물에 밀림 / stuck=패킹 실패 / vault_lost=다 털림).
@@ -3672,7 +3678,11 @@ func _reveal_leaks() -> void:
 		#   여기에 사건 캡션 한 번만 얹어 "왜 아팠나"를 말로 묶어준다(1회성, 강제 아님).
 		if _tut_active() and not tut_leak_taught:
 			tut_leak_taught = true
-			_analytics.log_event("tutorial_beat_completed", {"beat": 3})
+			# ⚠**박자3은 과제가 아니라 사건이다.** 플레이어가 '완료'하는 게 아니라 적을 한 번
+			#   통과시켰을 때 뜬다 — 잘 하면 영영 안 뜬다. 그래서 1·2와 한 퍼널에 세우면 안 된다.
+			#   2026-08-14 첫 판독에서 실제로 오독했다(10→9→4를 "박자3이 벽"으로 읽었는데,
+			#   박자3이 뜬 4세션은 **전원 스테이지1을 깼다**). 원자료만 봐도 알게 표시를 남긴다.
+			_analytics.log_event("tutorial_beat_completed", {"beat": 3, "optional": true})
 			tut_flash_msg = _t("tut_leak")
 			tut_flash_t = TUT_FLASH_DUR
 	pending_leaks = []

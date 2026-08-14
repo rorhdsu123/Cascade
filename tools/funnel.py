@@ -390,12 +390,25 @@ def exits(sessions, top=8):
         print("  %-24s %4d" % (name, n))
 
 
-def onboarding(sessions):
-    beats = [sum(1 for s in sessions if s.events.get("tutorial_beat_completed"))]
-    print("\n── 온보딩 ──")
-    print("  튜토리얼 박자를 하나라도 끝낸 세션  %4d" % beats[0])
-    print("  첫 줄을 지운 세션                   %4d"
-          % sum(1 for s in sessions if s.events["first_line_cleared"]))
+def onboarding(sessions, beats_by_sid, tut_sids, s1_clear_sids):
+    """튜토리얼 완주 = **박자2**다(거기서 tut_phase가 0이 되며 끝난다).
+
+    🔴박자3을 여기 세우지 않는다. 그건 과제가 아니라 **사건**이다 — 적을 한 번 통과시켜야 뜨고
+    잘 하면 영영 안 뜬다. 2026-08-14에 옛 표(1·2·3 세로 나열 + "줄어드는 폭이 곧 이탈")를 믿고
+    10→9→4를 "박자3이 벽"으로 읽었는데, **박자3이 뜬 4세션은 전원 스테이지1을 깼다.**"""
+    n0 = len(tut_sids)
+    b1 = sum(1 for sid in beats_by_sid if 1 in beats_by_sid[sid])
+    b2 = sum(1 for sid in beats_by_sid if 2 in beats_by_sid[sid])
+    b3 = sum(1 for sid in beats_by_sid if 3 in beats_by_sid[sid])
+    print("\n── 온보딩 (튜토리얼을 끝냈나) ──")
+    pct = lambda k: "—" if n0 == 0 else "%5.0f%%" % (100.0 * k / n0)
+    for label, k in [("튜토리얼 진입", n0), ("박자1 — 배치", b1),
+                     ("박자2 — 처치 = 완주", b2), ("스테이지1 클리어", len(s1_clear_sids))]:
+        print("  %-20s %4d  %s" % (label, k, pct(k)))
+    print("  %-20s %4d  %s   ← 사건. 낮은 건 나쁜 게 아니다(안 뚫렸다는 뜻일 수 있다)"
+          % ("박자3 — 손해 학습", b3, pct(b3)))
+    print("  %-20s %4d"
+          % ("첫 줄 지움", sum(1 for s in sessions if s.events["first_line_cleared"])))
 
 
 def revisits(sessions):
@@ -498,7 +511,22 @@ def main():
     print("\n(참고) 같은 자료를 세션 단위로 보면 —")
     funnel(sessions, unit="세션")
     exits(sessions)
-    onboarding(sessions)
+    beats_by_sid = defaultdict(set)
+    tut_sids, s1_clear_sids = set(), set()
+    for ev in events:
+        sid = str(ev.get("session_id") or "")
+        name = str(ev.get("event") or "")
+        if name == "tutorial_beat_completed" and ev.get("beat") not in (None, ""):
+            beats_by_sid[sid].add(int(float(ev["beat"])))
+        elif name == "run_started":
+            # `is_tutorial`은 C201부터 붙는다. 없는 옛 자료는 stage_id==1로 근사한다
+            # (그러면 최초 클리어 뒤 재도전까지 섞여 분모가 부푼다 — 그래서 새 칸을 넣었다).
+            t = ev.get("is_tutorial")
+            if t in (True, "TRUE", "true", "1") or (t is None and str(ev.get("stage_id")) == "1"):
+                tut_sids.add(sid)
+        elif name == "stage_cleared" and str(ev.get("stage_id")) == "1":
+            s1_clear_sids.add(sid)
+    onboarding(sessions, beats_by_sid, tut_sids, s1_clear_sids)
     revisits(sessions)
     by_build(sessions)
     print("\n통과선은 docs/ROADMAP.md §3-C(방문 단위로 읽을 것). 판정은 사람이 한다.")

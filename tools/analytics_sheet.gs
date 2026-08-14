@@ -177,14 +177,14 @@ const DICT_ROWS = [
   ['— 이벤트 —', '', ''],
   ['app_opened', '앱을 켰다', '세션 시작. is_first_session=이 기기의 첫 실행인가 · resumed=자리를 비웠다 돌아와 다시 열린 세션인가'],
   ['session_ended', '앱을 껐다(탭 닫기·5분 넘게 자리 비움)', '⭐머문 시간(duration_ms)과 그 세션의 판 수(runs_played). ⚠짧게 가려진 것으론 안 끊는다 — 폰에서 한 방문이 조각나던 걸 2026-08-14에 고쳤다(그 전 데이터는 세션이 잘게 쪼개져 있다)'],
-  ['run_started', '한 판 시작', '모드·시드'],
+  ['run_started', '한 판 시작', '모드·시드·stage_id·attempt_n(그 판 몇 번째 시도) · is_tutorial(튜토리얼 완주율의 **분모**)'],
   ['stage_cleared', '스테이지 클리어', '스테이지 번호·걸린 시간·최대 콤보·잡은 수·샌 수·부활 썼나·2줄3줄 동시 클리어'],
   ['stage_failed', '스테이지 실패', '⭐스테이지 번호·왜 졌나·이 스테이지 몇 번째 실패인가. 같은 곳에서 3번이면 막힌 것'],
   ['run_failed', '판 실패', '왜 졌나 — core_death(거점 파괴) / stuck(놓을 자리 없음)'],
   ['endless_run_ended', '무한 모드 한 판 끝', '점수·개인기록 갱신 여부'],
   ['combo_peak', '판 끝날 때 최대 콤보', '스펙터클 축'],
   ['first_line_cleared', '첫 줄을 지웠다(세션 1회)', '첫 쾌감까지 걸린 시간 = TTF쾌감'],
-  ['tutorial_beat_completed', '튜토리얼 박자 완료', '⭐beat 1·2·3. 어디서 떨어지는지가 여기서 보인다'],
+  ['tutorial_beat_completed', '튜토리얼 박자', '⭐beat 1=배치 · 2=처치(=완주, tut_phase가 여기서 끝난다) · 3=적을 통과시킴. 🔴**1·2·3을 퍼널로 세우지 말 것** — 3은 과제가 아니라 사건이라 잘 하면 영영 안 뜬다(optional=true). bail=true는 처치 없이 밸브로 빠진 것'],
   ['revive_offered', '부활 제안이 떴다', '광고가 준비돼 있었는지도 같이'],
   ['revive_taken', '부활을 봤다', '광고를 볼 사람인가 = 수익 축의 원재료'],
   ['revive_declined', '부활을 거절했다', '위와 짝'],
@@ -286,22 +286,41 @@ function _buildDashboard() {
   // ⚠**COUNTIF가 아니라 COUNTUNIQUEIFS다.** COUNTIF는 이벤트를 센다 — 한 사람이 튜토리얼을
   //   다시 하면 박자1이 두 번 찍히고, 그러면 아래 칸이 위 칸보다 커져서 '퍼널'이 아니게 된다.
   //   퍼널은 **각 단계에 도달한 세션 수**로만 말이 된다(C190).
-  put(13, 1, '온보딩에서 어디까지 갔나', { bold: true, size: 13 });
-  put(14, 1, '박자', head); put(14, 2, '도달한 세션 수', head);
-  put(15, 1, '1'); put(15, 2, '=COUNTUNIQUEIFS(' + D + '!C:C,' + D + '!D:D,"tutorial_beat_completed",' + D + '!M:M,1)');
-  put(16, 1, '2'); put(16, 2, '=COUNTUNIQUEIFS(' + D + '!C:C,' + D + '!D:D,"tutorial_beat_completed",' + D + '!M:M,2)');
-  put(17, 1, '3'); put(17, 2, '=COUNTUNIQUEIFS(' + D + '!C:C,' + D + '!D:D,"tutorial_beat_completed",' + D + '!M:M,3)');
-  put(18, 1, '첫 줄 지움'); put(18, 2, '=COUNTUNIQUEIFS(' + D + '!C:C,' + D + '!D:D,"first_line_cleared")');
-  put(19, 1, '숫자가 아래로 갈수록 줄어드는 폭이 곧 이탈이다. 가장 크게 꺾이는 칸이 고칠 자리.', { color: '#5B6274' });
+  // 🔴**박자 1·2·3을 한 퍼널로 세우면 안 된다.** 박자3은 과제가 아니라 사건이다 — 적을 한 번
+  //   통과시켰을 때만 뜨고, 잘 하면 영영 안 뜬다. 옛 대시보드는 셋을 세로로 늘어놓고
+  //   "줄어드는 폭이 곧 이탈"이라고 적어놨는데, 그 문구를 믿고 2026-08-14에 실제로 오독했다
+  //   (10→9→4를 "박자3이 벽"으로 읽었으나 박자3이 뜬 4세션은 **전원 스테이지1을 깼다**).
+  //   완주는 박자2에서 난다. 그래서 진짜 퍼널과 사건을 **표를 갈라** 놓는다.
+  put(13, 1, '온보딩 — 튜토리얼을 끝냈나', { bold: true, size: 13 });
+  put(14, 1, '단계', head); put(14, 2, '세션', head); put(14, 3, '비율', head);
+  put(15, 1, '튜토리얼 진입');
+  put(15, 2, '=COUNTUNIQUEIFS(' + D + '!C:C,' + D + '!D:D,"run_started",' + D + '!K:K,1)');
+  put(16, 1, '박자1 — 배치');
+  put(16, 2, '=COUNTUNIQUEIFS(' + D + '!C:C,' + D + '!D:D,"tutorial_beat_completed",' + D + '!M:M,1)');
+  put(17, 1, '박자2 — 처치 = 완주');
+  put(17, 2, '=COUNTUNIQUEIFS(' + D + '!C:C,' + D + '!D:D,"tutorial_beat_completed",' + D + '!M:M,2)');
+  put(18, 1, '스테이지1 클리어');
+  put(18, 2, '=COUNTUNIQUEIFS(' + D + '!C:C,' + D + '!D:D,"stage_cleared",' + D + '!K:K,1)');
+  for (var r = 15; r <= 18; r++) put(r, 3, '=IFERROR(B' + r + '/$B$15,0)', { fmt: '0.0%' });
+  put(19, 1, '⚠진입은 stage_id=1 기준이라 최초 클리어 뒤 재도전도 섞인다(그땐 박자가 안 뜬다). 정확한 값은 tools/funnel.py.',
+      { color: '#5B6274' });
+
+  put(21, 1, '박자3 — 손해 학습(사건, 퍼널 아님)', { bold: true, size: 13 });
+  put(22, 1, '적을 통과시킨 세션');
+  put(22, 2, '=COUNTUNIQUEIFS(' + D + '!C:C,' + D + '!D:D,"tutorial_beat_completed",' + D + '!M:M,3)');
+  put(23, 1, '첫 줄 지움');
+  put(23, 2, '=COUNTUNIQUEIFS(' + D + '!C:C,' + D + '!D:D,"first_line_cleared")');
+  put(24, 1, '🔴이 숫자가 낮은 건 나쁜 게 아니다 — 아무도 안 뚫렸다는 뜻일 수 있다. 실패 수와 함께 읽을 것.',
+      { color: '#A63118' });
 
   // ── 이탈 퍼널 ──
   // 여기 숫자는 **눈으로 훑는 용도**다. 판독은 `tools/funnel.py`가 한다 — 시트 수식으로는
   // '앞 단계를 전부 통과한 세션'을 누적으로 셀 수 없어서, 아래는 단계별 독립 집계다.
   // 그래서 중간을 건너뛴 세션이 아래 칸에 되살아날 수 있다(그 차이를 보는 게 funnel.py 몫).
-  put(25, 1, '이탈 퍼널 (세션 단위)', { bold: true, size: 13 });
-  put(26, 1, '⚠누적이 아니다. 정식 판독은 시트를 CSV로 내려받아 `python3 tools/funnel.py 파일.csv`.',
+  put(27, 1, '이탈 퍼널 (세션 단위)', { bold: true, size: 13 });
+  put(28, 1, '⚠누적이 아니다. 정식 판독은 시트를 CSV로 내려받아 `python3 tools/funnel.py 파일.csv`.',
       { color: '#5B6274' });
-  put(27, 1, '단계', head); put(27, 2, '세션', head); put(27, 3, '비율', head);
+  put(29, 1, '단계', head); put(29, 2, '세션', head); put(29, 3, '비율', head);
   const steps = [
     ['세션 시작',  '=COUNTUNIQUEIFS(' + D + '!C:C,' + D + '!C:C,"<>")'],
     ['첫 판 시작', '=COUNTUNIQUEIFS(' + D + '!C:C,' + D + '!D:D,"run_started")'],
@@ -310,9 +329,9 @@ function _buildDashboard() {
     ['두 번째 판', '=COUNTUNIQUEIFS(' + D + '!C:C,' + D + '!D:D,"session_ended",' + D + '!J:J,">=2")'],
   ];
   for (let i = 0; i < steps.length; i++) {
-    put(28 + i, 1, steps[i][0]);
-    put(28 + i, 2, steps[i][1]);
-    put(28 + i, 3, '=IFERROR(B' + (28 + i) + '/$B$28,0)', { fmt: '0.0%' });
+    put(30 + i, 1, steps[i][0]);
+    put(30 + i, 2, steps[i][1]);
+    put(30 + i, 3, '=IFERROR(B' + (30 + i) + '/$B$30,0)', { fmt: '0.0%' });
   }
 
   // ── 빌드별 = 루프별 비교 ──

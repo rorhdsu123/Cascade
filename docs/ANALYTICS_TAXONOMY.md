@@ -156,8 +156,9 @@ care_level=3인데도 진 판 = 완화 폭이 모자란 스테이지.
 | 지표 | 조립 |
 |---|---|
 | **D1 / D7 리텐션** | `app_opened.is_first_session` + 재방문 세션 |
-| **튜토리얼 완주율** | `tutorial_beat_completed(3)` / `tutorial_beat_started(1)` — 박자별 드롭. 박자2는 `bail=false`(진짜 처치)만 세야 "적을 못 잡고 흘러간" 유저가 완주로 안 잡힘 |
+| **튜토리얼 완주율** | `tutorial_beat_completed(2, bail=false)` / `run_started(is_tutorial=true)`. 🔴**2026-08-14 정정 — 옛 공식은 두 번 틀렸다**: 분자로 쓰던 `(3)`은 완주가 아니라 **사건**이고(적을 통과시켜야 뜬다 — 잘 하면 영영 안 뜬다), 분모 `tutorial_beat_started`는 **구현된 적이 없다**. 그 공식대로 읽어 첫 코호트를 오독했다(10→9→4를 "박자3이 벽"으로 봤는데 박자3이 뜬 4세션은 전원 클리어했다). 완주는 **박자2**다 — 거기서 `tut_phase`가 0이 되며 튜토리얼이 끝난다. `bail=false`를 지키는 이유는 그대로다 |
 | **첫 도파민까지 시간** | `first_line_cleared.time_since_open_ms` 분포 |
+| **손해 학습 도달률** *(완주율과 별개)* | `tutorial_beat_completed(3, optional=true)` / 위 분모. **낮은 게 나쁜 게 아니다** — 안 뚫렸다는 뜻일 수 있다. 실패율과 **함께** 읽을 것 |
 | **죽음의 질 믹스** | `run_failed.cause` 비율(core_death:stuck) × 모드 × 스테이지 |
 | **부활 전환율** | `revive_taken` / `revive_offered`, cause별 |
 | **억울한 죽음 신호** | `revive_declined` → 30초 내 `session_ended` 비율, cause별 |
