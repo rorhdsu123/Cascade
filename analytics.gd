@@ -379,10 +379,16 @@ func _on_web_visibility(_args: Array) -> void:
 	# ── 복귀 ──
 	if _session_id == "":
 		session_begin()      # pagehide 등으로 이미 닫혔으면 새로 연다
-	elif _hidden_at_ms >= 0 and Time.get_ticks_msec() - _hidden_at_ms >= SESSION_GRACE_MS:
+	elif needs_new_session(Time.get_ticks_msec()):
 		session_end(_hidden_at_ms)
 		session_begin()
 	_hidden_at_ms = -1
+
+# 복귀 판단만 떼어낸 순수 함수. **브라우저 없이 재기 위해서다** — `_on_web_visibility`는
+# `_js()`가 null인 데스크톱에서 즉시 되돌아가고, 창을 띄워도 포커스가 없으면 탭이 계속 hidden이라
+# (2026-08-14 실측) 분기를 안정적으로 재현할 수가 없다. 판단이 여기 있으면 프로브가 직접 잰다.
+func needs_new_session(now_ms: int) -> bool:
+	return _hidden_at_ms >= 0 and now_ms - _hidden_at_ms >= SESSION_GRACE_MS
 
 func _on_web_pagehide(_args: Array) -> void:
 	# 진짜 이탈이다(탭 닫기·이동). 가려진 채로 떠났으면 그때를 끝으로 잡는다.
