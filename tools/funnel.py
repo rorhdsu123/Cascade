@@ -3,7 +3,12 @@
 
     python3 tools/funnel.py 이벤트.csv
     python3 tools/funnel.py 이벤트.csv --build 0.9.0-L1.1      # 한 루프만
+    python3 tools/funnel.py 이벤트.csv --keep-mine             # 내 방문까지 섞어서(대볼 때만)
     python3 tools/funnel.py ~/…/analytics.jsonl                # 로컬 로그도 읽는다
+
+**내가 확인한 방문은 기본으로 뺀다** — `tools/funnel_ignore.txt`에 적힌 install_id다(C206).
+`probe-`만 걸러서는 안 걸린다. 내가 브라우저로 라이브를 열면 낯선 사람과 같은 모양의 id가 찍히기
+때문이다. 뺐다는 사실은 화면 맨 위에 늘 찍는다 — 조용히 빼면 반대 방향의 같은 사고가 난다.
 
 `tools/analytics_report.gd`와 **읽는 데이터가 다르다.** 그쪽은 기기에 쌓인 `analytics.jsonl`을
 보고, 이쪽은 **구글 시트에 모인 남의 기기 데이터**를 본다. 웹 루프의 자료는 전부 시트로 오므로
@@ -47,6 +52,9 @@ SHEET_COLUMNS = {
 
 SURVIVE_MS = 60_000  # 루프 1이 묻는 것 — "낯선 사람이 60초를 넘기나"
 
+# 내 자신의 방문을 빼는 목록. 옆에 두고 같이 옮겨 다녀야 하므로 이 파일 기준으로 찾는다.
+IGNORE_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "funnel_ignore.txt")
+
 
 # ── 읽기 ───────────────────────────────────────────────────────────────────
 
@@ -57,6 +65,23 @@ def _num(v):
         return float(v)
     except (TypeError, ValueError):
         return None
+
+
+def read_mine(path=IGNORE_PATH):
+    """`funnel_ignore.txt` — 내가 확인하며 찍은 install_id. 한 줄에 하나, `#` 뒤는 설명.
+
+    ⚠**없으면 조용히 넘어가지 않는다.** 파일이 사라진 채로 읽으면 내 방문이 표본에 섞인 숫자가
+    나오는데, 그게 정확히 2026-08-17에 잡은 사고다(217행 중 71행이 내 것이었다). 그래서 없을 때는
+    빈 집합을 돌려주되 부른 쪽이 그 사실을 화면에 찍는다."""
+    if not os.path.exists(path):
+        return set(), False
+    out = set()
+    with open(path, encoding="utf-8") as f:
+        for line in f:
+            line = line.split("#", 1)[0].strip()
+            if line:
+                out.add(line)
+    return out, True
 
 
 def read_csv(path):
@@ -483,6 +508,8 @@ def main():
     ap.add_argument("--platform", help="이 플랫폼만 본다 (web / android / …)")
     ap.add_argument("--keep-probe", action="store_true",
                     help="install_id가 probe-로 시작하는 시험 줄도 포함한다")
+    ap.add_argument("--keep-mine", action="store_true",
+                    help="tools/funnel_ignore.txt에 적힌 내 방문도 포함한다(앞뒤를 대볼 때)")
     args = ap.parse_args()
 
     if not os.path.exists(args.path):
@@ -497,6 +524,17 @@ def main():
     if not args.keep_probe:
         # 우리가 배관을 시험하며 넣은 줄이 첫 측정에 섞이면 표본이 조용히 오염된다.
         sessions = [s for s in sessions if not s.install.startswith("probe-")]
+
+    # 🔴내 방문도 같은 이유로 뺀다. `probe-`만 걸러서는 안 걸린다 — 내가 그냥 브라우저로 라이브를
+    #   열면 낯선 사람과 똑같은 모양의 install_id가 찍히기 때문이다(2026-08-17에 잡음).
+    mine, have_list = read_mine()
+    mine_sessions = mine_people = 0
+    if not args.keep_mine and mine:
+        before = len(sessions)
+        mine_people = len({s.install for s in sessions if s.install in mine})
+        sessions = [s for s in sessions if s.install not in mine]
+        mine_sessions = before - len(sessions)
+
     if args.build:
         sessions = [s for s in sessions if s.build == args.build]
     if args.platform:
@@ -511,6 +549,17 @@ def main():
     print("  이벤트 %d · 세션 %d · 사람 %d%s"
           % (len(events), len(sessions), len(installs),
              ("  (제외 %d세션)" % dropped) if dropped else ""))
+
+    # ⚠뺐다는 것은 **반드시 화면에 남긴다.** 조용히 빼면 지금 고친 버그와 같은 종류의 사고가
+    #   반대 방향으로 난다 — 낯선 사람을 내 것으로 잘못 적어 두고도 아무도 모르게 된다.
+    if mine_sessions:
+        print("  ⓘ내 방문 %d명 · %d세션을 뺐다 (%s). 포함해서 보려면 --keep-mine"
+              % (mine_people, mine_sessions, os.path.basename(IGNORE_PATH)))
+    elif args.keep_mine and mine:
+        print("  ⚠--keep-mine — 내 방문 %d명이 **섞인 채**로 읽는다. 판정에 쓰지 말 것." % len(mine))
+    elif not have_list:
+        print("  ⚠%s 가 없다 — 내 방문이 안 걸러진 숫자다. 판정 전에 만들 것."
+              % os.path.basename(IGNORE_PATH))
 
     visits, coarse = fold_visits(sessions)
     print("  → 방문 %d건으로 접었다 (세션 %d → 방문 %d, 유예 %d분)"
