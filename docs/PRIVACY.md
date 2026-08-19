@@ -131,7 +131,7 @@ Play 앱이 아니라 itch 웹 빌드라 위 방침을 붙일 자리가 없다. 
 > people get stuck: a random installation id, when a session starts and ends, how long you played,
 > which stage you were on, and whether you cleared or lost it. No name, no email, no account, no
 > location, no IP address — nothing that identifies you. Clearing your browser's site data for this
-> page erases the id. Questions: [CONTACT EMAIL]
+> page erases the id. Questions: rorhdsu1234@gmail.com
 
 ⚠**웹 빌드에는 광고가 없다**(AdMob은 네이티브) — 그래서 이 문구에 광고 얘기를 넣지 않는다.
 넣으면 있지도 않은 것을 고지하는 셈이고, 참가자에게 괜한 경계를 만든다.
